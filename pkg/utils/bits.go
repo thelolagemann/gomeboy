@@ -1,19 +1,26 @@
 package utils
 
-func SetBit(value uint8, bit uint8) uint8 {
-	return value | (1 << bit)
+// Val returns the value of the bit at the given index.
+func Val(b uint8, i uint8) uint8 {
+	return (b >> i) & 1
 }
 
-func ClearBit(value uint8, bit uint8) uint8 {
-	return value &^ (1 << bit)
+// Reset resets the bit at the given index.
+func Reset(b, i uint8) uint8 {
+	return b &^ (1 << i)
 }
 
-// TestBit returns true if the bit is set, false otherwise.
-func TestBit(value uint8, bit uint8) bool {
-	return value&(1<<bit) != 0
+// Set sets the bit at the given index.
+func Set(b, i uint8) uint8 {
+	return b | (1 << i)
 }
 
-// GetBit returns the value of the bit.
-func GetBit(value uint8, bit uint8) uint8 {
-	return (value >> bit) & 1
+// Test tests the bit at the given index.
+func Test(b, i uint8) bool {
+	return (b>>i)&1 != 0
+}
+
+// HalfCarryAdd returns whether a half carry occurred when adding the given values.
+func HalfCarryAdd(a, b uint8) bool {
+	return (a&0xF)+(b&0xF) > 0xF
 }

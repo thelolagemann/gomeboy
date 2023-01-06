@@ -18,10 +18,12 @@ func (c *CPU) swap(reg *Register) {
 // swapByte is a helper function for that swaps the upper and lower nibbles of
 // the given byte, and sets the flags accordingly.
 func (c *CPU) swapByte(b uint8) uint8 {
-	computed := ((b << 4) & 0xF0) | (b >> 4)
-	c.shouldZeroFlag(computed)
+	upper := (b & 0xF0) >> 4
+	lower := (b & 0x0F) << 4
+	computed := upper ^ lower
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
 	c.clearFlag(FlagCarry)
+	c.shouldZeroFlag(computed)
 	return computed
 }

@@ -29,8 +29,8 @@ func TestLogicInstructions(t *testing.T) {
 	}
 }
 
-func andRegisterTest(regName string) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func andRegisterTest(regName string) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		rand1 := uint8(rand.Intn(255))
 		rand2 := uint8(rand.Intn(255))
 
@@ -61,8 +61,8 @@ func andRegisterTest(regName string) func(*testing.T, Instruction) {
 	}
 }
 
-func xorRegisterTest(regName string) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func xorRegisterTest(regName string) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		rand1 := uint8(rand.Intn(255))
 		rand2 := uint8(rand.Intn(255))
 
@@ -93,8 +93,8 @@ func xorRegisterTest(regName string) func(*testing.T, Instruction) {
 	}
 }
 
-func orRegisterTest(regName string) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func orRegisterTest(regName string) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		rand1 := uint8(rand.Intn(255))
 		rand2 := uint8(rand.Intn(255))
 
@@ -125,8 +125,8 @@ func orRegisterTest(regName string) func(*testing.T, Instruction) {
 	}
 }
 
-func cpRegisterTest(regName string) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func cpRegisterTest(regName string) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 
 	}
 }

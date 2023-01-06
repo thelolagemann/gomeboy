@@ -8,7 +8,7 @@ func TestInstruction_Shift(t *testing.T) {
 		if i == 6 {
 			continue
 		}
-		testInstructionCB(t, "SLA "+regName, 0x20+i, func(t *testing.T, instr Instruction) {
+		testInstructionCB(t, "SLA "+regName, 0x20+i, func(t *testing.T, instr Instructor) {
 			// set register to value that will cause carry flag to be set
 			*cpu.registerMap(regName) = 0x80
 
@@ -26,7 +26,7 @@ func TestInstruction_Shift(t *testing.T) {
 			}
 
 			// test register was shifted left (no carry)
-			testInstructionCB(t, "No Carry", 0x20+i, func(t *testing.T, instr Instruction) {
+			testInstructionCB(t, "No Carry", 0x20+i, func(t *testing.T, instr Instructor) {
 				// set register to value that will not cause carry flag to be set
 				*cpu.registerMap(regName) = 0x40
 
@@ -51,7 +51,7 @@ func TestInstruction_Shift(t *testing.T) {
 		if i == 6 {
 			continue
 		}
-		testInstructionCB(t, "SRA "+regName, 0x28+uint8(i), func(t *testing.T, inst Instruction) {
+		testInstructionCB(t, "SRA "+regName, 0x28+uint8(i), func(t *testing.T, inst Instructor) {
 			// set register to value that will cause carry flag to be set taking into account that MSB is preserved
 			*cpu.registerMap(regName) = 0x81
 
@@ -69,7 +69,7 @@ func TestInstruction_Shift(t *testing.T) {
 			}
 
 			// test register was shifted right (no carry)
-			testInstructionCB(t, "No Carry", 0x28+uint8(i), func(t *testing.T, instr Instruction) {
+			testInstructionCB(t, "No Carry", 0x28+uint8(i), func(t *testing.T, instr Instructor) {
 				// set register to value that will not cause carry flag to be set
 				*cpu.registerMap(regName) = 0x40
 
@@ -94,7 +94,7 @@ func TestInstruction_Shift(t *testing.T) {
 			continue
 		}
 
-		testInstructionCB(t, "SRL "+regName, 0x38+uint8(i), func(t *testing.T, inst Instruction) {
+		testInstructionCB(t, "SRL "+regName, 0x38+uint8(i), func(t *testing.T, inst Instructor) {
 			// set register to value that will cause carry flag to be set
 			*cpu.registerMap(regName) = 0x81
 
@@ -112,7 +112,7 @@ func TestInstruction_Shift(t *testing.T) {
 			}
 
 			// test register was shifted right (no carry)
-			testInstructionCB(t, "No Carry", 0x38+uint8(i), func(t *testing.T, instr Instruction) {
+			testInstructionCB(t, "No Carry", 0x38+uint8(i), func(t *testing.T, instr Instructor) {
 				// set register to value that will not cause carry flag to be set
 				*cpu.registerMap(regName) = 0x40
 

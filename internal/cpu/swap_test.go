@@ -3,31 +3,30 @@ package cpu
 import "testing"
 
 func TestSwap(t *testing.T) {
-	c := NewCPU(nil)
 	t.Run("zeroSwap", func(t *testing.T) {
 		for _, test := range []struct {
 			name string
 			reg  *Register
 			want uint8
 		}{
-			{"swapA", &c.A, 0x00},
-			{"swapB", &c.B, 0x00},
-			{"swapC", &c.C, 0x00},
-			{"swapD", &c.D, 0x00},
-			{"swapE", &c.E, 0x00},
-			{"swapH", &c.H, 0x00},
-			{"swapL", &c.L, 0x00},
+			{"swapA", &cpu.A, 0x00},
+			{"swapB", &cpu.B, 0x00},
+			{"swapC", &cpu.C, 0x00},
+			{"swapD", &cpu.D, 0x00},
+			{"swapE", &cpu.E, 0x00},
+			{"swapH", &cpu.H, 0x00},
+			{"swapL", &cpu.L, 0x00},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				*test.reg = 0x00
-				c.swap(test.reg)
+				cpu.swap(test.reg)
 				if *test.reg != test.want {
 					t.Errorf("got %02X, want %02X", *test.reg, test.want)
 				}
-				if !c.isFlagSet(FlagZero) {
+				if !cpu.isFlagSet(FlagZero) {
 					t.Errorf("expected zero flag to be set, got unset")
 				}
-				c.clearFlag(FlagZero)
+				cpu.clearFlag(FlagZero)
 			})
 		}
 	})
@@ -37,24 +36,24 @@ func TestSwap(t *testing.T) {
 			reg  *Register
 			want uint8
 		}{
-			{"swapA", &c.A, 0x12},
-			{"swapB", &c.B, 0x12},
-			{"swapC", &c.C, 0x12},
-			{"swapD", &c.D, 0x12},
-			{"swapE", &c.E, 0x12},
-			{"swapH", &c.H, 0x12},
-			{"swapL", &c.L, 0x12},
+			{"swapA", &cpu.A, 0x12},
+			{"swapB", &cpu.B, 0x12},
+			{"swapC", &cpu.C, 0x12},
+			{"swapD", &cpu.D, 0x12},
+			{"swapE", &cpu.E, 0x12},
+			{"swapH", &cpu.H, 0x12},
+			{"swapL", &cpu.L, 0x12},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				*test.reg = 0x21
-				c.swap(test.reg)
+				cpu.swap(test.reg)
 				if *test.reg != test.want {
 					t.Errorf("got %02X, want %02X", *test.reg, test.want)
 				}
-				if c.isFlagSet(FlagZero) {
+				if cpu.isFlagSet(FlagZero) {
 					t.Errorf("expected zero flag to be unset, got set")
 				}
-				c.clearFlag(FlagZero)
+				cpu.clearFlag(FlagZero)
 			})
 		}
 	})
@@ -66,7 +65,7 @@ func TestInstruction_Swap(t *testing.T) {
 		if i == 6 {
 			continue
 		}
-		testInstructionCB(t, "SWAP "+regName, 0x30+i, func(t *testing.T, instr Instruction) {
+		testInstructionCB(t, "SWAP "+regName, 0x30+i, func(t *testing.T, instr Instructor) {
 			randomizeFlags(cpu)
 			*cpu.registerMap(regName) = 0x21
 

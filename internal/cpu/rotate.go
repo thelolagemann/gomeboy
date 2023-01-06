@@ -21,9 +21,9 @@ func (c *CPU) rotateLeft(value uint8) uint8 {
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	c.shouldZeroFlag(result)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
+	c.shouldZeroFlag(result)
 	return result
 }
 
@@ -42,7 +42,7 @@ func (c *CPU) rotateLeft(value uint8) uint8 {
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRight(value uint8) uint8 {
 	result := value >> 1
-	if value&1 == 1 {
+	if value&0x01 == 0x01 {
 		c.setFlag(FlagCarry)
 		result ^= 0x80
 	} else {
@@ -209,7 +209,7 @@ func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
 	if c.isFlagSet(FlagCarry) {
 		result ^= 0x80
 	}
-	if result&1 == 1 {
+	if result&0x01 == 0x01 {
 		c.setFlag(FlagCarry)
 	} else {
 		c.clearFlag(FlagCarry)
@@ -218,4 +218,38 @@ func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
 	return result
+}
+
+func init() {
+	// 0x07 - RLCA - Rotate A left. Old bit 7 to Carry flag.
+	InstructionSet[0x07] = NewInstruction("RLCA", 1, 1, func(c *CPU, _ []uint8) {
+		c.rotateLeftAccumulator()
+	})
+	// 0x0F - RRCA - Rotate A right. Old bit 0 to Carry flag.
+	InstructionSet[0x0F] = Instruction{
+		name:   "RRCA",
+		length: 1,
+		cycles: 1,
+		fn: func(c *CPU, operands []byte) {
+			c.rotateRightAccumulator()
+		},
+	}
+	// 0x17 - RLA - Rotate A left through Carry flag.
+	InstructionSet[0x17] = Instruction{
+		name:   "RLA",
+		cycles: 1,
+		length: 1,
+		fn: func(c *CPU, operands []byte) {
+			c.rotateLeftAccumulatorThroughCarry()
+		},
+	}
+	// 0x1F - RRA - Rotate A right through Carry flag.
+	InstructionSet[0x1F] = Instruction{
+		name:   "RRA",
+		cycles: 1,
+		length: 1,
+		fn: func(c *CPU, operands []byte) {
+			c.rotateRightAccumulatorThroughCarry()
+		},
+	}
 }

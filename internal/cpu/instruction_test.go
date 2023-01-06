@@ -3,28 +3,21 @@ package cpu
 import (
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/io/timer"
+	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"testing"
 )
 
 var (
-	memUnit = mmu.NewMMU(cartridge.NewEmptyCartridge())
-	cpu     *CPU
+	cpu *CPU
 )
-
-func init() {
-	memUnit.EnableMock()
-	video := ppu.New()
-	ioBus := io.NewIO(video)
-	memUnit.SetBus(ioBus)
-
-	cpu = NewCPU(memUnit)
-}
 
 func TestLoadInstructions(t *testing.T) {
 	// 0x02 - LD (BC), A - Load A into (BC)
-	testInstruction(t, "LD (BC), A", 0x02, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD (BC), A", 0x02, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 
 		cpu.BC.SetUint16(0x1234)
@@ -34,7 +27,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x0A - LD A, (BC) - Load value pointed to by BC into A
-	testInstruction(t, "LD A, (BC)", 0x0A, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD A, (BC)", 0x0A, func(t *testing.T, instr Instructor) {
 		cpu.BC.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.BC.Uint16(), 0x42)
 		instr.Execute(cpu, nil)
@@ -43,7 +36,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x12 - LD (DE), A - Load A into address pointed to by DE
-	testInstruction(t, "LD (DE), A", 0x12, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD (DE), A", 0x12, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.DE.SetUint16(0x1234)
 		instr.Execute(cpu, nil)
@@ -52,7 +45,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x1A - LD A, (DE) - Load value pointed to by DE into A
-	testInstruction(t, "LD A, (DE)", 0x1A, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD A, (DE)", 0x1A, func(t *testing.T, instr Instructor) {
 		cpu.DE.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.DE.Uint16(), 0x42)
 		instr.Execute(cpu, nil)
@@ -62,7 +55,7 @@ func TestLoadInstructions(t *testing.T) {
 	})
 
 	// 0x20 - LD (HL+), A - Load A into address pointed to by HL, then increment HL
-	testInstruction(t, "LD (HL+), A", 0x22, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD (HL+), A", 0x22, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
 		instr.Execute(cpu, nil)
@@ -74,7 +67,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x2A - LD A, (HL+) - Load value pointed to by HL into A, then increment HL
-	testInstruction(t, "LD A, (HL+)", 0x2A, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD A, (HL+)", 0x2A, func(t *testing.T, instr Instructor) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 		instr.Execute(cpu, nil)
@@ -86,7 +79,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x32 - LD (HL-), A - Load A into address pointed to by HL, then decrement HL
-	testInstruction(t, "LD (HL-), A", 0x32, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD (HL-), A", 0x32, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
 		instr.Execute(cpu, nil)
@@ -98,7 +91,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x36 - LD (HL), n - Load 8-bit immediate value into address pointed to by HL
-	testInstruction(t, "LD (HL), n", 0x36, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD (HL), n", 0x36, func(t *testing.T, instr Instructor) {
 		for i := 0; i < 0xFF; i++ {
 			cpu.HL.SetUint16(0x1234)
 			instr.Execute(cpu, []uint8{uint8(i)})
@@ -108,7 +101,7 @@ func TestLoadInstructions(t *testing.T) {
 		}
 	})
 	// 0x3A - LD A, (HL-) - Load value pointed to by HL into A, then decrement HL
-	testInstruction(t, "LD A, (HL-)", 0x3A, func(t *testing.T, instr Instruction) {
+	testInstruction(t, "LD A, (HL-)", 0x3A, func(t *testing.T, instr Instructor) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 		instr.Execute(cpu, nil)
@@ -123,12 +116,12 @@ func TestLoadInstructions(t *testing.T) {
 
 func TestArithmetic1(t *testing.T) {
 	// 0x86 - ADD A, (HL) - Add value pointed to by HL to A
-	testInstruction(t, "ADD A, (HL)", 0x86, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "ADD A, (HL)", 0x86, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0x84 {
 			t.Errorf("expected A to be 0x84, got 0x%02X", cpu.A)
@@ -143,7 +136,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x0F
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -153,7 +146,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0xFF
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -162,21 +155,21 @@ func TestArithmetic1(t *testing.T) {
 		// test carry
 		cpu.A = 0xFF
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
 		}
 	})
 	// 0x8E - ADC A, (HL) - Add value at address HL + carry flag to A
-	testInstruction(t, "ADC A, (HL)", 0x8E, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "ADC A, (HL)", 0x8E, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.setFlag(FlagCarry)
 		cpu.HL.SetUint16(0x1234)
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0x85 {
 			t.Errorf("expected A to be 0x85, got 0x%02X", cpu.A)
@@ -190,7 +183,7 @@ func TestArithmetic1(t *testing.T) {
 		// test half carry
 		cpu.A = 0x0F
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -201,7 +194,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0xFE
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Error("expected zero flag to be set", cpu.A)
@@ -210,20 +203,20 @@ func TestArithmetic1(t *testing.T) {
 		// test carry
 		cpu.A = 0xFF
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
 		}
 	})
 	// 0x96 - SUB (HL) - Subtract value pointed to by HL from A
-	testInstruction(t, "SUB (HL)", 0x96, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "SUB (HL)", 0x96, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x10)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0x32 {
 			t.Errorf("expected A to be 0x32, got 0x%02X", cpu.A)
@@ -238,7 +231,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x01
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x0F)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -248,7 +241,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x01
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -258,14 +251,14 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x00
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
 		}
 	})
 	// 0x9E - SBC A, (HL) - Subtract value pointed to by HL from A with carry
-	testInstruction(t, "SBC A, (HL)", 0x9E, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "SBC A, (HL)", 0x9E, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
 
@@ -273,7 +266,7 @@ func TestArithmetic1(t *testing.T) {
 
 		cpu.setFlag(FlagCarry)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0x31 {
 			t.Errorf("expected A to be 0x31, got 0x%02X", cpu.A)
@@ -288,7 +281,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x01
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x0F)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -298,7 +291,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x02
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -308,7 +301,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x00
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
@@ -318,13 +311,13 @@ func TestArithmetic1(t *testing.T) {
 
 func TestLogic(t *testing.T) {
 	// 0xA6 - AND (HL) - Logical AND value pointed to by HL with A
-	testInstruction(t, "AND (HL)", 0xA6, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "AND (HL)", 0xA6, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 		cpu.HL.SetUint16(0x1234)
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b11010101)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0x80 {
 			t.Errorf("expected A to be 0x80, got 0x%02X", cpu.A)
@@ -339,20 +332,20 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0b01010101
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b10101010)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
 		}
 	})
 	// 0xAE - XOR (HL) - Logical XOR (HL) with A
-	testInstruction(t, "XOR (HL)", 0xAE, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "XOR (HL)", 0xAE, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 		cpu.HL.SetUint16(0x1234)
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b11010101)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0x7F {
 			t.Errorf("expected A to be 0x7F, got 0x%02X", cpu.A)
@@ -367,17 +360,17 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0
 		cpu.mmu.Write(cpu.HL.Uint16(), 0)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
 		}
 	})
 	// 0xAF - XOR A - Logical XOR A with A
-	testInstruction(t, "XOR A", 0xAF, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "XOR A", 0xAF, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0 {
 			t.Errorf("expected A to be 0, got 0x%02X", cpu.A)
@@ -391,20 +384,20 @@ func TestLogic(t *testing.T) {
 		// test zero
 		cpu.A = 0
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
 		}
 	})
 	// 0xB6 - OR (HL) - Logical OR value pointed to by HL with A
-	testInstruction(t, "OR (HL)", 0xB6, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "OR (HL)", 0xB6, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 		cpu.HL.SetUint16(0x1234)
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b11010101)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0b11111111 {
 			t.Errorf("expected A to be 0xFF, got 0x%02X", cpu.A)
@@ -419,17 +412,17 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0
 		cpu.mmu.Write(cpu.HL.Uint16(), 0)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
 		}
 	})
 	// 0xB7 - OR A - Logical OR A with A
-	testInstruction(t, "OR A", 0xB7, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "OR A", 0xB7, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.A != 0b10101010 {
 			t.Errorf("expected A to be 0xAA, got 0x%02X", cpu.A)
@@ -443,48 +436,60 @@ func TestLogic(t *testing.T) {
 		// test zero
 		cpu.A = 0
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
 		}
 	})
 	// 0xB8 - CP B - Compare B with A
-	testInstruction(t, "CP B", 0xB8, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "CP B", 0xB8, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 		cpu.B = 0b11010101
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 	})
 }
 
-func testInstruction(t *testing.T, name string, opcode uint8, f func(*testing.T, Instruction)) {
+func testInstruction(t *testing.T, name string, opcode uint8, f func(*testing.T, Instructor)) {
 	// reset CPU
-	memBus := mmu.NewMMU(cartridge.NewEmptyCartridge())
+	cart := cartridge.NewEmptyCartridge()
+	pad := joypad.New()
+	serial := io.NewSerial()
+	tCtl := timer.NewController()
+	interrupts := io.NewInterrupts()
+	sound := ram.NewRAM(0x10)
+
+	memBus := mmu.NewMMU(cart, pad, serial, tCtl, interrupts, sound)
 	memBus.EnableMock()
 
-	video := ppu.New()
-	ioBus := io.NewIO(video)
-	memBus.SetBus(ioBus)
-	cpu = NewCPU(memBus)
+	video := ppu.New(memBus, interrupts)
+	memBus.AttachVideo(video)
+	cpu = NewCPU(memBus, interrupts)
 
 	t.Run(name, func(t *testing.T) {
 		f(t, InstructionSet[opcode])
 	})
 }
 
-func testInstructionCB(t *testing.T, name string, opcode uint8, f func(*testing.T, Instruction)) {
+func testInstructionCB(t *testing.T, name string, opcode uint8, f func(*testing.T, Instructor)) {
 	// reset CPU
-	memBus := mmu.NewMMU(cartridge.NewEmptyCartridge())
+	cart := cartridge.NewEmptyCartridge()
+	pad := joypad.New()
+	serial := io.NewSerial()
+	tCtl := timer.NewController()
+	interrupts := io.NewInterrupts()
+	sound := ram.NewRAM(0x10)
+
+	memBus := mmu.NewMMU(cart, pad, serial, tCtl, interrupts, sound)
 	memBus.EnableMock()
 
-	video := ppu.New()
-	ioBus := io.NewIO(video)
-	memBus.SetBus(ioBus)
-	cpu = NewCPU(memBus)
+	video := ppu.New(memBus, interrupts)
+	memBus.AttachVideo(video)
+	cpu = NewCPU(memBus, interrupts)
 
 	t.Run(name, func(t *testing.T) {
-		f(t, InstructionSetCB[opcode])
+		f(t, InstructionSetCB[opcode].Instruction())
 	})
 }

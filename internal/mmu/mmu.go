@@ -5,9 +5,11 @@ package mmu
 
 import (
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
-	"github.com/thelolagemann/go-gameboy/internal/io"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
+	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 // IOBus is the interface that the MMU uses to communicate with the other
@@ -27,7 +29,7 @@ type MMU struct {
 
 	// 64kB address space
 	// (0x0000-0x3FFF) - ROM bank 0
-	Cart cartridge.Cartridge
+	Cart *cartridge.Cartridge
 	// (0x4000-0x7FFF) - ROM bank 1 TODO implement ROM bank switching
 
 	// (0x8000-0x9FFF) - VRAM
@@ -47,7 +49,12 @@ type MMU struct {
 	// (0xFEA0-0xFEFF) - unusable memory
 
 	// (0xFF00-0xFF4B) - I/O
-	Bus io.Bus
+	Joypad     IOBus // 0xFF00
+	Serial     IOBus // 0xFF01 - 0xFF02
+	Timer      IOBus // 0xFF04 - 0xFF07
+	Interrupts IOBus // 0xFF0F - 0xFFFF
+	Sound      IOBus // 0xFF10 - 0xFF3F
+	Video      IOBus // 0xFF40 - 0xFF4B
 
 	// (0xFF4C-0xFF7F) - unusable memory
 
@@ -57,10 +64,14 @@ type MMU struct {
 	// (0xFFFF) - interrupt enable register
 
 	mockBank ram.RAM
+
+	Log log.Logger
 }
 
 // NewMMU returns a new MMU.
-func NewMMU(cart cartridge.Cartridge) *MMU {
+func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound IOBus) *MMU {
+	l := logrus.New()
+	l.SetLevel(logrus.DebugLevel)
 	m := &MMU{
 		biosFinished: false,
 		bios:         []uint8{},
@@ -71,6 +82,13 @@ func NewMMU(cart cartridge.Cartridge) *MMU {
 		oam:          ram.NewRAM(0xA0),
 
 		zRAM: ram.NewRAM(0x7F),
+
+		Joypad:     joypad,
+		Serial:     serial,
+		Timer:      timer,
+		Interrupts: interrupts,
+		Sound:      sound,
+		Log:        l,
 	}
 
 	// load bios depending on cartridge type
@@ -83,14 +101,15 @@ func NewMMU(cart cartridge.Cartridge) *MMU {
 	return m
 }
 
+// AttachVideo attaches the video component to the MMU.
+func (m *MMU) AttachVideo(video IOBus) {
+	m.Video = video
+}
+
 // EnableMock enables the mock bank.
 func (m *MMU) EnableMock() {
 	m.isMocking = true
 	m.mockBank = ram.NewRAM(0xFFFF)
-}
-
-func (m *MMU) SetBus(bus io.Bus) {
-	m.Bus = bus
 }
 
 // Read returns the value at the given address. It handles all the memory
@@ -99,7 +118,6 @@ func (m *MMU) Read(address uint16) uint8 {
 	if m.isMocking {
 		return m.mockBank.Read(address)
 	}
-	// m.Bus.Log().Debugf("mmu\t read from address 0x%04X", address)
 	switch {
 	// BIOS (0x0000-0x00FF)
 	case address <= 0x00FF:
@@ -131,22 +149,42 @@ func (m *MMU) Read(address uint16) uint8 {
 		return m.oam.Read(address - 0xFE00)
 	// Unusable memory (0xFEA0-0xFEFF)
 	case address <= 0xFEFF:
-		return 0
+		return 1
 	// IO (0xFF00-0xFF3F)
 	case address <= 0xFF3F:
-		return m.Bus.Read(address)
+		// panic(fmt.Sprintf("unimplemented IO read at 0x%04X", address))
+		switch {
+		// Joypad (0xFF00)
+		case address == 0xFF00:
+			return m.Joypad.Read(address)
+		// Serial (0xFF01-0xFF02)
+		case address == 0xFF01 || address == 0xFF02:
+			return m.Serial.Read(address)
+		// Timer (0xFF04-0xFF07)
+		case address >= 0xFF04 && address <= 0xFF07:
+			return m.Timer.Read(address)
+		// Sound (0xFF10-0xFF3F)
+		case address >= 0xFF10 && address <= 0xFF3F:
+			return m.Sound.Read(address)
+		case address == 0xFF0F:
+			return m.Interrupts.Read(address)
+		case address == 0xFF03:
+			return 0xFF
+		default:
+			panic(fmt.Sprintf("mmu\tillegal IO read at address 0x%04X", address))
+		}
 	// GPU (0xFF40-0xFF4B)
 	case address >= 0xFF40 && address <= 0xFF4B:
-		return m.Bus.Video().Read(address)
+		return m.Video.Read(address)
 	// Unusable memory (0xFF4C-0xFF7F)
 	case address <= 0xFF7F:
-		return 0
+		return 1
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address <= 0xFFFE:
 		return m.zRAM.Read(address - 0xFF80)
-	// InterruptAddress enable register (0xFFFF)
+		// InterruptAddress enable register (0xFFFF)
 	case address == 0xFFFF:
-		return m.Bus.Interrupts().Read(address)
+		return m.Interrupts.Read(address)
 	}
 	panic(fmt.Sprintf("Invalid address 0x%04X", address))
 }
@@ -187,24 +225,22 @@ func (m *MMU) Write(address uint16, value uint8) {
 	case address <= 0xFF7F:
 		switch address {
 		case 0xFF00:
-			m.Bus.Input().Write(value)
+			m.Joypad.Write(address, value)
 		case 0xFF01:
-			m.Bus.Serial().Write(value)
-		case 0xFF02:
-			m.Bus.Serial().Write(value)
+			m.Serial.Write(address, value)
 		case 0xFF04, 0xFF05, 0xFF06, 0xFF07:
-			m.Bus.Timer().Write(address, value)
+			m.Timer.Write(address, value)
 		case 0xFF0F, 0xFFFF:
-			m.Bus.Interrupts().Write(address, value)
+			m.Interrupts.Write(address, value)
 
 		case 0xFF10, 0xFF11, 0xFF12, 0xFF13, 0xFF14, 0xFF16, 0xFF17, 0xFF18, 0xFF19, 0xFF1A, 0xFF1B, 0xFF1C, 0xFF1D, 0xFF1E, 0xFF20, 0xFF21, 0xFF22, 0xFF23, 0xFF24, 0xFF25, 0xFF26:
 
 			return
 			// waveform RAM
 		case 0xFF30, 0xFF31, 0xFF32, 0xFF33, 0xFF34, 0xFF35, 0xFF36, 0xFF37, 0xFF38, 0xFF39, 0xFF3A, 0xFF3B, 0xFF3C, 0xFF3D, 0xFF3E, 0xFF3F:
-			m.Bus.Sound().Write(address, value)
+			m.Sound.Write(address, value)
 		case 0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B:
-			m.Bus.Video().Write(address, value)
+			m.Video.Write(address, value)
 		case 0xFF46:
 			m.doHDMATransfer(value)
 		case 0xFF50:
@@ -215,7 +251,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 		m.zRAM.Write(address-0xFF80, value)
 	// InterruptAddress enable register (0xFFFF)
 	case address == 0xFFFF:
-		m.Bus.Interrupts().Write(address, value)
+		m.Interrupts.Write(address, value)
 	default:
 		panic(fmt.Sprintf("mmu\t illegal write to 0x%04X", address))
 	}
@@ -223,8 +259,9 @@ func (m *MMU) Write(address uint16, value uint8) {
 
 // Write16 writes the given 16bit value to the given address.
 func (m *MMU) Write16(address uint16, value uint16) {
-	m.Write(address, uint8(value))
-	m.Write(address+1, uint8(value>>8))
+	upper, lower := utils.Uint16ToBytes(value)
+	m.Write(address, lower)
+	m.Write(address+1, upper)
 }
 
 // doHDMATransfer performs a DMA transfer from the given address to the PPU's OAM.

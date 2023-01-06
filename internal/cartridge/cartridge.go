@@ -2,59 +2,48 @@
 // The cartridge holds the game ROM and any external RAM.
 package cartridge
 
-import "fmt"
+import (
+	"fmt"
+)
 
-// Cartridge represents a basic game cartridge.
-type Cartridge interface {
-	Read(address uint16) uint8
-	Write(address uint16, value uint8)
-
-	Header() Header
-	Title() string
-}
-
-type baseCartridge struct {
-	rom    []byte
+type Cartridge struct {
+	MemoryBankController
 	header Header
 }
 
-func (c *baseCartridge) Header() Header {
+func (c *Cartridge) Header() Header {
 	return c.header
 }
 
 // Title returns an escaped string of the cartridge title.
-func (c *baseCartridge) Title() string {
+func (c *Cartridge) Title() string {
 	return c.header.Title
 }
 
-func (c *baseCartridge) Read(address uint16) uint8 {
-	return c.rom[address]
-}
-
-func (c *baseCartridge) Write(address uint16, value uint8) {}
-
-func NewCartridge(rom []byte) Cartridge {
+func NewCartridge(rom []byte) *Cartridge {
 	// parse the cartridge header (0x0100 - 0x014F)
 	header := parseHeader(rom[0x100:0x150])
 
 	// print some information about the cartridge
 	fmt.Println("Cartridge:")
 	fmt.Printf("\t%s\n", header.String())
+	cart := &Cartridge{}
 	switch header.CartridgeType {
 	case ROM:
-		return &baseCartridge{
-			rom:    rom,
-			header: header,
-		}
+		cart.MemoryBankController = NewROMCartridge(rom)
+	case MBC1:
+		cart.MemoryBankController = NewMBC1(rom)
+	default:
+		panic(fmt.Sprintf("cartridge type %d not implemented", header.CartridgeType))
 	}
 
-	panic("unhandled cartridge type")
+	return cart
 }
 
 // NewEmptyCartridge returns an empty cartridge.
-func NewEmptyCartridge() Cartridge {
-	return &baseCartridge{
-		rom:    []byte{},
-		header: Header{},
+func NewEmptyCartridge() *Cartridge {
+	return &Cartridge{
+		MemoryBankController: NewROMCartridge([]byte{}),
+		header:               Header{},
 	}
 }

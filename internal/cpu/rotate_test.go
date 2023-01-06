@@ -1,10 +1,12 @@
 package cpu
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestInstruction_Rotate(t *testing.T) {
 	// 0x07 - RLCA
-	testInstruction(t, "RLCA", 0x07, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "RLCA", 0x07, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x80
 		cpu.setFlag(FlagCarry)
 		instruction.Execute(cpu, nil)
@@ -21,7 +23,7 @@ func TestInstruction_Rotate(t *testing.T) {
 		}
 	})
 	// 0x0F - RRCA
-	testInstruction(t, "RRCA", 0x0F, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "RRCA", 0x0F, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x01
 		cpu.setFlag(FlagCarry)
 		instruction.Execute(cpu, nil)
@@ -38,19 +40,22 @@ func TestInstruction_Rotate(t *testing.T) {
 		}
 	})
 	// 0x17 - RLA
-	testInstruction(t, "RLA", 0x17, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "RLA", 0x17, func(t *testing.T, instruction Instructor) {
+		if cpu.isFlagSet(FlagCarry) {
+			t.Errorf("Expected Carry to be not set, got set")
+		}
 		cpu.A = 0b10101010
 
 		instruction.Execute(cpu, nil)
 
 		// ensure A was rotated
-		if cpu.A != 0b01010101 {
-			t.Errorf("Expected A to be 0b01010101, got 0b%08b", cpu.A)
+		if cpu.A != 0b01010100 {
+			t.Errorf("Expected A to be 0b01010100, got 0b%08b", cpu.A)
 		}
 
-		// ensure carry flag was set
+		// ensure carry flag wasn't set (since bit 7 was 0)
 		if !cpu.isFlagSet(FlagCarry) {
-			t.Errorf("Expected Carry to be set, got not set")
+			t.Errorf("Expected Carry to be unset, got set")
 		}
 
 		// all other flags should be reset
@@ -58,13 +63,14 @@ func TestInstruction_Rotate(t *testing.T) {
 			t.Errorf("Expected all other flags to be reset, got not reset")
 		}
 
-		// test no carry
-		t.Run("No Carry", func(t *testing.T) {
+		// test through a carry
+		t.Run("Through Carry", func(t *testing.T) {
+			cpu.setFlag(FlagCarry)
 			cpu.A = 0b01000000
 			instruction.Execute(cpu, nil)
 
 			// ensure A was rotated
-			if cpu.A != 0b10000000 {
+			if cpu.A != 0b10000001 {
 				t.Errorf("Expected A to be 0b10000000, got 0b%08b", cpu.A)
 			}
 
@@ -80,7 +86,7 @@ func TestInstruction_Rotate(t *testing.T) {
 		})
 	})
 	// 0x1F - RRA
-	testInstruction(t, "RRA", 0x1F, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "RRA", 0x1F, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0b10101010
 
 		instruction.Execute(cpu, nil)
@@ -90,9 +96,9 @@ func TestInstruction_Rotate(t *testing.T) {
 			t.Errorf("Expected A to be 0b11010101, got 0b%08b", cpu.A)
 		}
 
-		// ensure carry flag was set
+		// ensure carry flag wasn't set
 		if !cpu.isFlagSet(FlagCarry) {
-			t.Errorf("Expected Carry to be set, got not set")
+			t.Errorf("Expected Carry to be unset, got set")
 		}
 
 		// all other flags should be reset
@@ -130,7 +136,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			continue
 		}
 
-		testInstructionCB(t, "RLC "+regName, 0x00+byte(i), func(t *testing.T, instruction Instruction) {
+		testInstructionCB(t, "RLC "+regName, 0x00+byte(i), func(t *testing.T, instruction Instructor) {
 			*cpu.registerMap(regName) = 0x80
 
 			instruction.Execute(cpu, nil)
@@ -199,7 +205,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			continue
 		}
 
-		testInstructionCB(t, "RRC "+regName, 0x08+byte(i), func(t *testing.T, instruction Instruction) {
+		testInstructionCB(t, "RRC "+regName, 0x08+byte(i), func(t *testing.T, instruction Instructor) {
 			*cpu.registerMap(regName) = 0x01
 
 			instruction.Execute(cpu, nil)
@@ -268,7 +274,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			continue
 		}
 
-		testInstructionCB(t, "RL "+regName, 0x10+byte(i), func(t *testing.T, instruction Instruction) {
+		testInstructionCB(t, "RL "+regName, 0x10+byte(i), func(t *testing.T, instruction Instructor) {
 			cpu.setFlag(FlagCarry)
 			*cpu.registerMap(regName) = 0x80
 
@@ -340,7 +346,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			continue
 		}
 
-		testInstructionCB(t, "RR "+regName, 0x18+byte(i), func(t *testing.T, instruction Instruction) {
+		testInstructionCB(t, "RR "+regName, 0x18+byte(i), func(t *testing.T, instruction Instructor) {
 			cpu.setFlag(FlagCarry)
 			*cpu.registerMap(regName) = 0x01
 

@@ -4,7 +4,7 @@ import "testing"
 
 func TestInstruction_Load(t *testing.T) {
 	// 0x02 - LD (BC), A
-	testInstruction(t, "LD (BC), A", 0x02, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD (BC), A", 0x02, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
 		cpu.BC.SetUint16(0x1234)
 		instruction.Execute(cpu, nil)
@@ -81,7 +81,7 @@ func TestInstruction_Load(t *testing.T) {
 		if i == 6 {
 			continue
 		}
-		testInstruction(t, "LD "+regName+", (HL)", 0x46+uint8(i*8), func(t *testing.T, instruction Instruction) {
+		testInstruction(t, "LD "+regName+", (HL)", 0x46+uint8(i*8), func(t *testing.T, instruction Instructor) {
 			cpu.HL.SetUint16(0x1234)
 			cpu.mmu.Write(0x1234, 0x42)
 			instruction.Execute(cpu, nil)
@@ -96,7 +96,7 @@ func TestInstruction_Load(t *testing.T) {
 		if i == 6 {
 			continue
 		}
-		testInstruction(t, "LD (HL), "+regName, 0x70+uint8(i), func(t *testing.T, instruction Instruction) {
+		testInstruction(t, "LD (HL), "+regName, 0x70+uint8(i), func(t *testing.T, instruction Instructor) {
 			cpu.HL.SetUint16(0x1234)
 			*cpu.registerMap(regName) = 0x42
 			instruction.Execute(cpu, nil)
@@ -107,7 +107,7 @@ func TestInstruction_Load(t *testing.T) {
 	}
 
 	// 0xE0 - LDH (n), A
-	testInstruction(t, "LDH (n), A", 0xE0, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LDH (n), A", 0xE0, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
 		instruction.Execute(cpu, []uint8{0x34})
 		if cpu.mmu.Read(0xFF00+0x34) != 0x42 {
@@ -115,7 +115,7 @@ func TestInstruction_Load(t *testing.T) {
 		}
 	})
 	// 0xE2 - LDH (C), A
-	testInstruction(t, "LDH (C), A", 0xE2, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LDH (C), A", 0xE2, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
 		cpu.C = 0x34
 		instruction.Execute(cpu, nil)
@@ -124,7 +124,7 @@ func TestInstruction_Load(t *testing.T) {
 		}
 	})
 	// 0xEA - LD (nn), A
-	testInstruction(t, "LD (nn), A", 0xEA, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD (nn), A", 0xEA, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
 		instruction.Execute(cpu, []uint8{0x34, 0x12})
 		if cpu.mmu.Read(0x1234) != 0x42 {
@@ -132,7 +132,7 @@ func TestInstruction_Load(t *testing.T) {
 		}
 	})
 	// 0xF0 - LDH A, (n)
-	testInstruction(t, "LDH A, (n)", 0xF0, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LDH A, (n)", 0xF0, func(t *testing.T, instruction Instructor) {
 		cpu.mmu.Write(0xFF00+0x34, 0x42)
 		instruction.Execute(cpu, []uint8{0x34})
 		if cpu.A != 0x42 {
@@ -140,7 +140,7 @@ func TestInstruction_Load(t *testing.T) {
 		}
 	})
 	// 0xF2 - LD A, (C)
-	testInstruction(t, "LD A, (C)", 0xF2, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD A, (C)", 0xF2, func(t *testing.T, instruction Instructor) {
 		cpu.C = 0x42
 		cpu.mmu.Write(0xFF00+0x42, 0x42)
 		instruction.Execute(cpu, nil)
@@ -149,7 +149,7 @@ func TestInstruction_Load(t *testing.T) {
 		}
 	})
 	// 0xFA - LD A, (nn)
-	testInstruction(t, "LD A, (nn)", 0xFA, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD A, (nn)", 0xFA, func(t *testing.T, instruction Instructor) {
 		cpu.mmu.Write(0x1234, 0x42)
 		instruction.Execute(cpu, []uint8{0x34, 0x12})
 		if cpu.A != 0x42 {
@@ -160,7 +160,7 @@ func TestInstruction_Load(t *testing.T) {
 
 func TestInstruction_16BitLoad(t *testing.T) {
 	// 0x01 - LD BC, nn - Load 16-bit immediate value into BC
-	testInstruction(t, "LD BC,nn", 0x01, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD BC,nn", 0x01, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
 			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
@@ -170,7 +170,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		}
 	})
 	// 0x08 - LD (nn), SP - Load SP into address pointed to by 16-bit immediate value
-	testInstruction(t, "LD (nn), SP", 0x08, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD (nn), SP", 0x08, func(t *testing.T, instruction Instructor) {
 		cpu.SP = 0x1234
 		instruction.Execute(cpu, []uint8{0x42, 0x42}) // SP 0x1234 loaded into 0x4242
 
@@ -182,7 +182,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		}
 	})
 	// 0x11 - LD DE, nn - Load 16-bit immediate value into DE
-	testInstruction(t, "LD DE,nn", 0x11, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD DE,nn", 0x11, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
 			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
@@ -192,7 +192,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		}
 	})
 	// 0x21 - LD HL, nn - Load 16-bit immediate value into HL
-	testInstruction(t, "LD HL,nn", 0x21, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD HL,nn", 0x21, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
 			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
@@ -202,7 +202,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		}
 	})
 	// 0x31 - LD SP, nn - Load 16-bit immediate value into SP
-	testInstruction(t, "LD SP,nn", 0x31, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "LD SP,nn", 0x31, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
 			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
@@ -348,8 +348,8 @@ func TestInstruction_16BitLoad(t *testing.T) {
 	})
 }
 
-func testLoadRegisterToRegisterInstruction(a, b string) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func testLoadRegisterToRegisterInstruction(a, b string) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		for i := uint8(0); i < 0xFF; i++ {
 			*cpu.registerMap(a) = i
 			instruction.Execute(cpu, nil)
@@ -360,8 +360,8 @@ func testLoadRegisterToRegisterInstruction(a, b string) func(*testing.T, Instruc
 	}
 }
 
-func testLoadRegisterNInstruction(regName string) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func testLoadRegisterNInstruction(regName string) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		for i := uint8(0); i < 0xFF; i++ {
 			instruction.Execute(cpu, []uint8{i})
 			if *cpu.registerMap(regName) != i {

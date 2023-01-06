@@ -2,7 +2,7 @@ package io
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/pkg/bits"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 type InterruptAddress = uint8
@@ -66,12 +66,11 @@ func NewInterrupts() *Interrupts {
 
 // Request requests an interrupt.
 func (i *Interrupts) Request(flag InterruptFlag) {
-	i.IF = bits.Set(i.IF, uint8(flag))
+	i.IF = utils.Set(i.IF, uint8(flag))
 }
 
 // Read reads from the Interrupts.
 func (i *Interrupts) Read(addr uint16) uint8 {
-	fmt.Println(fmt.Sprintf("read from interrupt register: %04x", addr))
 	switch addr {
 	case InterruptFlagRegister:
 		return i.IF | 0xE0
@@ -83,7 +82,6 @@ func (i *Interrupts) Read(addr uint16) uint8 {
 
 // Write writes to the Interrupts.
 func (i *Interrupts) Write(addr uint16, value uint8) {
-	fmt.Println(fmt.Sprintf("write to interrupt register: %04x, %08b", addr, value))
 	switch addr {
 	case InterruptFlagRegister:
 		i.IF = value

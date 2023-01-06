@@ -8,7 +8,7 @@ func TestInstruction_Calls(t *testing.T) {
 	// 0xCC - CALL Z,nn
 	testInstruction(t, "CALL Z,nn", 0xCC, callFlagConditionalTest(FlagZero, true))
 	// 0xCD - CALL nn
-	testInstruction(t, "CALL nn", 0xCD, func(t *testing.T, instruction Instruction) {
+	testInstruction(t, "CALL nn", 0xCD, func(t *testing.T, instruction Instructor) {
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 
@@ -42,10 +42,10 @@ func TestInstruction_Calls(t *testing.T) {
 
 func TestInstruction_Jumps(t *testing.T) {
 	// 0x18 - JR n - Jump relative to PC
-	testInstruction(t, "JR n", 0x18, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JR n", 0x18, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 3 {
@@ -55,18 +55,18 @@ func TestInstruction_Jumps(t *testing.T) {
 		// as the instruction takes a signed byte, ensure that negative values jump backwards
 		cpu.PC = 0x0500
 
-		inst.Execute(cpu, []byte{0xFF})
+		instr.Execute(cpu, []byte{0xFF})
 
 		if cpu.PC != 0x04FF {
 			t.Errorf("expected PC to be 0x04FF, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0x20 - JR NZ, n - Jump relative to PC if zero flag is not set
-	testInstruction(t, "JR NZ, n", 0x20, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JR NZ, n", 0x20, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagZero)
 
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -75,18 +75,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is set
 		cpu.setFlag(FlagZero)
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0x28 - JR Z, n - Jump relative to PC if zero flag is set
-	testInstruction(t, "JR Z, n", 0x28, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JR Z, n", 0x28, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagZero)
 
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -95,18 +95,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is not set
 		cpu.clearFlag(FlagZero)
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0x30 - JR NC, n - Jump relative to PC if carry flag is not set
-	testInstruction(t, "JR NC, n", 0x30, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JR NC, n", 0x30, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagCarry)
 
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -115,18 +115,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is set
 		cpu.setFlag(FlagCarry)
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0x38 - JR C, n - Jump relative to PC if carry flag is set
-	testInstruction(t, "JR C, n", 0x38, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JR C, n", 0x38, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagCarry)
 
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -135,18 +135,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is not set
 		cpu.clearFlag(FlagCarry)
-		inst.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu, []byte{0x03})
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0xC2 - JP NZ, nn - Jump to address if zero flag is not set
-	testInstruction(t, "JP NZ, nn", 0xC2, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JP NZ, nn", 0xC2, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagZero)
 
-		inst.Execute(cpu, []uint8{0x00, 0x03})
+		instr.Execute(cpu, []uint8{0x00, 0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -155,17 +155,17 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is set
 		cpu.setFlag(FlagZero)
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0xC3 - JP nn - Jump to address
-	testInstruction(t, "JP nn", 0xC3, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JP nn", 0xC3, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -173,11 +173,11 @@ func TestInstruction_Jumps(t *testing.T) {
 		}
 	})
 	// 0xCA - JP Z, nn - Jump to address if zero flag is set
-	testInstruction(t, "JP Z, nn", 0xCA, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JP Z, nn", 0xCA, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagZero)
 
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -186,18 +186,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is not set
 		cpu.clearFlag(FlagZero)
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0xD2 - JP NC, nn - Jump to address if carry flag is not set
-	testInstruction(t, "JP NC, nn", 0xD2, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JP NC, nn", 0xD2, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagCarry)
 
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -206,18 +206,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is set
 		cpu.setFlag(FlagCarry)
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0xDA - JP C, nn - Jump to address if carry flag is set
-	testInstruction(t, "JP C, nn", 0xDA, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JP C, nn", 0xDA, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagCarry)
 
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -226,18 +226,18 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is not set
 		cpu.clearFlag(FlagCarry)
-		inst.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu, []byte{0x00, 0x03})
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
 		}
 	})
 	// 0xE9 - JP (HL) - Jump to address stored in HL
-	testInstruction(t, "JP (HL)", 0xE9, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "JP (HL)", 0xE9, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 		cpu.HL.SetUint16(0x0003)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -271,14 +271,14 @@ func TestInstruction_Returns(t *testing.T) {
 	// 0xC8 - RET Z - Return if zero flag is set
 	testInstruction(t, "RET Z", 0xC8, returnFlagConditional(FlagZero, true))
 	// 0xC9 - RET - Return
-	testInstruction(t, "RET", 0xC9, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "RET", 0xC9, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 
 		cpu.mmu.Write(0xFFFE, 0x42)
 		cpu.mmu.Write(0xFFFF, 0x42)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.PC != 0x4242 {
 			t.Errorf("expected PC to be 0x4242, got 0x%04X", cpu.PC)
@@ -293,14 +293,14 @@ func TestInstruction_Returns(t *testing.T) {
 	// 0xD8 - RET C - Return if carry flag is set
 	testInstruction(t, "RET C", 0xD8, returnFlagConditional(FlagCarry, true))
 	// 0xD9 - RETI - Return and enable interrupts
-	testInstruction(t, "RETI", 0xD9, func(t *testing.T, inst Instruction) {
+	testInstruction(t, "RETI", 0xD9, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 
 		cpu.mmu.Write(0xFFFE, 0x42)
 		cpu.mmu.Write(0xFFFF, 0x42)
 
-		inst.Execute(cpu, nil)
+		instr.Execute(cpu, nil)
 
 		if cpu.PC != 0x4242 {
 			t.Errorf("expected PC to be 0x4242, got 0x%04X", cpu.PC)
@@ -310,14 +310,14 @@ func TestInstruction_Returns(t *testing.T) {
 			t.Errorf("expected SP to be 0x0000, got 0x%04X", cpu.SP)
 		}
 
-		if !cpu.mmu.Bus.Interrupts().IME {
+		if !cpu.irq.IME {
 			t.Error("expected interrupts to be enabled")
 		}
 	})
 }
 
-func callFlagConditionalTest(flag Flag, condition bool) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func callFlagConditionalTest(flag Flag, condition bool) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		if condition {
 			cpu.setFlag(flag)
 		} else {
@@ -375,8 +375,8 @@ func callFlagConditionalTest(flag Flag, condition bool) func(*testing.T, Instruc
 	}
 }
 
-func returnFlagConditional(flag Flag, condition bool) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func returnFlagConditional(flag Flag, condition bool) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		if condition {
 			cpu.setFlag(flag)
 		} else {
@@ -430,8 +430,8 @@ func returnFlagConditional(flag Flag, condition bool) func(*testing.T, Instructi
 	}
 }
 
-func resetTestInstruction(n uint8) func(*testing.T, Instruction) {
-	return func(t *testing.T, instruction Instruction) {
+func resetTestInstruction(n uint8) func(*testing.T, Instructor) {
+	return func(t *testing.T, instruction Instructor) {
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 

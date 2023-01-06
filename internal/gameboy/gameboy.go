@@ -9,10 +9,13 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"github.com/thelolagemann/go-gameboy/internal/display"
 	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/io/timer"
+	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
-	"github.com/thelolagemann/go-gameboy/pkg/bits"
+	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"time"
 
 	io2 "io"
@@ -28,6 +31,11 @@ type GameBoy struct {
 	CPU *cpu.CPU
 	MMU *mmu.MMU
 	ppu *ppu.PPU
+
+	Joypad     *joypad.State
+	Interrupts *io.Interrupts
+	Timer      *timer.Controller
+	Serial     *io.Serial
 
 	LastSave time.Time
 
@@ -56,16 +64,23 @@ func DisableROM() GameBoyOpt {
 // NewGameBoy returns a new GameBoy.
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	cart := cartridge.NewCartridge(rom)
-	memBus := mmu.NewMMU(cart)
-	video := ppu.New()
-	ioBus := io.NewIO(video)
-	memBus.SetBus(ioBus)
-	ioBus.AttachMMU(memBus)
-	video.AttachBus(memBus.Bus)
+	interrupt := io.NewInterrupts()
+	pad := joypad.New(interrupt)
+	serial := io.NewSerial()
+	timerCtl := timer.NewController()
+	memBus := mmu.NewMMU(cart, pad, serial, timerCtl, interrupt, ram.NewRAM(0x2000))
+	video := ppu.New(memBus, interrupt)
+	memBus.AttachVideo(video)
+
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus),
+		CPU: cpu.NewCPU(memBus, interrupt),
 		MMU: memBus,
 		ppu: video,
+
+		Joypad:     pad,
+		Interrupts: interrupt,
+		Timer:      timerCtl,
+		Serial:     serial,
 	}
 
 	for _, opt := range opts {
@@ -89,9 +104,7 @@ func (g *GameBoy) Start(mon *display.Display) {
 			frames++
 
 			inputs := mon.PollKeys()
-			if reqInt := g.MMU.Bus.Input().ProcessInputs(inputs); reqInt {
-				g.MMU.Bus.Interrupts().Request(io.InterruptJoypadFlag)
-			}
+			g.Joypad.ProcessInputs(inputs)
 
 			g.Update(CyclesPerFrame)
 			mon.Render(g.ppu.PreparedFrame)
@@ -119,8 +132,8 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		cyclesCPU := g.CPU.Step()
 		cycles += uint(cyclesCPU)
 		g.ppu.Step(uint16(cyclesCPU))
-		if reqInt := g.MMU.Bus.Timer().Update(cyclesCPU); reqInt {
-			g.MMU.Bus.Interrupts().Request(io.InterruptTimerFlag)
+		if reqInt := g.Timer.Step(cyclesCPU); reqInt {
+			g.Interrupts.Request(io.InterruptTimerFlag)
 		}
 		g.DoInterrupts()
 
@@ -131,10 +144,10 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 
 // DoInterrupts handles all the interrupts.
 func (g *GameBoy) DoInterrupts() {
-	if g.MMU.Bus.Interrupts().IME {
-		if g.MMU.Bus.Interrupts().IF > 0 {
+	if g.Interrupts.IME {
+		if g.Interrupts.IF > 0 {
 			for i := uint8(0); i < 5; i++ {
-				if bits.Test(g.MMU.Bus.Interrupts().IF, i) && bits.Test(g.MMU.Bus.Interrupts().IE, i) {
+				if utils.Test(g.Interrupts.IF, i) && utils.Test(g.Interrupts.IE, i) {
 					g.serviceInterrupt(i)
 				}
 			}
@@ -144,8 +157,8 @@ func (g *GameBoy) DoInterrupts() {
 
 // serviceInterrupt handles the given interrupt.
 func (g *GameBoy) serviceInterrupt(interrupt uint8) {
-	g.MMU.Bus.Interrupts().IME = false
-	g.MMU.Bus.Interrupts().IF = bits.Reset(g.MMU.Bus.Interrupts().IF, interrupt)
+	g.Interrupts.IME = false
+	g.Interrupts.IF = utils.Reset(g.Interrupts.IF, interrupt)
 
 	// save the current execution address by pushing it to the stack
 	g.CPU.PushStack(g.CPU.PC)

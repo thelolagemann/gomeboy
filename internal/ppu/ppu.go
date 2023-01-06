@@ -4,10 +4,11 @@ package ppu
 import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/background"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/pkg/bits"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 const (
@@ -75,10 +76,12 @@ type PPU struct {
 	WindowX         uint8
 	WindowY         uint8
 
+	irq *io.Interrupts
+
 	PreparedFrame [ScreenWidth][ScreenHeight][3]uint8
 
 	currentCycle       int16
-	bus                io.Bus
+	bus                mmu.IOBus
 	bgPriority         [ScreenWidth][ScreenHeight]bool
 	screenData         [ScreenWidth][ScreenHeight][3]uint8
 	tileScanline       [ScreenWidth]uint8
@@ -86,7 +89,7 @@ type PPU struct {
 	statInterruptDelay bool
 }
 
-func New() *PPU {
+func New(mmu mmu.IOBus, irq *io.Interrupts) *PPU {
 	return &PPU{
 		Background:      background.NewBackground(),
 		Controller:      lcd.NewController(),
@@ -98,11 +101,10 @@ func New() *PPU {
 		WindowX:         0,
 		WindowY:         0,
 		currentCycle:    0,
-	}
-}
 
-func (p *PPU) AttachBus(bus io.Bus) {
-	p.bus = bus
+		bus: mmu,
+		irq: irq,
+	}
 }
 
 func (p *PPU) Read(address uint16) uint8 {
@@ -175,7 +177,7 @@ func (p *PPU) Step(cycles uint16) {
 
 		// if we've reached the start of the VBlank period, we need to set the VBlank interrupt flag
 		if p.CurrentScanline == 144 {
-			p.bus.Interrupts().Request(io.InterruptVBLFlag)
+			p.irq.Request(io.InterruptVBLFlag)
 		} else if p.CurrentScanline > 153 {
 			p.CurrentScanline = 0
 			p.renderFrame()
@@ -217,13 +219,13 @@ func (p *PPU) setLCDStatus() {
 
 	// if the current mode is different from the previous mode, we need to request an interrupt
 	if reqInt && currentMode != p.Status.Mode {
-		p.bus.Interrupts().Request(io.InterruptLCDFlag)
+		p.irq.Request(io.InterruptLCDFlag)
 	}
 
 	// if LY == LYC, we need to set the coincidence flag and request an interrupt if necessary
 	if p.Status.CoincidenceInterrupt && p.CurrentScanline == p.LYCompare {
 		p.Coincidence = true
-		p.bus.Interrupts().Request(io.InterruptLCDFlag)
+		p.irq.Request(io.InterruptLCDFlag)
 	} else {
 		p.Coincidence = false
 	}
@@ -307,7 +309,7 @@ func (p *PPU) renderTiles() {
 
 		// determine pixel color
 		colourBit := int((xPos%8)-7) * -1
-		colourNum := bits.Val(data2, uint8(colourBit))<<1 | bits.Val(data1, uint8(colourBit))
+		colourNum := utils.Val(data2, uint8(colourBit))<<1 | utils.Val(data1, uint8(colourBit))
 
 		// determine the color palette to use
 		colour := palette.GetColour(colourNum)
@@ -352,7 +354,7 @@ func (p *PPU) renderBackground() {
 
 		// determine pixel color
 		colourBit := int8((xPos%8)-7) * -1
-		colourNum := bits.Val(data2, uint8(colourBit))<<1 | bits.Val(data1, uint8(colourBit))
+		colourNum := utils.Val(data2, uint8(colourBit))<<1 | utils.Val(data1, uint8(colourBit))
 
 		// determine the color palette to use
 		colour := palette.GetColour(colourNum)
@@ -373,8 +375,8 @@ func (p *PPU) renderSprites() {
 		tileLocation := p.bus.Read(0xFE00 + uint16(index) + 2)
 		attributes := p.bus.Read(0xFE00 + uint16(index) + 3)
 
-		yFlip := bits.Test(attributes, 6)
-		xFlip := bits.Test(attributes, 5)
+		yFlip := utils.Test(attributes, 6)
+		xFlip := utils.Test(attributes, 5)
 
 		// does sprite overlap with current scanline?
 		if p.CurrentScanline >= yPos && p.CurrentScanline < yPos+p.Controller.SpriteSize {
@@ -399,9 +401,9 @@ func (p *PPU) renderSprites() {
 					colourBit *= -1
 				}
 
-				colourNum := bits.Val(data2, uint8(colourBit))
+				colourNum := utils.Val(data2, uint8(colourBit))
 				colourNum <<= 1
-				colourNum |= bits.Val(data1, uint8(colourBit))
+				colourNum |= utils.Val(data1, uint8(colourBit))
 
 				colour := palette.GetColour(colourNum)
 

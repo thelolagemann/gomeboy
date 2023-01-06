@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/io"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 )
 
@@ -17,7 +18,7 @@ type CPU struct {
 	halted            bool
 	interruptsEnabled bool
 
-	usedPC map[uint16]bool
+	irq *io.Interrupts
 }
 
 func (c *CPU) PopStack() uint16 {
@@ -33,31 +34,60 @@ func (c *CPU) PushStack(pc uint16) {
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *io.Interrupts) *CPU {
 	c := &CPU{
 		PC: 0,
 		SP: 0,
 		Registers: Registers{
-			A: 0x00,
-			B: 0x00,
+			A: 0x11,
+			B: 0x01,
 			C: 0x00,
 			D: 0xFF,
-			E: 0x56,
-			F: 0x80,
-			H: 0x00,
-			L: 0x00,
+			E: 0x08,
+			F: 0x00,
+			H: 0xB0,
+			L: 0x7c,
 		},
 		mmu:     mmu,
 		stopped: false,
 		halted:  false,
-		usedPC:  map[uint16]bool{},
+		irq:     irq,
 	}
 	c.BC = &RegisterPair{&c.B, &c.C}
 	c.DE = &RegisterPair{&c.D, &c.E}
 	c.HL = &RegisterPair{&c.H, &c.L}
 	c.AF = &RegisterPair{&c.A, &c.F}
-	c.generateCBInstructionSet()
+	c.generateBitInstructions()
+	c.generateLoadRegisterToRegisterInstructions()
+	c.generateLogicInstructions()
+	c.generateRSTInstructions()
+
+	if len(InstructionSet) != 256 || len(InstructionSetCB) != 256 {
+		panic("invalid instruction set")
+	}
+
 	return c
+}
+
+// registerIndex returns a Register pointer for the given index.
+func (c *CPU) registerIndex(index uint8) *Register {
+	switch index {
+	case 0:
+		return &c.B
+	case 1:
+		return &c.C
+	case 2:
+		return &c.D
+	case 3:
+		return &c.E
+	case 4:
+		return &c.H
+	case 5:
+		return &c.L
+	case 7:
+		return &c.A
+	}
+	panic(fmt.Sprintf("invalid register index: %d", index))
 }
 
 // registerMap maps a Register name to a Register pointer.
@@ -129,46 +159,44 @@ func (c *CPU) Step() uint8 {
 
 	// fetch opcode
 	opcode := c.fetch()
-	var instruction Instruction
+	var instruction Instructor
+	///c.debugInstructions()
 
 	// if 16-bit instruction
 	if opcode == 0xCB {
 		opcode = c.fetch()
-		instruction = InstructionSetCB[opcode]
-		if instruction.Name == "" {
+		instruction = InstructionSetCB[opcode].Instruction()
+		if instruction.Name() == "" {
 			panic(fmt.Sprintf("instruction not found: 0xCB%02X", opcode))
 		}
 	} else {
 		instruction = InstructionSet[opcode]
 	}
 
-	if instruction.Name == "" {
+	if instruction == nil {
 		panic(fmt.Sprintf("instruction not found: 0x%02X", opcode))
 	}
 
 	// get operands
-	operands := make([]uint8, instruction.Length-1)
-	for i := uint8(0); i < instruction.Length-1; i++ {
+	operands := make([]uint8, instruction.Length()-1)
+	for i := uint8(0); i < instruction.Length()-1; i++ {
 		operands[i] = c.fetch()
 	}
-	if instruction.Name != "NOP" {
-		/* time.Sleep(1 * time.Millisecond)
+	if instruction.Name() != "NOP" && c.PC > 0x0100 {
+		/*time.Sleep(100 * time.Millisecond)
 		if len(operands) == 1 {
-			c.mmu.Bus.Log().Debugf("cpu\t 0x%04X: %s 0x%02X", c.PC-uint16(instruction.Length), instruction.Name, operands[0])
+			c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[0])
 		} else if len(operands) == 2 {
-			c.mmu.Bus.Log().Debugf("cpu\t 0x%04X: %s 0x%02X%02X", c.PC-uint16(instruction.Length), instruction.Name, operands[1], operands[0])
+			c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[1], operands[0])
 		} else {
-			c.mmu.Bus.Log().Debugf("cpu\t 0x%04X: %s", c.PC-uint16(instruction.Length), instruction.Name)
+			c.mmu.Log.Debugf("cpu\t 0x%04X: %s", c.PC-uint16(instruction.Length()), instruction.Name())
 		}
-		c.mmu.Bus.Log().Debugf("reg\t A: %v, B: %v, C: %v, D: %v, E: %v, F: %v, H: %v, L: %v, SP: %v, PC: %v, opcode: 0x%02X", c.A, c.B, c.C, c.D, c.E, c.F, c.H, c.L, c.SP, c.PC, opcode)*/
+		c.mmu.Log.Debugf("reg\t A: %v, B: %v, C: %v, D: %v, E: %v, F: %v, H: %v, L: %v, SP: %v, PC: %v, opcode: 0x%02X", c.A, c.B, c.C, c.D, c.E, c.F, c.H, c.L, c.SP, c.PC, opcode)*/
 	}
+
 	// execute instruction
 	instruction.Execute(c, operands)
-	if opcode == 0x40 {
-		c.DebugPause = true
-	}
-	c.usedPC[c.PC] = true
-	return instruction.Cycles
+	return instruction.Cycles()
 }
 
 func (c *CPU) fetch() uint8 {
@@ -214,20 +242,9 @@ func (c *CPU) push(value uint8) {
 	c.mmu.Write(c.SP, value)
 }
 
-func (c *CPU) push16(value uint16) {
-	c.push(uint8(value >> 8))
-	c.push(uint8(value & 0xFF))
-}
-
 // pop pops a value from the stack.
 func (c *CPU) pop() uint8 {
 	value := c.mmu.Read(c.SP)
 	c.SP++
 	return value
-}
-
-func (c *CPU) pop16() uint16 {
-	low := c.pop()
-	high := c.pop()
-	return uint16(high)<<8 | uint16(low)
 }

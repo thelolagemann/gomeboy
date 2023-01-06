@@ -2,7 +2,7 @@ package lcd
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/pkg/bits"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 const (
@@ -79,26 +79,26 @@ func NewController() *Controller {
 func (c *Controller) Write(address uint16, value uint8) {
 	switch address {
 	case ControlRegister:
-		c.Enabled = bits.Test(value, 7)
-		if bits.Test(value, 6) {
+		c.Enabled = utils.Test(value, 7)
+		if utils.Test(value, 6) {
 			c.WindowTileMapAddress = 0x9C00
 		} else {
 			c.WindowTileMapAddress = 0x9800
 		}
-		c.WindowEnabled = bits.Test(value, 5)
-		if bits.Test(value, 4) {
+		c.WindowEnabled = utils.Test(value, 5)
+		if utils.Test(value, 4) {
 			c.TileDataAddress = 0x8000
 		} else {
 			c.TileDataAddress = 0x8800
 		}
-		if bits.Test(value, 3) {
+		if utils.Test(value, 3) {
 			c.BackgroundTileMapAddress = 0x9C00
 		} else {
 			c.BackgroundTileMapAddress = 0x9800
 		}
-		c.SpriteSize = 8 + uint8(bits.Val(value, 2))*8
-		c.SpriteEnabled = bits.Test(value, 1)
-		c.BackgroundEnabled = bits.Test(value, 0)
+		c.SpriteSize = 8 + uint8(utils.Val(value, 2))*8
+		c.SpriteEnabled = utils.Test(value, 1)
+		c.BackgroundEnabled = utils.Test(value, 0)
 		return
 	}
 
