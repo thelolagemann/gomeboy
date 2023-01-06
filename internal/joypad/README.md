@@ -4,8 +4,6 @@ The joypad package provides an implementation of the Game Boy joypad. It is
 responsible for selecting the correct button input based on the Joypad Register
 and the current state of the buttons.
 
-## Usage
-
 ## How it works
 
 The joypad is arranged in a 2x4 matrix. Writing to bits 4 and 5 of the joypad 
@@ -45,7 +43,7 @@ so the joypad can safely assume that it will only ever receive calls to `Read` a
 with the address `0xFF00`. Otherwise, a panic will occur to indicate that the joypad 
 is being used incorrectly.
 
-When the joypad receives a read call, it will return the register ored with the
+When the joypad receives a read call, it will return the register ORed with the
 current state of the buttons in the selected row. When the joypad receives a write
 call, it will update the register with the new value. Only bits 4 and 5 are used
 to select the row, so the other bits are ignored.

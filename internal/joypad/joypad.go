@@ -112,18 +112,3 @@ func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
 	s.State = utils.Set(s.State, button)
 }
-
-type Inputs struct {
-	Pressed, Released []Button
-}
-
-// ProcessInputs processes the inputs.
-func (s *State) ProcessInputs(inputs Inputs) {
-
-	for _, key := range inputs.Pressed {
-		s.Press(key)
-	}
-	for _, key := range inputs.Released {
-		s.Release(key)
-	}
-}

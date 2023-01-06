@@ -88,7 +88,7 @@ func (d *Display) SetTitle(title string) {
 	d.window.SetTitle(title)
 }
 
-var keyMap = map[pixelgl.Button]joypad.Button{
+var keyMap = map[pixelgl.Button]Input{
 	pixelgl.KeyA:         joypad.ButtonA,
 	pixelgl.KeyS:         joypad.ButtonB,
 	pixelgl.KeyEnter:     joypad.ButtonStart,
@@ -97,10 +97,23 @@ var keyMap = map[pixelgl.Button]joypad.Button{
 	pixelgl.KeyLeft:      joypad.ButtonLeft,
 	pixelgl.KeyUp:        joypad.ButtonUp,
 	pixelgl.KeyDown:      joypad.ButtonDown,
+
+	pixelgl.KeyC: CyclePalette,
 }
 
+type Inputs struct {
+	Pressed, Released []Input
+}
+
+type Input = uint8
+
+const (
+	// CyclePalette changes the palette
+	CyclePalette Input = iota + 8
+)
+
 // PollKeys polls the keys and returns the pressed and released keys.
-func (d *Display) PollKeys() joypad.Inputs {
+func (d *Display) PollKeys() Inputs {
 	var pressed, released []joypad.Button
 
 	for key, button := range keyMap {
@@ -112,5 +125,5 @@ func (d *Display) PollKeys() joypad.Inputs {
 		}
 	}
 
-	return joypad.Inputs{Pressed: pressed, Released: released}
+	return Inputs{Pressed: pressed, Released: released}
 }

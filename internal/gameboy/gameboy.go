@@ -13,6 +13,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
@@ -104,7 +105,7 @@ func (g *GameBoy) Start(mon *display.Display) {
 			frames++
 
 			inputs := mon.PollKeys()
-			g.Joypad.ProcessInputs(inputs)
+			g.ProcessInputs(inputs)
 
 			g.Update(CyclesPerFrame)
 			mon.Render(g.ppu.PreparedFrame)
@@ -117,6 +118,32 @@ func (g *GameBoy) Start(mon *display.Display) {
 				frames = 0
 				start = time.Now()
 			}
+		}
+	}
+}
+
+var keyHandlers = map[uint8]func(){
+	8: func() {
+		palette.Current++
+		if palette.Current > 3 {
+			palette.Current = 0
+		}
+	},
+}
+
+// ProcessInputs processes the inputs.
+func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
+	for _, key := range inputs.Pressed {
+		// check if it's a gameboy key
+		if key > joypad.ButtonDown {
+			keyHandlers[key]()
+		} else {
+			g.Joypad.Press(key)
+		}
+	}
+	for _, key := range inputs.Released {
+		if key <= joypad.ButtonDown {
+			g.Joypad.Release(key)
 		}
 	}
 }

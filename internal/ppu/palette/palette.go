@@ -4,8 +4,13 @@ const (
 	// Greyscale is the default greyscale palette.
 	Greyscale = iota
 	// Green is the green palette which attempts to emulate
-	// the original colour palette.
+	// the original colour palette as it would have appeared
+	// on the original Game Boy.
 	Green
+	// Red is a red palette.
+	Red
+	// Yellow is a yellow palette.
+	Yellow
 )
 
 // Palette represents a palette. A palette is an array of 4 RGB values,
@@ -16,7 +21,7 @@ type Palette struct {
 }
 
 // Current is the currently selected palette.
-var Current = Palettes[Greyscale]
+var Current = Greyscale
 
 // Palettes is a list of all available palettes.
 var Palettes = []Palette{
@@ -38,10 +43,28 @@ var Palettes = []Palette{
 			{0x0F, 0x38, 0x0F},
 		},
 	},
+	// Red
+	{
+		Colors: [4][3]uint8{
+			{0xFF, 0x00, 0x00},
+			{0xCC, 0x00, 0x00},
+			{0x77, 0x00, 0x00},
+			{0x00, 0x00, 0x00},
+		},
+	},
+	// Yellow
+	{
+		Colors: [4][3]uint8{
+			{0xFF, 0xFF, 0x00},
+			{0xCC, 0xCC, 0x00},
+			{0x77, 0x77, 0x00},
+			{0x00, 0x00, 0x00},
+		},
+	},
 }
 
 // GetColour returns the colour based on the colour index and the
 // Current palette.
 func GetColour(index uint8) [3]uint8 {
-	return Current.Colors[index]
+	return Palettes[Current].Colors[index]
 }
