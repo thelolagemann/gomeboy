@@ -4,7 +4,10 @@
 // TimerControlRegister.
 package timer
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/io"
+)
 
 const (
 	// DividerRegister is the address of the timer divider register.
@@ -39,15 +42,18 @@ type Controller struct {
 	overflowing     bool // true if the counter is overflowing
 	fallingEdge     bool // true if the falling edge of the clock signal was detected in the last step
 	carry           bool // true if the counter overflowed in the last step
+
+	irq *io.Interrupts // the interrupt controller
 }
 
 // NewController returns a new controller.
-func NewController() *Controller {
+func NewController(irq *io.Interrupts) *Controller {
 	return &Controller{
 		divider: 0,
 		counter: 0,
 		modulo:  0,
 		control: 0,
+		irq:     irq,
 	}
 }
 
@@ -87,7 +93,7 @@ func (c *Controller) Write(address uint16, value uint8) {
 		}
 		c.modulo = value
 	case ControlRegister:
-		c.control = value & 7
+		c.control = value & 0x7
 		c.Step(0)
 		c.Step(0)
 	default:
@@ -96,41 +102,40 @@ func (c *Controller) Write(address uint16, value uint8) {
 }
 
 // Step steps the timer by the specified number of cycles.
-func (c *Controller) Step(cycles uint8) bool {
-	overflow := false
-	// increment the divider register by the specified number of cycles (16384Hz)
-	c.divider += uint16(cycles)
+func (c *Controller) Step(cycles uint8) {
+	for i := 0; i*4 < int(cycles); i++ {
+		// increment the divider register by the specified number of cycles (16384Hz)
+		c.divider += uint16(4)
 
-	// get the clock signal
-	signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
+		// get the clock signal
+		signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
 
-	if c.releaseOverflow {
-		// TIME: 8
-		c.overflowing = false
-		c.releaseOverflow = false
-	}
+		if c.releaseOverflow {
+			// TIME: 8
+			c.overflowing = false
+			c.releaseOverflow = false
+		}
 
-	if c.overflowing {
-		// TIME: 4
-		c.counter = c.modulo
-		overflow = true
-		c.carry = false
-		c.releaseOverflow = true
-	}
+		if c.overflowing {
+			// TIME: 4
+			c.counter = c.modulo
+			c.irq.Request(io.InterruptTimerFlag)
+			c.carry = false
+			c.releaseOverflow = true
+		}
 
-	if c.detectFallingEdge(signal) {
-		c.counter++
-		// for a brief period (1 cycle/4 clocks) TIMA has the value 0
-		if c.counter == 0x0 && c.carry {
-			// TIME: 0
-			c.overflowing = true
-		} else if c.counter == 0x0 {
-			// TIME: 0 about to overflow
-			c.carry = true
+		if c.detectFallingEdge(signal) {
+			c.counter++
+			// for a brief period (1 cycle/4 clocks) TIMA has the value 0
+			if c.counter == 0x0 && c.carry {
+				// TIME: 0
+				c.overflowing = true
+			} else if c.counter == 0x0 {
+				// TIME: 0 about to overflow
+				c.carry = true
+			}
 		}
 	}
-
-	return overflow
 }
 
 // isEnabled returns true if the timer is enabled.
@@ -150,11 +155,11 @@ func (c *Controller) getMultiplexerMask() uint16 {
 	switch c.control & 0x3 {
 	case 0:
 		return 0x200
-	case 1:
+	case 3:
 		return 0x80
 	case 2:
 		return 0x20
-	case 3:
+	case 1:
 		return 0x8
 	}
 	panic("timer: invalid multiplexer mask")

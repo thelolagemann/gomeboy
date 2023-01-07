@@ -68,7 +68,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	interrupt := io.NewInterrupts()
 	pad := joypad.New(interrupt)
 	serial := io.NewSerial()
-	timerCtl := timer.NewController()
+	timerCtl := timer.NewController(interrupt)
 	memBus := mmu.NewMMU(cart, pad, serial, timerCtl, interrupt, ram.NewRAM(0x2000))
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
@@ -159,11 +159,8 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		cyclesCPU := g.CPU.Step()
 		cycles += uint(cyclesCPU)
 		g.ppu.Step(uint16(cyclesCPU))
-		if reqInt := g.Timer.Step(cyclesCPU); reqInt {
-			g.Interrupts.Request(io.InterruptTimerFlag)
-		}
+		g.Timer.Step(cyclesCPU)
 		g.DoInterrupts()
-
 	}
 
 	// TODO handle save
