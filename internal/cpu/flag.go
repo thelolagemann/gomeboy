@@ -1,5 +1,7 @@
 package cpu
 
+import "github.com/thelolagemann/go-gameboy/pkg/utils"
+
 type Flag = uint8
 
 const (
@@ -27,7 +29,7 @@ type InstructionFlags struct {
 
 // clearFlag clears a flag from the F register.
 func (c *CPU) clearFlag(flag Flag) {
-	c.F = c.clearBit(c.F, flag)
+	c.F = utils.Reset(c.F, flag)
 	c.F &= 0xF0
 }
 
@@ -40,7 +42,7 @@ func (c *CPU) clearFlags(flags ...Flag) {
 
 // setFlag sets a flag to the given value.
 func (c *CPU) setFlag(flag Flag) {
-	c.F = c.setBit(c.F, flag)
+	c.F = utils.Set(c.F, flag)
 	c.F &= 0xF0
 }
 

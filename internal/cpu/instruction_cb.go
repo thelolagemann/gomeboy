@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 type InstructionCB struct {
@@ -215,35 +216,35 @@ var InstructionSetCB = map[uint8]InstructionCB{
 	}},
 	// 0x30 - SWAP B
 	0x30: {"SWAP B", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.B)
+		cpu.B = cpu.swap(cpu.B)
 	}},
 	// 0x31 - SWAP C
 	0x31: {"SWAP C", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.C)
+		cpu.C = cpu.swap(cpu.C)
 	}},
 	// 0x32 - SWAP D
 	0x32: {"SWAP D", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.D)
+		cpu.D = cpu.swap(cpu.D)
 	}},
 	// 0x33 - SWAP E
 	0x33: {"SWAP E", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.E)
+		cpu.E = cpu.swap(cpu.E)
 	}},
 	// 0x34 - SWAP H
 	0x34: {"SWAP H", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.H)
+		cpu.H = cpu.swap(cpu.H)
 	}},
 	// 0x35 - SWAP L
 	0x35: {"SWAP L", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.L)
+		cpu.L = cpu.swap(cpu.L)
 	}},
 	// 0x36 - SWAP (HL)
 	0x36: {"SWAP (HL)", 4, func(cpu *CPU) {
-		cpu.mmu.Write(cpu.HL.Uint16(), cpu.swapByte(cpu.mmu.Read(cpu.HL.Uint16())))
+		cpu.mmu.Write(cpu.HL.Uint16(), cpu.swap(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x37 - SWAP A
 	0x37: {"SWAP A", 2, func(cpu *CPU) {
-		cpu.swap(&cpu.A)
+		cpu.A = cpu.swap(cpu.A)
 	}},
 	// 0x38 - SRL B
 	0x38: {"SRL B", 2, func(cpu *CPU) {
@@ -312,7 +313,7 @@ func (c *CPU) generateBitInstructions() {
 					Name:   fmt.Sprintf("RES %d, (HL)", currentBit),
 					Cycles: 4,
 					fn: func(cpu *CPU) {
-						cpu.mmu.Write(cpu.HL.Uint16(), cpu.clearBit(cpu.mmu.Read(cpu.HL.Uint16()), currentBit))
+						cpu.mmu.Write(cpu.HL.Uint16(), utils.Reset(cpu.mmu.Read(cpu.HL.Uint16()), currentBit))
 					},
 				}
 
@@ -321,7 +322,7 @@ func (c *CPU) generateBitInstructions() {
 					Name:   fmt.Sprintf("SET %d, (HL)", bit),
 					Cycles: 4,
 					fn: func(cpu *CPU) {
-						cpu.mmu.Write(cpu.HL.Uint16(), cpu.setBit(cpu.mmu.Read(cpu.HL.Uint16()), currentBit))
+						cpu.mmu.Write(cpu.HL.Uint16(), utils.Set(cpu.mmu.Read(cpu.HL.Uint16()), currentBit))
 					},
 				}
 				continue
@@ -344,7 +345,7 @@ func (c *CPU) generateBitInstructions() {
 				Name:   fmt.Sprintf("RES %d, %s", bit, c.registerName(register)),
 				Cycles: 2,
 				fn: func(cpu *CPU) {
-					*register = cpu.clearBit(*register, currentBit)
+					*register = utils.Reset(*register, currentBit)
 				},
 			}
 			// Create SET instruction
@@ -352,11 +353,48 @@ func (c *CPU) generateBitInstructions() {
 				Name:   fmt.Sprintf("SET %d, %s", bit, c.registerName(register)),
 				Cycles: 2,
 				fn: func(cpu *CPU) {
-					*register = cpu.setBit(*register, currentBit)
+					*register = utils.Set(*register, currentBit)
 				},
 			}
 		}
 	}
+}
+
+// swap the upper and lower nibbles of a byte
+//
+// SWAP n
+// n = A, B, C, D, E, H, L, (HL)=
+//
+// Flags affected:
+// Z - Set if result is zero.
+// N - Reset.
+// H - Reset.
+// C - Reset.
+func (c *CPU) swap(value uint8) uint8 {
+	computed := value<<4&240 | value>>4
+	c.clearFlag(FlagSubtract)
+	c.clearFlag(FlagHalfCarry)
+	c.clearFlag(FlagCarry)
+	c.shouldZeroFlag(computed)
+	return computed
+}
+
+// testBit tests the bit at the given position in the given Register.
+//
+//	Bit n, r
+//	n = 0-7
+//	r = A, B, C, D, E, H, L, (HL)
+//
+// Flags affected:
+//
+//	Z - Set if bit n of Register r is 0.
+//	N - Reset.
+//	H - Set.
+//	C - Not affected.
+func (c *CPU) testBit(value uint8, position uint8) {
+	c.shouldZeroFlag((value >> position) & 0x01)
+	c.clearFlag(FlagSubtract)
+	c.setFlag(FlagHalfCarry)
 }
 
 // debugInstructions prints the InstructionSetCB map to the console.

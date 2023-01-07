@@ -253,151 +253,42 @@ func (c *CPU) decrement(value uint8) uint8 {
 }
 
 func init() {
-	// 0x03 - INC BC
-	InstructionSet[0x03] = NewInstruction("INC BC", 1, 2, func(c *CPU, operands []byte) {
-		c.incrementNN(c.BC)
-	})
-	// 0x04 - INC B
-	InstructionSet[0x04] = NewInstruction("INC B", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.B)
-	})
-	// 0x05 - DEC B
-	InstructionSet[0x05] = NewInstruction("DEC B", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.B)
-	})
-	// 0x09 - ADD HL, BC
-	InstructionSet[0x09] = NewInstruction("ADD HL, BC", 1, 2, func(c *CPU, operands []byte) {
-		c.addHL(c.BC)
-	})
-	// 0x0B - DEC BC
-	InstructionSet[0x0B] = NewInstruction("DEC BC", 1, 2, func(c *CPU, operands []byte) {
-		c.decrementNN(c.BC)
-	})
-	// 0x0C - INC C
-	InstructionSet[0x0C] = NewInstruction("INC C", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.C)
-	})
-	// 0x0D - DEC C
-	InstructionSet[0x0D] = NewInstruction("DEC C", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.C)
-	})
-	// 0x13 - INC DE
-	InstructionSet[0x13] = NewInstruction("INC DE", 1, 2, func(c *CPU, operands []byte) {
-		c.incrementNN(c.DE)
-	})
-	// 0x14 - INC D
-	InstructionSet[0x14] = NewInstruction("INC D", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.D)
-	})
-	// 0x15 - DEC D
-	InstructionSet[0x15] = NewInstruction("DEC D", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.D)
-	})
-	// 0x19 - ADD HL, DE
-	InstructionSet[0x19] = NewInstruction("ADD HL, DE", 1, 2, func(c *CPU, operands []byte) {
-		c.addHL(c.DE)
-	})
-	// 0x1B - DEC DE
-	InstructionSet[0x1B] = NewInstruction("DEC DE", 1, 2, func(c *CPU, operands []byte) {
-		c.decrementNN(c.DE)
-	})
-	// 0x1C - INC E
-	InstructionSet[0x1C] = NewInstruction("INC E", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.E)
-	})
-	// 0x1D - DEC E
-	InstructionSet[0x1D] = NewInstruction("DEC E", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.E)
-	})
-	// 0x23 - INC HL
-	InstructionSet[0x23] = NewInstruction("INC HL", 1, 2, func(c *CPU, operands []byte) {
-		c.incrementNN(c.HL)
-	})
-	// 0x24 - INC H
-	InstructionSet[0x24] = NewInstruction("INC H", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.H)
-	})
-	// 0x25 - DEC H
-	InstructionSet[0x25] = NewInstruction("DEC H", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.H)
-	})
-	// 0x29 - ADD HL, HL
-	InstructionSet[0x29] = NewInstruction("ADD HL, HL", 1, 2, func(c *CPU, operands []byte) {
-		c.addHL(c.HL)
-	})
-	// 0x2B - DEC HL
-	InstructionSet[0x2B] = NewInstruction("DEC HL", 1, 2, func(c *CPU, operands []byte) {
-		c.decrementNN(c.HL)
-	})
-	// 0x2C - INC L
-	InstructionSet[0x2C] = NewInstruction("INC L", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.L)
-	})
-	// 0x2D - DEC L
-	InstructionSet[0x2D] = NewInstruction("DEC L", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.L)
-	})
-	// 0x33 - INC SP
-	InstructionSet[0x33] = NewInstruction("INC SP", 1, 2, func(c *CPU, operands []byte) {
-		c.SP++
-	})
-	// 0x34 - INC (HL)
-	InstructionSet[0x34] = NewInstruction("INC (HL)", 1, 3, func(c *CPU, operands []byte) {
-		c.mmu.Write(c.HL.Uint16(), c.increment(c.mmu.Read(c.HL.Uint16())))
-	})
-	// 0x35 - DEC (HL)
-	InstructionSet[0x35] = NewInstruction("DEC (HL)", 1, 3, func(c *CPU, operands []byte) {
-		c.mmu.Write(c.HL.Uint16(), c.decrement(c.mmu.Read(c.HL.Uint16())))
-	})
-	// 0x39 - ADD HL, SP
-	InstructionSet[0x39] = NewInstruction("ADD HL, SP", 1, 2, func(c *CPU, operands []byte) {
-		c.HL.SetUint16(c.addUint16(c.HL.Uint16(), c.SP))
-	})
-	// 0x3B - DEC SP
-	InstructionSet[0x3B] = NewInstruction("DEC SP", 1, 2, func(c *CPU, operands []byte) {
-		c.SP--
-	})
-	// 0x3C - INC A
-	InstructionSet[0x3C] = NewInstruction("INC A", 1, 1, func(c *CPU, operands []byte) {
-		c.incrementN(&c.A)
-	})
-	// 0x3D - DEC A
-	InstructionSet[0x3D] = NewInstruction("DEC A", 1, 1, func(c *CPU, operands []byte) {
-		c.decrementN(&c.A)
-	})
-	// 0xC1 - POP BC
-	InstructionSet[0xC1] = NewInstruction("POP BC", 1, 3, func(c *CPU, operands []byte) {
-		c.popNN(&c.B, &c.C)
-	})
-	// 0xC5 - PUSH BC
-	InstructionSet[0xC5] = NewInstruction("PUSH BC", 1, 4, func(c *CPU, operands []byte) {
-		c.pushNN(c.B, c.C)
-	})
-	// 0xD1 - POP DE
-	InstructionSet[0xD1] = NewInstruction("POP DE", 1, 3, func(c *CPU, operands []byte) {
-		c.popNN(&c.D, &c.E)
-	})
-	// 0xD5 - PUSH DE
-	InstructionSet[0xD5] = NewInstruction("PUSH DE", 1, 4, func(c *CPU, operands []byte) {
-		c.pushNN(c.D, c.E)
-	})
-	// 0xE1 - POP HL
-	InstructionSet[0xE1] = NewInstruction("POP HL", 1, 3, func(c *CPU, operands []byte) {
-		c.popNN(&c.H, &c.L)
-	})
-	// 0xE5 - PUSH HL
-	InstructionSet[0xE5] = NewInstruction("PUSH HL", 1, 4, func(c *CPU, operands []byte) {
-		c.pushNN(c.H, c.L)
-	})
-	// 0xF1 - POP AF
-	InstructionSet[0xF1] = NewInstruction("POP AF", 1, 3, func(c *CPU, operands []byte) {
-		c.popNN(&c.A, &c.F)
-	})
-	// 0xF5 - PUSH AF
-	InstructionSet[0xF5] = NewInstruction("PUSH AF", 1, 4, func(c *CPU, operands []byte) {
-		c.pushNN(c.A, c.F)
-	})
-	// 0xE8 - ADD SP, n
+	InstructionSet[0x03] = NewInstruction("INC BC", 1, 2, func(c *CPU) { c.incrementNN(c.BC) })
+	InstructionSet[0x04] = NewInstruction("INC B", 1, 1, func(c *CPU) { c.incrementN(&c.B) })
+	InstructionSet[0x05] = NewInstruction("DEC B", 1, 1, func(c *CPU) { c.decrementN(&c.B) })
+	InstructionSet[0x09] = NewInstruction("ADD HL, BC", 1, 2, func(c *CPU) { c.addHL(c.BC) })
+	InstructionSet[0x0B] = NewInstruction("DEC BC", 1, 2, func(c *CPU) { c.decrementNN(c.BC) })
+	InstructionSet[0x0C] = NewInstruction("INC C", 1, 1, func(c *CPU) { c.incrementN(&c.C) })
+	InstructionSet[0x0D] = NewInstruction("DEC C", 1, 1, func(c *CPU) { c.decrementN(&c.C) })
+	InstructionSet[0x13] = NewInstruction("INC DE", 1, 2, func(c *CPU) { c.incrementNN(c.DE) })
+	InstructionSet[0x14] = NewInstruction("INC D", 1, 1, func(c *CPU) { c.incrementN(&c.D) })
+	InstructionSet[0x15] = NewInstruction("DEC D", 1, 1, func(c *CPU) { c.decrementN(&c.D) })
+	InstructionSet[0x19] = NewInstruction("ADD HL, DE", 1, 2, func(c *CPU) { c.addHL(c.DE) })
+	InstructionSet[0x1B] = NewInstruction("DEC DE", 1, 2, func(c *CPU) { c.decrementNN(c.DE) })
+	InstructionSet[0x1C] = NewInstruction("INC E", 1, 1, func(c *CPU) { c.incrementN(&c.E) })
+	InstructionSet[0x1D] = NewInstruction("DEC E", 1, 1, func(c *CPU) { c.decrementN(&c.E) })
+	InstructionSet[0x23] = NewInstruction("INC HL", 1, 2, func(c *CPU) { c.incrementNN(c.HL) })
+	InstructionSet[0x24] = NewInstruction("INC H", 1, 1, func(c *CPU) { c.incrementN(&c.H) })
+	InstructionSet[0x25] = NewInstruction("DEC H", 1, 1, func(c *CPU) { c.decrementN(&c.H) })
+	InstructionSet[0x29] = NewInstruction("ADD HL, HL", 1, 2, func(c *CPU) { c.addHL(c.HL) })
+	InstructionSet[0x2B] = NewInstruction("DEC HL", 1, 2, func(c *CPU) { c.decrementNN(c.HL) })
+	InstructionSet[0x2C] = NewInstruction("INC L", 1, 1, func(c *CPU) { c.incrementN(&c.L) })
+	InstructionSet[0x2D] = NewInstruction("DEC L", 1, 1, func(c *CPU) { c.decrementN(&c.L) })
+	InstructionSet[0x33] = NewInstruction("INC SP", 1, 2, func(c *CPU) { c.SP++ })
+	InstructionSet[0x34] = NewInstruction("INC (HL)", 1, 3, func(c *CPU) { c.mmu.Write(c.HL.Uint16(), c.increment(c.mmu.Read(c.HL.Uint16()))) })
+	InstructionSet[0x35] = NewInstruction("DEC (HL)", 1, 3, func(c *CPU) { c.mmu.Write(c.HL.Uint16(), c.decrement(c.mmu.Read(c.HL.Uint16()))) })
+	InstructionSet[0x39] = NewInstruction("ADD HL, SP", 1, 2, func(c *CPU) { c.HL.SetUint16(c.addUint16(c.HL.Uint16(), c.SP)) })
+	InstructionSet[0x3B] = NewInstruction("DEC SP", 1, 2, func(c *CPU) { c.SP-- })
+	InstructionSet[0x3C] = NewInstruction("INC A", 1, 1, func(c *CPU) { c.incrementN(&c.A) })
+	InstructionSet[0x3D] = NewInstruction("DEC A", 1, 1, func(c *CPU) { c.decrementN(&c.A) })
+	InstructionSet[0xC1] = NewInstruction("POP BC", 1, 3, func(c *CPU) { c.popNN(&c.B, &c.C) })
+	InstructionSet[0xC5] = NewInstruction("PUSH BC", 1, 4, func(c *CPU) { c.pushNN(c.B, c.C) })
+	InstructionSet[0xD1] = NewInstruction("POP DE", 1, 3, func(c *CPU) { c.popNN(&c.D, &c.E) })
+	InstructionSet[0xD5] = NewInstruction("PUSH DE", 1, 4, func(c *CPU) { c.pushNN(c.D, c.E) })
+	InstructionSet[0xE1] = NewInstruction("POP HL", 1, 3, func(c *CPU) { c.popNN(&c.H, &c.L) })
+	InstructionSet[0xE5] = NewInstruction("PUSH HL", 1, 4, func(c *CPU) { c.pushNN(c.H, c.L) })
+	InstructionSet[0xF1] = NewInstruction("POP AF", 1, 3, func(c *CPU) { c.popNN(&c.A, &c.F) })
+	InstructionSet[0xF5] = NewInstruction("PUSH AF", 1, 4, func(c *CPU) { c.pushNN(c.A, c.F) })
 	InstructionSet[0xE8] = NewInstruction("ADD SP, n", 2, 4, func(c *CPU, operands []byte) {
 		c.SP = c.addUint16Signed(c.SP, int8(operands[0]))
 	})

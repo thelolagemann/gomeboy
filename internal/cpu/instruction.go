@@ -8,12 +8,19 @@ type Instruction struct {
 	name   string
 	length uint8
 	cycles uint8
-	fn     func(cpu *CPU, operands []byte)
+	fn     interface{}
 }
 
 // Execute executes the instruction
 func (i Instruction) Execute(cpu *CPU, operands []byte) {
-	i.fn(cpu, operands)
+	switch fn := i.fn.(type) {
+	case func(*CPU, []byte):
+		fn(cpu, operands)
+	case func(*CPU):
+		fn(cpu)
+	default:
+		panic(fmt.Sprintf("invalid instruction function type %T", fn))
+	}
 }
 
 // Name returns the name of the instruction
@@ -32,7 +39,7 @@ func (i Instruction) Cycles() uint8 {
 }
 
 // NewInstruction creates a new Instruction
-func NewInstruction(name string, length uint8, cycles uint8, fn func(*CPU, []byte)) Instruction {
+func NewInstruction(name string, length uint8, cycles uint8, fn interface{}) Instruction {
 	return Instruction{
 		name:   name,
 		length: length,

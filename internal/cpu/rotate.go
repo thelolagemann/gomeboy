@@ -14,17 +14,19 @@ package cpu
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeft(value uint8) uint8 {
-	result := value << 1
-	if value&0x80 == 0x80 {
+	// get carry
+	carry := value >> 7
+	rotated := (value<<1)&0xFF | carry
+	c.clearFlag(FlagSubtract)
+	c.clearFlag(FlagHalfCarry)
+	c.shouldZeroFlag(rotated)
+
+	if carry == 1 {
 		c.setFlag(FlagCarry)
-		result ^= 0x01
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	c.shouldZeroFlag(result)
-	return result
+	return rotated
 }
 
 // rotateRight rotates the given value right by 1 bit. The most significant bit is
