@@ -5,6 +5,7 @@ package gameboy
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"github.com/thelolagemann/go-gameboy/internal/display"
@@ -14,7 +15,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"time"
@@ -33,6 +33,7 @@ type GameBoy struct {
 	MMU *mmu.MMU
 	ppu *ppu.PPU
 
+	APU        *apu.APU
 	Joypad     *joypad.State
 	Interrupts *io.Interrupts
 	Timer      *timer.Controller
@@ -69,7 +70,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	pad := joypad.New(interrupt)
 	serial := io.NewSerial()
 	timerCtl := timer.NewController(interrupt)
-	memBus := mmu.NewMMU(cart, pad, serial, timerCtl, interrupt, ram.NewRAM(0x2000))
+	sound := apu.NewAPU()
+	memBus := mmu.NewMMU(cart, pad, serial, timerCtl, interrupt, sound)
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
 
@@ -78,6 +80,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		MMU: memBus,
 		ppu: video,
 
+		APU:        sound,
 		Joypad:     pad,
 		Interrupts: interrupt,
 		Timer:      timerCtl,
@@ -160,6 +163,7 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		cycles += uint(cyclesCPU)
 		g.ppu.Step(uint16(cyclesCPU))
 		g.Timer.Step(cyclesCPU)
+		g.APU.Step(int(cyclesCPU), 1)
 		g.DoInterrupts()
 	}
 

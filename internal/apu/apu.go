@@ -8,20 +8,28 @@ import (
 )
 
 const (
+	// sampleRate is the sample rate of the audio.
 	sampleRate = 44100
-	twoPi      = 2 * math.Pi
-	perSample  = 1 / float64(sampleRate)
-
-	cpuTicksPerSample    = float64(4194304) / float64(sampleRate)
-	maxFrameBufferLength = 5000
+	// twoPi is 2 * Pi.
+	twoPi = 2 * math.Pi
+	// perSample is the number of samples per second.
+	perSample = 1 / float64(sampleRate)
+	// cpuTicksPerSample is the number of CPU ticks per sample.
+	cpuTicksPerSample = float64(4194304) / float64(sampleRate)
+	// maxFrameBuffer is the maximum size of the frame buffer.
+	maxFrameBuffer = 5000
 )
 
-// APU represents the GameBoy's audio processing unit. It comprises of 4
+// APU represents the GameBoy's audio processing unit. It comprises 4
 // channels: 2 pulse channels, a wave channel and a noise channel. Each
-// channel has its own registers.
+// channel has is controlled by a set of registers.
+//
+// Channel 1 and 2 are both square channels. They can be used to play
+// tones of different frequencies. Channel 3 is an arbitrary waveform
+// channel that can be set in RAM. Channel 4 is a noise channel that
+// can be used to play white noise.
 type APU struct {
 	playing bool
-	enabled bool
 
 	memory      [52]byte
 	waveformRam []byte
@@ -37,13 +45,13 @@ type APU struct {
 // NewAPU returns a new APU.
 func NewAPU() *APU {
 	a := &APU{
-		playing:     false,
+		playing:     true,
 		waveformRam: make([]byte, 0x20),
-		audioBuffer: make(chan [2]byte, maxFrameBufferLength),
+		audioBuffer: make(chan [2]byte, maxFrameBuffer),
 	}
 
 	// Initialize waveform RAM
-	for i := 0; i < 0x20; i++ {
+	for i := 0x0; i < 0x20; i++ {
 		if i&2 == 0 {
 			a.waveformRam[i] = 0x00
 		} else {
@@ -60,21 +68,21 @@ func NewAPU() *APU {
 	const bufferSeconds = 120
 
 	// Initialize audio player
-	if ctx, err := oto.NewContext(sampleRate, 2, 1, bufferSeconds*sampleRate); err != nil {
+	if ctx, err := oto.NewContext(sampleRate, 2, 1, sampleRate/bufferSeconds); err != nil {
 		panic(err)
 	} else {
 		a.player = ctx.NewPlayer()
+		a.playSounds(bufferSeconds)
 	}
 
 	return a
 }
 
-// PlaySounds starts a goroutine that will play the audio.
-func (a *APU) PlaySounds(bufferSeconds int) {
+// playSounds starts a goroutine that will play the audio.
+func (a *APU) playSounds(bufferSeconds int) {
 	frameTime := time.Second / time.Duration(bufferSeconds)
 	ticker := time.NewTicker(frameTime)
 	targetSamples := sampleRate / bufferSeconds
-	a.playing = true
 
 	go func() {
 		var reading [2]byte
@@ -101,8 +109,8 @@ func (a *APU) PlaySounds(bufferSeconds int) {
 
 // Step advances the APU by the given number of CPU ticks and
 // speed given.
-func (a *APU) Step(ticks int, speed float64) {
-	if !a.playing || !a.enabled {
+func (a *APU) Step(ticks int, speed int) {
+	if !a.playing {
 		return
 	}
 
@@ -158,36 +166,41 @@ var channel3Volume = map[byte]float64{
 
 // Read returns the value at the given address.
 func (a *APU) Read(address uint16) uint8 {
-	fmt.Println("Read APU", address)
 	if address >= 0xFF30 {
 		return a.waveformRam[address-0xFF30]
 	}
-	return a.memory[address-0xFF10] & soundMask[address-0xFF10]
+	return a.memory[address-0xFF00] & soundMask[address-0xFF10]
 }
 
 // Write writes the value to the given address.
 func (a *APU) Write(address uint16, value uint8) {
-	fmt.Printf("write APU %04X %02X\n", address, value)
-	a.memory[address-0xFF10] = value
+	if address < 0xFF30 {
+		a.memory[address-0xFF00] = value
+	}
 	switch address {
 	// Channel 1
 	case 0xFF10:
+		// Sweep period, negate, shift
 		a.chan1.sweepStepLen = (a.memory[0x10] & 0b111_0000) >> 4
 		a.chan1.sweepSteps = a.memory[0x10] & 0b111
-		a.chan1.sweepIncrease = a.memory[0x10]&0b1000 != 0
+		a.chan1.sweepIncrease = a.memory[0x10]&0b1000 == 0
 	case 0xFF11:
+		// Sound length, wave pattern duty
 		duty := (value & 0b1100_0000) >> 6
 		a.chan1.generator = Square(squareLimits[duty])
 		a.chan1.length = int(value & 0b0011_1111)
 	case 0xFF12:
+		// Envelope initial volume, direction, sweep length
 		envVolume, envDirection, envSweep := a.extractEnvelope(value)
 		a.chan1.envVolume = int(envVolume)
 		a.chan1.envSamples = int(envSweep) * sampleRate / 64
 		a.chan1.envIncrease = envDirection == 1
 	case 0xFF13:
+		// Frequency low
 		frequencyValue := uint16(a.memory[0x14]&0b111)<<8 | uint16(value)
 		a.chan1.frequency = 131072 / (2048 - float64(frequencyValue))
 	case 0xFF14:
+		// Frequency high, initial, counter/consecutive
 		frequencyValue := uint16(value&0b111)<<8 | uint16(a.memory[0x13])
 		a.chan1.frequency = 131072 / (2048 - float64(frequencyValue))
 		if value&0b1000_0000 != 0 {
@@ -203,21 +216,26 @@ func (a *APU) Write(address uint16, value uint8) {
 			a.chan1.envSteps = a.chan1.envVolume
 			a.chan1.envStepsInit = a.chan1.envVolume
 		}
+	// Channel 2
 	case 0xFF15:
 		// unused
 	case 0xFF16:
+		// Sound length, wave pattern duty
 		pattern := (value & 0b1100_0000) >> 6
 		a.chan2.generator = Square(squareLimits[pattern])
-		a.chan2.length = int(value & 0b0011_1111)
+		a.chan2.length = int(value & 0b11_1111)
 	case 0xFF17:
+		// Envelope initial volume, direction, sweep length
 		envVolume, envDirection, envSweep := a.extractEnvelope(value)
 		a.chan2.envVolume = int(envVolume)
 		a.chan2.envSamples = int(envSweep) * sampleRate / 64
 		a.chan2.envIncrease = envDirection == 1
 	case 0xFF18:
+		// Frequency low
 		frequencyValue := uint16(a.memory[0x19]&0b111)<<8 | uint16(value)
 		a.chan2.frequency = 131072 / (2048 - float64(frequencyValue))
 	case 0xFF19:
+		// Frequency high, initial, counter/consecutive
 		if value&0b1000_0000 != 0 {
 			if a.chan2.length == 0 {
 				a.chan2.length = 64
@@ -233,18 +251,23 @@ func (a *APU) Write(address uint16, value uint8) {
 		}
 		frequencyValue := uint16(value&0b111)<<8 | uint16(a.memory[0x18])
 		a.chan2.frequency = 131072 / (2048 - float64(frequencyValue))
-
+	// Channel 3
 	case 0xFF1A:
+		// DAC power
 		a.chan3.envStepsInit = int((value & 0b1000_0000) >> 7)
 	case 0xFF1B:
+		// Sound length
 		a.chan3.length = int(value)
 	case 0xFF1C:
+		// Volume code
 		selection := (value & 0b110_0000) >> 5
 		a.chan3.amplitude = channel3Volume[selection]
 	case 0xFF1D:
+		// Frequency low
 		frequencyValue := uint16(a.memory[0x1E]&0b111)<<8 | uint16(value)
 		a.chan3.frequency = 65536 / (2048 - float64(frequencyValue))
 	case 0xFF1E:
+		// Frequency high, initial, counter/consecutive
 		if value&0b1000_0000 != 0 {
 			if a.chan3.length == 0 {
 				a.chan3.length = 256
@@ -259,27 +282,32 @@ func (a *APU) Write(address uint16, value uint8) {
 		}
 		frequencyValue := uint16(value&0b111)<<8 | uint16(a.memory[0x1D])
 		a.chan3.frequency = 65536 / (2048 - float64(frequencyValue))
+	// Channel 4
 	case 0xFF1F:
 		// unused
 	case 0xFF20:
+		// Sound length
 		a.chan4.length = int(value & 0b11_1111)
 	case 0xFF21:
+		// Envelope initial volume, direction, sweep length
 		envVolume, envDirection, envSweep := a.extractEnvelope(value)
 		a.chan4.envVolume = int(envVolume)
 		a.chan4.envSamples = int(envSweep) * sampleRate / 64
 		a.chan4.envIncrease = envDirection == 1
 	case 0xFF22:
+		// Polynomial counter, shift clock frequency
 		shiftClock := float64((value & 0b1111_0000) >> 4)
 		divRation := float64(value & 0b111)
 		if divRation == 0 {
 			divRation = 0.5
 		}
-		a.chan4.frequency = 524288 / (divRation * math.Pow(2, shiftClock))
+		a.chan4.frequency = 524288 / divRation / math.Pow(2, shiftClock+1)
 	case 0xFF23:
+		// Counter/consecutive, initial
 		if value&0x80 == 0x80 {
 			duration := -1
 			if value&0b100_0000 != 0 {
-				duration = int(float64(61-a.chan4.length)*(1/64)) * sampleRate
+				duration = int(float64(61-a.chan4.length)*(1/256)) * sampleRate
 			}
 			a.chan4.generator = Noise()
 			a.chan4.Reset(duration)
@@ -287,6 +315,7 @@ func (a *APU) Write(address uint16, value uint8) {
 			a.chan4.envStepsInit = a.chan4.envVolume
 		}
 	case 0xFF24:
+		// Channel control / ON-OFF / Volume
 		a.lVol = float64((a.memory[0x24]&0x70)>>4) / 7
 		a.rVol = float64(a.memory[0x24]&0x7) / 7
 	case 0xFF25:
@@ -299,9 +328,16 @@ func (a *APU) Write(address uint16, value uint8) {
 		a.chan3.onL = value&0x40 != 0
 		a.chan4.onL = value&0x80 != 0
 	case 0xFF26:
-		a.enabled = value&0x80 != 0
+		a.playing = value&0x80 != 0
 	default:
-		panic(fmt.Sprintf("unhandled write to %04X", address))
+		switch {
+		case address >= 0xFF30 && address <= 0xFF3F:
+			soundIndex := (address - 0xFF30) * 2
+			a.waveformRam[soundIndex] = (value >> 4) & 0xF * 0x11
+			a.waveformRam[soundIndex+1] = value & 0xF * 0x11
+		default:
+			panic(fmt.Sprintf("unhandled sound register write: %X", address))
+		}
 	}
 }
 
@@ -309,7 +345,7 @@ func (a *APU) Write(address uint16, value uint8) {
 // from the given byte.
 func (a *APU) extractEnvelope(value uint8) (volume, direction, sweep byte) {
 	volume = (value & 0xF0) >> 4
-	direction = (value & 0x08) >> 3
-	sweep = value & 0x07
+	direction = (value & 0x8) >> 3
+	sweep = value & 0x7
 	return
 }

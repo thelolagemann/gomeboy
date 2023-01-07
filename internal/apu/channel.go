@@ -1,7 +1,10 @@
 package apu
 
-import "math"
+import (
+	"math"
+)
 
+// A Channel represents a single audio channel.
 type Channel struct {
 	frequency float64
 	generator WaveGenerator
@@ -41,6 +44,9 @@ func (c *Channel) Sample() (outputL, outputR uint16) {
 	var output uint16
 	step := c.frequency * twoPi / sampleRate
 	c.time += step
+	if c.shouldPlay() {
+		output = uint16(float64(c.generator(c.time)) * c.amplitude)
+	}
 
 	if c.duration > 0 {
 		c.duration--
@@ -54,6 +60,12 @@ func (c *Channel) Sample() (outputL, outputR uint16) {
 		outputR = output
 	}
 	return
+}
+
+// shouldPlay returns true if the channel should play.
+func (c *Channel) shouldPlay() bool {
+	return (c.duration == -1 || c.duration > 0) &&
+		c.generator != nil && c.envStepsInit > 0
 }
 
 // updateEnvelope updates the envelope of the channel.
@@ -96,9 +108,9 @@ func (c *Channel) updateSweep() {
 			c.sweepStep++
 
 			if c.sweepIncrease {
-				c.frequency += c.frequency / math.Pow(2, float64(c.sweepSteps))
+				c.frequency += c.frequency / math.Pow(2, float64(c.sweepStep))
 			} else {
-				c.frequency -= c.frequency / math.Pow(2, float64(c.sweepSteps))
+				c.frequency -= c.frequency / math.Pow(2, float64(c.sweepStep))
 			}
 		}
 	}
