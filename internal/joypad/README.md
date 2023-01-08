@@ -1,8 +1,24 @@
-# Joypad  
+# Joypad
 
 The joypad package provides an implementation of the Game Boy joypad. It is 
 responsible for selecting the correct button input based on the Joypad Register
 and the current state of the buttons.
+
+### Hardware Registers
+
+The joypad has only 1 register mapped to memory address `0xFF00`, and is laid
+out as follows:
+
+| Bit | Button     | State                                 |
+|-----|------------|---------------------------------------|
+| 0   | Right/A    | 0 = Pressed (Read Only)               |
+| 1   | Left/B     | 0 = Pressed (Read Only)               |
+| 2   | Up/Select  | 0 = Pressed (Read Only)               |
+| 3   | Down/Start | 0 = Pressed (Read Only)               |
+| 4   | Row Select | 0 = Selection Directions (Write Only) |
+| 5   | Row Select | 0 = Select Actions (Write Only)       |
+| 6   | Not Used   | 1 = Not Used (Read Only)              |
+| 7   | Not Used   | 1 = Not Used (Read Only)              |
 
 ## How it works
 
@@ -17,20 +33,6 @@ So if the up button is pressed, the joypad register will return `0b1110_1011`.
 Similarly, writing `0b1101_1111` and reading from the joypad register will return
 the state of the A, B, select and start buttons. If the A button is pressed, the
 joypad register will return `0b1101_1110`.
-
-The joypad register is mapped to memory address `0xFF00`, and is laid out as
-follows:
-
-| Bit | Button     | State                                 |
-|-----|------------|---------------------------------------|
-| 0   | Right/A    | 0 = Pressed (Read Only)               |
-| 1   | Left/B     | 0 = Pressed (Read Only)               |
-| 2   | Up/Select  | 0 = Pressed (Read Only)               |
-| 3   | Down/Start | 0 = Pressed (Read Only)               |
-| 4   | Row Select | 0 = Selection Directions (Write Only) |
-| 5   | Row Select | 0 = Select Actions (Write Only)       |
-| 6   | Not Used   | 1 = Not Used (Read Only)              |
-| 7   | Not Used   | 1 = Not Used (Read Only)              |
 
 ## How it's implemented
 
