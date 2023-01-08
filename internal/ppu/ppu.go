@@ -407,6 +407,11 @@ func (p *PPU) renderSprites() {
 
 				colour := palette.GetColour(colourNum)
 
+				// index 0 is transparent for sprites
+				if colourNum == 0 {
+					continue
+				}
+
 				xPix := 0 - int(tilePixel)
 				xPix += 7
 
