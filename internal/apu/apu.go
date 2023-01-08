@@ -99,9 +99,11 @@ func (a *APU) playSounds(bufferSeconds int) {
 				}
 				buffer = newBuffer
 			}
-			_, err := a.player.Write(buffer)
-			if err != nil {
-				panic(err)
+			if a.playing {
+				_, err := a.player.Write(buffer)
+				if err != nil {
+					panic(err)
+				}
 			}
 		}
 	}()
@@ -348,4 +350,14 @@ func (a *APU) extractEnvelope(value uint8) (volume, direction, sweep byte) {
 	direction = (value & 0x8) >> 3
 	sweep = value & 0x7
 	return
+}
+
+// Pause pauses the APU.
+func (a *APU) Pause() {
+	a.playing = false
+}
+
+// Play resumes the APU.
+func (a *APU) Play() {
+	a.playing = true
 }

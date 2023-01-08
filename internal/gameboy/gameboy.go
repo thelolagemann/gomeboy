@@ -138,6 +138,11 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 		},
 		9: func() {
 			g.paused = !g.paused
+			if g.paused {
+				g.APU.Pause()
+			} else {
+				g.APU.Play()
+			}
 		},
 	}
 }
@@ -218,9 +223,6 @@ func (g *GameBoy) serviceInterrupt(interrupt uint8) {
 	// save the current execution address by pushing it to the stack
 	g.CPU.PushStack(g.CPU.PC)
 
-	if interrupt != uint8(interrupts.VBlankFlag) {
-		fmt.Println("Interrupt", interrupt)
-	}
 	// jump to the interrupt handler
 	switch interrupt {
 	case 0:

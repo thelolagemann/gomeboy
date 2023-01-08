@@ -99,6 +99,7 @@ var keyMap = map[pixelgl.Button]Input{
 	pixelgl.KeyDown:      joypad.ButtonDown,
 
 	pixelgl.KeyC: CyclePalette,
+	pixelgl.KeyP: Pause,
 }
 
 type Inputs struct {
@@ -110,6 +111,7 @@ type Input = uint8
 const (
 	// CyclePalette changes the palette
 	CyclePalette Input = iota + 8
+	Pause
 )
 
 // PollKeys polls the keys and returns the pressed and released keys.
