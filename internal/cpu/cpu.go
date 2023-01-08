@@ -2,7 +2,7 @@ package cpu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 )
 
@@ -15,10 +15,10 @@ type CPU struct {
 	mmu *mmu.MMU
 
 	stopped           bool
-	halted            bool
+	Halted            bool
 	interruptsEnabled bool
 
-	irq *io.Interrupts
+	irq *interrupts.Service
 }
 
 func (c *CPU) PopStack() uint16 {
@@ -34,7 +34,7 @@ func (c *CPU) PushStack(pc uint16) {
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *io.Interrupts) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service) *CPU {
 	c := &CPU{
 		PC: 0,
 		SP: 0,
@@ -50,7 +50,7 @@ func NewCPU(mmu *mmu.MMU, irq *io.Interrupts) *CPU {
 		},
 		mmu:     mmu,
 		stopped: false,
-		halted:  false,
+		Halted:  false,
 		irq:     irq,
 	}
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -153,7 +153,7 @@ func (c *CPU) registerName(reg *Register) string {
 // returns the number of cycles it took to execute.
 func (c *CPU) Step() uint8 {
 	// handle interrupts
-	if c.halted {
+	if c.Halted {
 		return 0x01
 	}
 
@@ -210,7 +210,7 @@ func (c *CPU) fetch() uint8 {
 //
 //	HALT
 func (c *CPU) halt() {
-	c.halted = true
+	c.Halted = true
 }
 
 // rst resets the CPU.

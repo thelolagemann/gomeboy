@@ -9,6 +9,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"github.com/thelolagemann/go-gameboy/internal/display"
+	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/io"
 	"github.com/thelolagemann/go-gameboy/internal/io/timer"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
@@ -35,7 +36,7 @@ type GameBoy struct {
 
 	APU        *apu.APU
 	Joypad     *joypad.State
-	Interrupts *io.Interrupts
+	Interrupts *interrupts.Service
 	Timer      *timer.Controller
 	Serial     *io.Serial
 
@@ -45,6 +46,8 @@ type GameBoy struct {
 
 	currentCycle uint
 	w            io2.Writer
+
+	paused bool
 }
 
 type GameBoyOpt func(gb *GameBoy)
@@ -66,7 +69,7 @@ func DisableROM() GameBoyOpt {
 // NewGameBoy returns a new GameBoy.
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	cart := cartridge.NewCartridge(rom)
-	interrupt := io.NewInterrupts()
+	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
 	serial := io.NewSerial()
 	timerCtl := timer.NewController(interrupt)
@@ -125,13 +128,18 @@ func (g *GameBoy) Start(mon *display.Display) {
 	}
 }
 
-var keyHandlers = map[uint8]func(){
-	8: func() {
-		palette.Current++
-		if palette.Current > 3 {
-			palette.Current = 0
-		}
-	},
+func (g *GameBoy) keyHandlers() map[uint8]func() {
+	return map[uint8]func(){
+		8: func() {
+			palette.Current++
+			if palette.Current > 3 {
+				palette.Current = 0
+			}
+		},
+		9: func() {
+			g.paused = !g.paused
+		},
+	}
 }
 
 // ProcessInputs processes the inputs.
@@ -139,7 +147,7 @@ func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 	for _, key := range inputs.Pressed {
 		// check if it's a gameboy key
 		if key > joypad.ButtonDown {
-			keyHandlers[key]()
+			g.keyHandlers()[key]()
 		} else {
 			g.Joypad.Press(key)
 		}
@@ -154,8 +162,10 @@ func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 // Update updates all the components of the Game Boy by the given number of cycles.
 func (g *GameBoy) Update(cyclesPerFrame uint) {
 	// TODO handle stopped
+	if g.paused {
+		return // TODO handle audio glitches
+	}
 	// TODO handle io
-	// TODO handle sound
 
 	cycles := uint(0)
 	for cycles < cyclesPerFrame {
@@ -164,34 +174,51 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		g.ppu.Step(uint16(cyclesCPU))
 		g.Timer.Step(cyclesCPU)
 		g.APU.Step(int(cyclesCPU), 1)
-		g.DoInterrupts()
+		cycles += uint(g.DoInterrupts())
 	}
 
 	// TODO handle save
 }
 
 // DoInterrupts handles all the interrupts.
-func (g *GameBoy) DoInterrupts() {
-	if g.Interrupts.IME {
-		if g.Interrupts.IF > 0 {
-			for i := uint8(0); i < 5; i++ {
-				if utils.Test(g.Interrupts.IF, i) && utils.Test(g.Interrupts.IE, i) {
-					g.serviceInterrupt(i)
-				}
+func (g *GameBoy) DoInterrupts() uint8 {
+	if g.Interrupts.Enabling {
+		g.Interrupts.IME = true
+		g.Interrupts.Enabling = false
+		return 0
+	}
+	if !g.Interrupts.IME && !g.CPU.Halted {
+		return 0
+	}
+
+	if g.Interrupts.Flag > 0 {
+		for i := uint8(0); i < 5; i++ {
+			if utils.Test(g.Interrupts.Flag, i) && utils.Test(g.Interrupts.Enable, i) {
+				g.serviceInterrupt(i)
+				return 20
 			}
 		}
 	}
+
+	return 0
 }
 
 // serviceInterrupt handles the given interrupt.
 func (g *GameBoy) serviceInterrupt(interrupt uint8) {
+	// if halted without IME, just clear the halt flag
+	if !g.Interrupts.IME && g.CPU.Halted {
+		g.CPU.Halted = false
+		return
+	}
+
 	g.Interrupts.IME = false
-	g.Interrupts.IF = utils.Reset(g.Interrupts.IF, interrupt)
+	g.CPU.Halted = false
+	g.Interrupts.Flag = utils.Reset(g.Interrupts.Flag, interrupt)
 
 	// save the current execution address by pushing it to the stack
 	g.CPU.PushStack(g.CPU.PC)
 
-	if interrupt != uint8(io.InterruptVBLFlag) {
+	if interrupt != uint8(interrupts.VBlankFlag) {
 		fmt.Println("Interrupt", interrupt)
 	}
 	// jump to the interrupt handler

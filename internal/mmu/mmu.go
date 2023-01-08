@@ -121,12 +121,8 @@ func (m *MMU) Read(address uint16) uint8 {
 	switch {
 	// BIOS (0x0000-0x00FF)
 	case address <= 0x00FF:
-		if !m.biosFinished && address <= 0x7FFF {
+		if !m.biosFinished {
 			return m.bios[address]
-		}
-		if address == 0x0100 {
-			m.biosFinished = true
-			panic(fmt.Sprintf("bios finished"))
 		}
 		return m.Cart.Read(address)
 	// ROM (0x0000-0x7FFF)
@@ -164,14 +160,14 @@ func (m *MMU) Read(address uint16) uint8 {
 		case address >= 0xFF04 && address <= 0xFF07:
 			return m.Timer.Read(address)
 		// Sound (0xFF10-0xFF3F)
-		case address >= 0xFF10 && address <= 0xFF3F:
+		case address >= 0xFF10 && address <= 0xFF26:
 			return m.Sound.Read(address)
 		case address == 0xFF0F:
 			return m.Interrupts.Read(address)
 		case address == 0xFF03:
 			return 0xFF
 		default:
-			panic(fmt.Sprintf("mmu\tillegal IO read at address 0x%04X", address))
+			return 0xFF
 		}
 	// GPU (0xFF40-0xFF4B)
 	case address >= 0xFF40 && address <= 0xFF4B:
@@ -234,8 +230,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 			m.Interrupts.Write(address, value)
 
 		case 0xFF10, 0xFF11, 0xFF12, 0xFF13, 0xFF14, 0xFF16, 0xFF17, 0xFF18, 0xFF19, 0xFF1A, 0xFF1B, 0xFF1C, 0xFF1D, 0xFF1E, 0xFF20, 0xFF21, 0xFF22, 0xFF23, 0xFF24, 0xFF25, 0xFF26:
-
-			return
+			m.Sound.Write(address, value)
 			// waveform RAM
 		case 0xFF30, 0xFF31, 0xFF32, 0xFF33, 0xFF34, 0xFF35, 0xFF36, 0xFF37, 0xFF38, 0xFF39, 0xFF3A, 0xFF3B, 0xFF3C, 0xFF3D, 0xFF3E, 0xFF3F:
 			m.Sound.Write(address, value)

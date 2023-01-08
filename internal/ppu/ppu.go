@@ -3,7 +3,7 @@ package ppu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/background"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
@@ -76,7 +76,7 @@ type PPU struct {
 	WindowX         uint8
 	WindowY         uint8
 
-	irq *io.Interrupts
+	irq *interrupts.Service
 
 	PreparedFrame [ScreenWidth][ScreenHeight][3]uint8
 
@@ -89,7 +89,7 @@ type PPU struct {
 	statInterruptDelay bool
 }
 
-func New(mmu mmu.IOBus, irq *io.Interrupts) *PPU {
+func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 	return &PPU{
 		Background:      background.NewBackground(),
 		Controller:      lcd.NewController(),
@@ -177,7 +177,7 @@ func (p *PPU) Step(cycles uint16) {
 
 		// if we've reached the start of the VBlank period, we need to set the VBlank interrupt flag
 		if p.CurrentScanline == 144 {
-			p.irq.Request(io.InterruptVBLFlag)
+			p.irq.Request(interrupts.VBlankFlag)
 		} else if p.CurrentScanline > 153 {
 			p.CurrentScanline = 0
 			p.renderFrame()
@@ -219,13 +219,13 @@ func (p *PPU) setLCDStatus() {
 
 	// if the current mode is different from the previous mode, we need to request an interrupt
 	if reqInt && currentMode != p.Status.Mode {
-		p.irq.Request(io.InterruptLCDFlag)
+		p.irq.Request(interrupts.LCDFlag)
 	}
 
 	// if LY == LYC, we need to set the coincidence flag and request an interrupt if necessary
 	if p.Status.CoincidenceInterrupt && p.CurrentScanline == p.LYCompare {
 		p.Coincidence = true
-		p.irq.Request(io.InterruptLCDFlag)
+		p.irq.Request(interrupts.LCDFlag)
 	} else {
 		p.Coincidence = false
 	}

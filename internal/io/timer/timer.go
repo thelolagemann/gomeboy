@@ -6,7 +6,7 @@ package timer
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 )
 
 const (
@@ -43,11 +43,11 @@ type Controller struct {
 	fallingEdge     bool // true if the falling edge of the clock signal was detected in the last step
 	carry           bool // true if the counter overflowed in the last step
 
-	irq *io.Interrupts // the interrupt controller
+	irq *interrupts.Service // the interrupt controller
 }
 
 // NewController returns a new controller.
-func NewController(irq *io.Interrupts) *Controller {
+func NewController(irq *interrupts.Service) *Controller {
 	return &Controller{
 		divider: 0,
 		counter: 0,
@@ -119,7 +119,7 @@ func (c *Controller) Step(cycles uint8) {
 		if c.overflowing {
 			// TIME: 4
 			c.counter = c.modulo
-			c.irq.Request(io.InterruptTimerFlag)
+			c.irq.Request(interrupts.TimerFlag)
 			c.carry = false
 			c.releaseOverflow = true
 		}

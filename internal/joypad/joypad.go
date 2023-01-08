@@ -5,7 +5,7 @@ package joypad
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/io"
+	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
@@ -58,11 +58,11 @@ type State struct {
 	// used for the direction buttons. A 0 in a bit indicates
 	// that the button is pressed.
 	State Button
-	irq   *io.Interrupts
+	irq   *interrupts.Service
 }
 
 // New returns a new joypad state.
-func New(irq *io.Interrupts) *State {
+func New(irq *interrupts.Service) *State {
 	return &State{
 		Register: 0b1100_1111,
 		State:    0b1111_1111,
@@ -104,7 +104,7 @@ func (s *State) Write(address uint16, value byte) {
 func (s *State) Press(button Button) {
 	// reset the button bit in the state (0 = pressed)
 	s.State = utils.Reset(s.State, button)
-	s.irq.Request(io.InterruptJoypadFlag)
+	s.irq.Request(interrupts.JoypadFlag)
 }
 
 // Release releases a button.
