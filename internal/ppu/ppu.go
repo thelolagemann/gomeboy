@@ -412,6 +412,11 @@ func (p *PPU) renderSprites() {
 
 				pixel := xPos + uint8(xPix)
 
+				// check within bounds
+				if pixel < 0 || pixel >= ScreenWidth || p.CurrentScanline < 0 || p.CurrentScanline >= ScreenHeight {
+					continue
+				}
+
 				p.screenData[pixel][p.CurrentScanline] = colour
 			}
 		}
