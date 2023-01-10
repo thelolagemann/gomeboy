@@ -84,8 +84,8 @@ type Header struct {
 }
 
 // parseHeader parses the header of the given ROM and returns a Header.
-func parseHeader(header []byte) Header {
-	h := Header{}
+func parseHeader(header []byte) *Header {
+	h := &Header{}
 
 	// check if the header is valid
 	if len(header) != 0x50 {
@@ -163,5 +163,5 @@ func (h *Header) Hardware() string {
 }
 
 func (h *Header) String() string {
-	return fmt.Sprintf("%s Mode: %s | ROM Size: %dkB | RAM Size: %dkB", h.Title, h.Hardware(), h.ROMSize, h.RAMSize)
+	return fmt.Sprintf("%s Mode: %s | ROM Size: %dkB | RAM Size: %dkB | Cart Type: %s", h.Title, h.Hardware(), h.ROMSize/1024, h.RAMSize/1024, h.CartridgeType)
 }

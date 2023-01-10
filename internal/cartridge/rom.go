@@ -1,7 +1,7 @@
 package cartridge
 
 // ROMCartridge represents a ROM cartridge. This cartridge type is the simplest
-// cartridge type and has no external RAM or MBC.
+// cartridge type and has no external RAM or MBCm.
 type ROMCartridge struct {
 	rom []byte
 }

@@ -92,11 +92,11 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 	}
 
 	// load bios depending on cartridge type
-	if cart.Header().SGBFlag {
+	if cart.Header().Hardware() == "CGB" {
 		// TODO load cgb bios
 	} else {
-		m.bios = gbBios[:]
 	}
+	m.bios = gbBios[:]
 
 	return m
 }
@@ -133,7 +133,7 @@ func (m *MMU) Read(address uint16) uint8 {
 		return m.vRAM.Read(address - 0x8000)
 	// External RAM (0xA000-0xBFFF)
 	case address <= 0xBFFF:
-		return 0
+		return m.Cart.Read(address)
 	// Working RAM (0xC000-0xDFFF)
 	case address <= 0xDFFF:
 		return m.iRAM.Read(address - 0xC000)
@@ -274,11 +274,6 @@ func (m *MMU) LoadCartridge(rom []byte) {
 	} else {
 		m.Cart = cartridge.NewCartridge(rom)
 	}
-}
-
-// DoHDMA performs a HDMA transfer during the HBlank period.
-func (m *MMU) DoHDMA() {
-
 }
 
 var gbBios = [0x100]uint8{
