@@ -67,7 +67,7 @@ func (c *Controller) Read(address uint16) uint8 {
 	case ModuloRegister:
 		return c.modulo
 	case ControlRegister:
-		return c.control
+		return c.control & 0b111
 	}
 
 	panic(fmt.Sprintf("timer: illegal read from address 0x%04X", address))
@@ -77,25 +77,15 @@ func (c *Controller) Read(address uint16) uint8 {
 func (c *Controller) Write(address uint16, value uint8) {
 	switch address {
 	case DividerRegister:
+		// writing to the divider register resets it
 		c.divider = 0
-		c.Step(0)
 	case CounterRegister:
-		if c.releaseOverflow {
-			return
-		}
 		c.counter = value
-		c.carry = false
-		c.overflowing = false
-		c.releaseOverflow = false
 	case ModuloRegister:
-		if c.releaseOverflow {
-			c.counter = value
-		}
 		c.modulo = value
 	case ControlRegister:
-		c.control = value & 0x7
-		c.Step(0)
-		c.Step(0)
+		// only the lower 3 bits are writable
+		c.control = value & 0b111
 	default:
 		panic(fmt.Sprintf("timer: illegal write to address 0x%04X", address))
 	}
@@ -103,37 +93,33 @@ func (c *Controller) Write(address uint16, value uint8) {
 
 // Step steps the timer by the specified number of cycles.
 func (c *Controller) Step(cycles uint8) {
-	for i := 0; i*4 < int(cycles); i++ {
-		// increment the divider register by the specified number of cycles (16384Hz)
-		c.divider += uint16(4)
+	// update DIV 16 bit value (always incrementing at 16384Hz)
+	c.divider += uint16(cycles)
 
-		// get the clock signal
-		signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
+	// handle delayed IRQ
+	if c.irq.Enabling {
+		c.irq.Enabling = false
+		c.irq.IME = true
+	}
 
-		if c.releaseOverflow {
-			// TIME: 8
-			c.overflowing = false
-			c.releaseOverflow = false
-		}
+	// handle TIMA overflow during last cycle
+	if c.overflowing {
+		c.overflowing = false
+		c.counter = c.modulo
+		c.irq.Request(interrupts.TimerFlag)
+	}
 
-		if c.overflowing {
-			// TIME: 4
-			c.counter = c.modulo
-			c.irq.Request(interrupts.TimerFlag)
-			c.carry = false
-			c.releaseOverflow = true
-		}
+	// update the timer's value at certain frequencies (specified by the control register)
+	freq := c.getMultiplexerMask()
+	increaseTima := ((c.divider + uint16(cycles)) / freq) - (c.divider / freq)
 
-		if c.detectFallingEdge(signal) {
-			c.counter++
-			// for a brief period (1 cycle/4 clocks) TIMA has the value 0
-			if c.counter == 0x0 && c.carry {
-				// TIME: 0
-				c.overflowing = true
-			} else if c.counter == 0x0 {
-				// TIME: 0 about to overflow
-				c.carry = true
-			}
+	// if bit 2 of the control register is set, the timer is enabled
+	if c.isEnabled() {
+		if c.counter == 0xFF {
+			c.overflowing = true
+			c.divider = 0
+		} else {
+			c.counter += uint8(increaseTima)
 		}
 	}
 }
@@ -141,13 +127,6 @@ func (c *Controller) Step(cycles uint8) {
 // isEnabled returns true if the timer is enabled.
 func (c *Controller) isEnabled() bool {
 	return c.control&0x4 > 0
-}
-
-// detectFallingEdge detects the falling edge of the clock signal.
-func (c *Controller) detectFallingEdge(signal bool) bool {
-	result := !signal && c.fallingEdge
-	c.fallingEdge = signal
-	return result
 }
 
 // getMultiplexerMask returns the multiplexer mask.
