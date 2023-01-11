@@ -38,10 +38,7 @@ type Controller struct {
 	modulo  uint8 // the modulo register (TMA)
 	control uint8 // the control register (TAC)
 
-	releaseOverflow bool // true if the counter overflowed in the last step
-	overflowing     bool // true if the counter is overflowing
-	fallingEdge     bool // true if the falling edge of the clock signal was detected in the last step
-	carry           bool // true if the counter overflowed in the last step
+	overflowing bool // true if the timer overflowed during the last cycle
 
 	irq *interrupts.Service // the interrupt controller
 }
@@ -109,17 +106,14 @@ func (c *Controller) Step(cycles uint8) {
 		c.irq.Request(interrupts.TimerFlag)
 	}
 
-	// update the timer's value at certain frequencies (specified by the control register)
-	freq := c.getMultiplexerMask()
-	increaseTima := ((c.divider + uint16(cycles)) / freq) - (c.divider / freq)
-
-	// if bit 2 of the control register is set, the timer is enabled
 	if c.isEnabled() {
 		if c.counter == 0xFF {
 			c.overflowing = true
 			c.divider = 0
 		} else {
-			c.counter += uint8(increaseTima)
+			// update the timer's value at certain frequencies (specified by the control register)
+			freq := c.getMultiplexerMask()
+			c.counter += uint8(((c.divider + uint16(cycles)) / freq) - (c.divider / freq))
 		}
 	}
 }
