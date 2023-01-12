@@ -4,7 +4,10 @@ package cartridge
 
 import (
 	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"time"
 )
 
 type Cartridge struct {
@@ -34,7 +37,35 @@ func (c *Cartridge) Title() string {
 // Filename returns the filename for the save file. This is
 // simply an md5 hash of the cartridge title.
 func (c *Cartridge) Filename() string {
-	return string(md5.New().Sum([]byte(c.Title()))) + ".sav"
+	hash := md5.Sum([]byte(c.Title()))
+	return fmt.Sprintf("%s.sav", hex.EncodeToString(hash[:]))
+}
+
+func (c *Cartridge) init() {
+	if ram, ok := c.MemoryBankController.(RAMController); ok {
+		// setup the cartridge RAM
+		saveData, err := os.ReadFile(c.Filename())
+		if err != nil && !os.IsNotExist(err) {
+			panic(err)
+		}
+
+		ram.Load(saveData)
+
+		ticker := time.NewTicker(5 * time.Second)
+		go func() {
+			for range ticker.C {
+				c.Save()
+			}
+		}()
+	}
+}
+
+// Save saves the cartridge RAM to a file.
+func (c *Cartridge) Save() {
+	data := c.MemoryBankController.(RAMController).Save()
+	if err := os.WriteFile(c.Filename(), data, 0644); err != nil {
+		panic(err)
+	}
 }
 
 func NewCartridge(rom []byte) *Cartridge {
@@ -51,15 +82,12 @@ func NewCartridge(rom []byte) *Cartridge {
 	case MBC1, MBC1RAM, MBC1RAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge1(rom, header)
 	case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
-		cart.MemoryBankController = NewMemoryBankedCartridge3(rom)
+		cart.MemoryBankController = NewMemoryBankedCartridge3(rom, header)
 	default:
 		panic(fmt.Sprintf("cartridge type %d not implemented", header.CartridgeType))
 	}
 
-	// handle saving and loading of external RAM
-	switch header.CartridgeType {
-	case MBC1RAMBATT, MBC2BATT, ROMRAMBATT, MBC3TIMERBATT:
-	}
+	cart.init()
 
 	return cart
 }
