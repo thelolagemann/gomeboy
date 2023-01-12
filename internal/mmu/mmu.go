@@ -92,7 +92,7 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 	// load boot depending on cartridge type
 	if cart.Header().Hardware() == "CGB" {
 		// TODO load cgb boot
-		panic("cgb boot not implemented")
+		m.bios = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBiosChecksum)
 	} else {
 		// load dmg boot
 		m.bios = boot.NewBootROM(boot.DMGBootRom[:], boot.DMGBootRomChecksum)
@@ -119,9 +119,9 @@ func (m *MMU) Read(address uint16) uint8 {
 		return m.mockBank.Read(address)
 	}
 	switch {
-	// BIOS (0x0000-0x00FF)
-	case address <= 0x00FF:
-		if !m.biosFinished {
+	// BIOS (0x0000-0x0900) // TODO handle CGB bios (0x900 bytes)
+	case address <= 0x0900:
+		if !m.biosFinished && address < 0x0100 || !m.biosFinished && m.Cart.Header().Hardware() == "CGB" && address >= 0x200 && address < 0x900 {
 			return m.bios.Read(address)
 		}
 		return m.Cart.Read(address)
