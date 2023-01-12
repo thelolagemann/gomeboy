@@ -172,9 +172,9 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		cycles += cyclesCPU
 		g.ppu.Step(uint16(cyclesCPU))
 		g.Timer.Step(uint8(cyclesCPU))
-		if g.APU.IsEnabled() {
-			g.APU.Step(int(cyclesCPU), 1, float64(g.CPU.Speed))
-		}
+
+		g.APU.Step(int(cyclesCPU), 1)
+
 	}
 
 	// TODO handle save

@@ -313,7 +313,7 @@ func (p *PPU) setLCDStatus() {
 
 func (p *PPU) renderWindow() {
 	// determine yPos
-	yPos := int(p.CurrentScanline - p.WindowY)
+	yPos := int(p.CurrentScanline) - int(p.WindowY)
 
 	if (p.WindowX <= 166) && (p.WindowY <= 143) && yPos >= 0 {
 		tileMapOffset := p.WindowTileMapAddress + uint16(yPos)/8*32
