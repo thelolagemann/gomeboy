@@ -71,8 +71,7 @@ type PPU struct {
 	*lcd.Status
 	CurrentScanline uint8
 	LYCompare       uint8
-	Sprite0Palette  uint8
-	Sprite1Palette  uint8
+	SpritePalettes  [2]palette.Palette
 	WindowX         uint8
 	WindowY         uint8
 
@@ -82,6 +81,7 @@ type PPU struct {
 	tileData               [2][512]Tile
 	rawTileData            [2][512][16]uint8
 	sprites                [40]Sprite
+	spritesLarge           [40]Sprite
 	currentTileLineDotData *[8]int
 
 	irq *interrupts.Service
@@ -103,13 +103,13 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 		Status:          lcd.NewStatus(),
 		CurrentScanline: 0,
 		LYCompare:       0,
-		Sprite0Palette:  0,
-		Sprite1Palette:  0,
+		SpritePalettes:  [2]palette.Palette{},
 		WindowX:         0,
 		WindowY:         0,
 		currentCycle:    0,
 
 		sprites:                [40]Sprite{},
+		spritesLarge:           [40]Sprite{},
 		currentTileLineDotData: new([8]int),
 
 		bus:  mmu,
@@ -121,6 +121,7 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 	// initialize sprites
 	for i := 0; i < 40; i++ {
 		p.sprites[i] = NewDefaultSprite()
+		p.spritesLarge[i] = NewLargeSprite()
 	}
 	return p
 }
@@ -147,9 +148,9 @@ func (p *PPU) Read(address uint16) uint8 {
 	case LYCompareRegister:
 		return p.LYCompare
 	case ObjectPalette0Register:
-		return p.Sprite0Palette
+		return p.SpritePalettes[0].ToByte()
 	case ObjectPalette1Register:
-		return p.Sprite1Palette
+		return p.SpritePalettes[1].ToByte()
 	case WindowXRegister:
 		return p.WindowX
 	case WindowYRegister:
@@ -190,9 +191,9 @@ func (p *PPU) Write(address uint16, value uint8) {
 	case LYCompareRegister:
 		p.LYCompare = value
 	case ObjectPalette0Register:
-		p.Sprite0Palette = value
+		p.SpritePalettes[0] = palette.ByteToPalette(value)
 	case ObjectPalette1Register:
-		p.Sprite1Palette = value
+		p.SpritePalettes[1] = palette.ByteToPalette(value)
 	case WindowXRegister:
 		p.WindowX = value
 	case WindowYRegister:
@@ -207,7 +208,7 @@ func (p *PPU) UpdateSprite(address uint16, value uint8) {
 	if p.SpriteSize == 8 {
 		p.sprites[spriteId].UpdateSprite(address, value)
 	} else {
-		fmt.Println("TODO: 16x16 sprites")
+		p.spritesLarge[spriteId].UpdateSprite(address, value)
 	}
 }
 
@@ -241,6 +242,9 @@ func (p *PPU) Step(cycles uint16) {
 		// if we've reached the start of the VBlank period, we need to set the VBlank interrupt flag
 		if p.CurrentScanline == 144 {
 			for _, s := range p.sprites {
+				s.ResetScanlines()
+			}
+			for _, s := range p.spritesLarge {
 				s.ResetScanlines()
 			}
 			p.irq.Request(interrupts.VBlankFlag)
@@ -347,11 +351,9 @@ func (p *PPU) drawScanline(tilemapOffset, lineOffset uint16, screenX, tileX, til
 
 	// draw loop
 	for ; screenX < ScreenWidth; screenX++ {
-		// get the colour for the tile using the background palette
-		color := p.Palette[p.tileData[0][tileID][tileY][tileX]]
 
 		// draw the pixel to the framebuffer
-		p.screenData[screenX][p.CurrentScanline] = palette.GetColour(color)
+		p.screenData[screenX][p.CurrentScanline] = p.Background.Palette.GetColour(uint8(p.tileData[0][tileID][tileY][tileX]))
 
 		// increment the tile X position until we reach the end of the tile
 		tileX++
@@ -398,13 +400,41 @@ func (p *PPU) renderSprites() {
 				}
 			}
 		}
+	} else {
+		for _, sprite := range p.spritesLarge {
+			if sprite.Attributes().X != 0x00 && sprite.Attributes().Y != 0x00 {
+				if sprite.Attributes().Y-16 <= 0 {
+					sprite.PushScanlines(int(p.CurrentScanline), 16)
+				} else if sprite.Attributes().Y-16 == int(p.CurrentScanline) {
+					sprite.PushScanlines(int(p.CurrentScanline), 16)
+				}
+
+				if !sprite.IsScanlineEmpty() {
+					if scanline, tileLine := sprite.PopScanline(); scanline == int(p.CurrentScanline) {
+						if sprite.Attributes().FlipY {
+							if tileLine < 8 {
+								p.drawSpriteLine(sprite, sprite.TileID(1), 0, tileLine)
+							} else {
+								p.drawSpriteLine(sprite, sprite.TileID(0), 8, tileLine-8)
+							}
+						} else {
+							if tileLine < 8 {
+								p.drawSpriteLine(sprite, sprite.TileID(0), 0, tileLine)
+							} else {
+								p.drawSpriteLine(sprite, sprite.TileID(1), 8, tileLine-8)
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
 // drawSpriteLine draws a single line of a sprite to the framebuffer.
 func (p *PPU) drawSpriteLine(sprite Sprite, tileId, yOffset, tileY int) {
 	if sprite.Attributes().X >= 0 && sprite.Attributes().Y >= 0 {
-		var t *Tile = &p.tileData[0][tileId]
+		var t = &p.tileData[0][tileId]
 		formatTileLine(t, tileY, sprite.Attributes().FlipX, sprite.Attributes().FlipY, p.currentTileLineDotData)
 
 		sx, sy := sprite.Attributes().X-8, sprite.Attributes().Y-16
@@ -416,7 +446,7 @@ func (p *PPU) drawSpriteLine(sprite Sprite, tileId, yOffset, tileY int) {
 					if sprite.Attributes().Priority && p.screenData[adjX][adjY] != palette.GetColour(0) {
 						continue
 					}
-					p.screenData[adjX][adjY] = palette.GetColour(p.Palette[p.currentTileLineDotData[tileX]])
+					p.screenData[adjX][adjY] = p.SpritePalettes[sprite.Attributes().UseSecondPalette].GetColour(uint8(p.currentTileLineDotData[tileX]))
 				}
 			}
 		}

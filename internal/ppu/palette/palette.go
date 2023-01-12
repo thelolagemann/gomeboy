@@ -67,3 +67,38 @@ var Palettes = []Palette{
 func GetColour(index uint8) [3]uint8 {
 	return Palettes[Current].Colors[index]
 }
+
+// ByteToPalette creates a new palette from a byte, using the
+// selected palette as a base.
+func ByteToPalette(b byte) Palette {
+	var palette Palette
+	palette.Colors[0] = Palettes[Current].Colors[b&0x03]
+	palette.Colors[1] = Palettes[Current].Colors[(b>>2)&0x03]
+	palette.Colors[2] = Palettes[Current].Colors[(b>>4)&0x03]
+	palette.Colors[3] = Palettes[Current].Colors[(b>>6)&0x03]
+	return palette
+}
+
+// ToByte converts a palette to a byte, using the
+// selected palette as a base.
+func (p Palette) ToByte() byte {
+	var b byte
+	b |= paletteToByte(p.Colors[0])
+	b |= paletteToByte(p.Colors[1]) << 2
+	b |= paletteToByte(p.Colors[2]) << 4
+	b |= paletteToByte(p.Colors[3]) << 6
+	return b
+}
+
+func (p Palette) GetColour(index uint8) [3]uint8 {
+	return p.Colors[index]
+}
+
+func paletteToByte(color [3]uint8) byte {
+	for i, p := range Palettes[Current].Colors {
+		if p == color {
+			return byte(i)
+		}
+	}
+	return 0
+}

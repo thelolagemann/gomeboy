@@ -4,6 +4,7 @@ package background
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 )
 
 const (
@@ -36,7 +37,7 @@ type Background struct {
 	// ScrollX is the X position of the background.
 	ScrollX uint8
 	// Palette is the current background palette.
-	Palette [4]uint8
+	Palette palette.Palette
 }
 
 // NewBackground returns a new Background.
@@ -55,7 +56,7 @@ func (b *Background) Read(addr uint16) uint8 {
 	case ScrollXRegister:
 		return b.ScrollX
 	case PaletteRegister:
-		return b.Palette[0]&0x03 | (b.Palette[1]&0x03)<<2 | (b.Palette[2]&0x03)<<4 | (b.Palette[3]&0x03)<<6
+		return b.Palette.ToByte()
 	}
 
 	panic(fmt.Sprintf("background: illegal read from address 0x%04X", addr))
@@ -68,11 +69,8 @@ func (b *Background) Write(addr uint16, val uint8) {
 		b.ScrollY = val
 	case ScrollXRegister:
 		b.ScrollX = val
-	case PaletteRegister: // TODO work out how this works
-		b.Palette[0] = val & 0x03
-		b.Palette[1] = (val >> 2) & 0x03
-		b.Palette[2] = (val >> 4) & 0x03
-		b.Palette[3] = (val >> 6) & 0x03
+	case PaletteRegister:
+		b.Palette = palette.ByteToPalette(val)
 	default:
 		panic(fmt.Sprintf("background: illegal write to address 0x%04X", addr))
 	}
