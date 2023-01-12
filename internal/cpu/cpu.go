@@ -4,29 +4,42 @@ import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
+const (
+	// ClockSpeed is the clock speed of the CPU.
+	ClockSpeed = 4194304
+)
+
+// CPU represents the Gameboy CPU. It is responsible for executing instructions.
 type CPU struct {
+	// PC is the program counter, it points to the next instruction to be executed.
 	PC uint16
+	// SP is the stack pointer, it points to the top of the stack.
 	SP uint16
+	// Registers contains the 8-bit registers, as well as the 16-bit register pairs.
 	Registers
-	DebugPause bool
 
-	mmu *mmu.MMU
+	// Speed is the current speed of the CPU.
+	Speed float32
+	// Cycles is the number of cycles the CPU has executed.
+	Cycles uint
 
-	stopped           bool
-	Halted            bool
-	interruptsEnabled bool
-
-	irq *interrupts.Service
+	mmu     *mmu.MMU
+	stopped bool
+	Halted  bool
+	irq     *interrupts.Service
 }
 
+// PopStack pops a 16-bit value from the stack.
 func (c *CPU) PopStack() uint16 {
 	value := c.mmu.Read16(c.SP)
 	c.SP += 2
 	return value
 }
 
+// PushStack pushes a 16-bit value to the stack.
 func (c *CPU) PushStack(pc uint16) {
 	c.SP -= 2
 	c.mmu.Write16(c.SP, pc)
@@ -49,14 +62,18 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service) *CPU {
 			L: 0x7c,
 		},
 		mmu:     mmu,
+		Speed:   1,
 		stopped: false,
 		Halted:  false,
 		irq:     irq,
 	}
+	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
 	c.DE = &RegisterPair{&c.D, &c.E}
 	c.HL = &RegisterPair{&c.H, &c.L}
 	c.AF = &RegisterPair{&c.A, &c.F}
+
+	// generate instructions
 	c.generateBitInstructions()
 	c.generateLoadRegisterToRegisterInstructions()
 	c.generateLogicInstructions()
@@ -151,66 +168,130 @@ func (c *CPU) registerName(reg *Register) string {
 
 // Step executes the next instruction in the CPU and
 // returns the number of cycles it took to execute.
-func (c *CPU) Step() uint8 {
-	// handle interrupts
+func (c *CPU) Step() uint {
+	var cycles uint
+	var cyclesCPU uint
+
 	if c.Halted {
-		return 0x01
-	}
-
-	// fetch opcode
-	opcode := c.fetch()
-	var instruction Instructor
-	///c.debugInstructions()
-
-	// if 16-bit instruction
-	if opcode == 0xCB {
-		opcode = c.fetch()
-		instruction = InstructionSetCB[opcode].Instruction()
-		if instruction.Name() == "" {
-			panic(fmt.Sprintf("instruction not found: 0xCB%02X", opcode))
-		}
+		cyclesCPU = 4
 	} else {
-		instruction = InstructionSet[opcode]
-	}
+		// fetch opcode
+		opcode := c.fetch()
+		var instruction Instructor
 
-	if instruction == nil {
-		panic(fmt.Sprintf("instruction not found: 0x%02X", opcode))
-	}
-
-	// get operands
-	operands := make([]uint8, instruction.Length()-1)
-	for i := uint8(0); i < instruction.Length()-1; i++ {
-		operands[i] = c.fetch()
-	}
-	if instruction.Name() != "NOP" && c.PC > 0x0100 {
-		/*time.Sleep(100 * time.Millisecond)
-		if len(operands) == 1 {
-			c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[0])
-		} else if len(operands) == 2 {
-			c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[1], operands[0])
+		// if 16-bit instruction
+		if opcode == 0xCB {
+			opcode = c.fetch()
+			instruction = InstructionSetCB[opcode].Instruction()
+			if instruction.Name() == "" {
+				panic(fmt.Sprintf("instruction not found: 0xCB%02X", opcode))
+			}
 		} else {
-			c.mmu.Log.Debugf("cpu\t 0x%04X: %s", c.PC-uint16(instruction.Length()), instruction.Name())
+			instruction = InstructionSet[opcode]
 		}
-		c.mmu.Log.Debugf("reg\t A: %v, B: %v, C: %v, D: %v, E: %v, F: %v, H: %v, L: %v, SP: %v, PC: %v, opcode: 0x%02X", c.A, c.B, c.C, c.D, c.E, c.F, c.H, c.L, c.SP, c.PC, opcode)*/
-	}
 
-	// execute instruction
-	instruction.Execute(c, operands)
-	return instruction.Cycles()
+		if instruction == nil {
+			panic(fmt.Sprintf("instruction not found: 0x%02X", opcode))
+		}
+
+		// get operands
+		operands := make([]uint8, instruction.Length()-1)
+		for i := uint8(0); i < instruction.Length()-1; i++ {
+			operands[i] = c.fetch()
+		}
+		if instruction.Name() != "NOP" && c.PC > 0x0010 {
+			/*time.Sleep(100 * time.Millisecond)
+			if len(operands) == 1 {
+				c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[0])
+			} else if len(operands) == 2 {
+				c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[1], operands[0])
+			} else {
+				c.mmu.Log.Debugf("cpu\t 0x%04X: %s", c.PC-uint16(instruction.Length()), instruction.Name())
+			}
+			c.mmu.Log.Debugf("reg\t A: %v, B: %v, C: %v, D: %v, E: %v, F: %v, H: %v, L: %v, SP: %v, PC: %v, opcode: 0x%02X", c.A, c.B, c.C, c.D, c.E, c.F, c.H, c.L, c.SP, c.PC, opcode)*/
+		}
+		instruction.Execute(c, operands)
+		cyclesCPU = uint(instruction.Cycles())
+	}
+	c.Cycles += cyclesCPU
+	cycles = cyclesCPU
+
+	// handle interrupts
+	cyclesInt := c.DoInterrupts()
+	c.Cycles += cyclesInt
+	cycles += cyclesInt
+
+	return cycles
 }
 
+// DoInterrupts handles all the interrupts.
+func (c *CPU) DoInterrupts() uint {
+	if c.irq.Enabling {
+		c.irq.IME = true
+		c.irq.Enabling = false
+		return 0
+	}
+	if !c.irq.IME && !c.Halted {
+		return 0
+	}
+
+	if c.irq.Flag > 0 {
+		for i := uint8(0); i < 5; i++ {
+			if utils.Test(c.irq.Flag, i) && utils.Test(c.irq.Enable, i) {
+				cycles := 0
+				if c.Halted {
+					cycles += 4
+				}
+				if serviced := c.serviceInterrupt(i); serviced {
+					cycles += 20
+				}
+				return uint(cycles)
+			}
+		}
+	}
+
+	return 0
+}
+
+// serviceInterrupt handles the given interrupt.
+func (c *CPU) serviceInterrupt(interrupt uint8) bool {
+	// if halted without IME, just clear the halt flag
+	if !c.irq.IME && c.Halted {
+		c.Halted = false
+		return false
+	}
+
+	c.irq.IME = false
+	c.Halted = false
+	c.irq.Flag = utils.Reset(c.irq.Flag, interrupt)
+
+	// save the current execution address by pushing it to the stack
+	c.PushStack(c.PC)
+
+	// jump to the interrupt handler
+	switch interrupt {
+	case 0:
+		c.PC = 0x0040
+	case 1:
+		c.PC = 0x0048
+	case 2:
+		c.PC = 0x0050
+	case 3:
+		c.PC = 0x0058
+	case 4:
+		c.PC = 0x0060
+	default:
+		panic("illegal interrupt")
+	}
+
+	return true
+}
+
+// fetch returns the next byte in memory and increments the PC.
 func (c *CPU) fetch() uint8 {
 	opcode := c.mmu.Read(c.PC)
 	c.PC++
 	return opcode
-}
-
-// halt the CPU until an interrupt occurs. The CPU will
-// not execute any instructions until then.
-//
-//	HALT
-func (c *CPU) halt() {
-	c.Halted = true
 }
 
 // rst resets the CPU.

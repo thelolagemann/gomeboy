@@ -38,13 +38,36 @@ func (i Instruction) Cycles() uint8 {
 	return i.cycles
 }
 
-// NewInstruction creates a new Instruction
-func NewInstruction(name string, length uint8, cycles uint8, fn interface{}) Instruction {
-	return Instruction{
+// DefineInstruction is similar to NewInstruction, but it defines the instruction in
+// the InstructionSet, with the provided opcode
+func DefineInstruction(opcode uint8, name string, fn interface{}, opts ...InstructionOpt) {
+	instruction := Instruction{
 		name:   name,
-		length: length,
-		cycles: cycles,
+		length: 1,
+		cycles: 1,
 		fn:     fn,
+	}
+
+	for _, opt := range opts {
+		opt(&instruction)
+	}
+
+	InstructionSet[opcode] = instruction
+}
+
+type InstructionOpt func(*Instruction)
+
+// Cycles specifies the number of cycles the instruction takes
+func Cycles(cycles uint8) InstructionOpt {
+	return func(fi *Instruction) {
+		fi.cycles = cycles
+	}
+}
+
+// Length specifies the length of the instruction
+func Length(length uint8) InstructionOpt {
+	return func(fi *Instruction) {
+		fi.length = length
 	}
 }
 
@@ -60,51 +83,41 @@ type Instructor interface {
 	Cycles() uint8
 }
 
-var InstructionSet = map[uint8]Instructor{
-	// perform no operation
-	0x00: NewInstruction("NOP", 1, 1, func(cpu *CPU, operands []uint8) {}),
-	// stop the CPU until an interrupt occurs
-	0x10: NewInstruction("STOP", 2, 1, func(cpu *CPU, operands []byte) { cpu.stopped = true }),
-	// advances PC by 1, rotates Register A left
-	0x27: NewInstruction("DAA", 1, 1, func(cpu *CPU, operands []byte) {
-		a := uint16(cpu.A)
-		if cpu.isFlagSet(FlagSubtract) {
-			if cpu.isFlagSet(FlagHalfCarry) || a&0x0F > 9 {
-				a += 0x06
+func init() {
+	DefineInstruction(0x00, "NOP", func(c *CPU) {})
+	DefineInstruction(0x10, "STOP", func(c *CPU) { c.Halted = true }, Length(2))
+	DefineInstruction(0x27, "DAA", func(cpu *CPU) {
+		if !cpu.isFlagSet(FlagSubtract) {
+			if cpu.isFlagSet(FlagCarry) || cpu.A > 0x99 {
+				cpu.A += 0x60
+				cpu.setFlag(FlagCarry)
 			}
-			if cpu.isFlagSet(FlagCarry) || a > 0x9F {
-				a += 0x60
+			if cpu.isFlagSet(FlagHalfCarry) || cpu.A&0xF > 0x9 {
+				cpu.A += 0x06
+				cpu.clearFlag(FlagHalfCarry)
 			}
-		} else {
-			if cpu.isFlagSet(FlagHalfCarry) {
-				a = (a - 0x06) & 0xFF
-			}
-			if cpu.isFlagSet(FlagCarry) {
-				a -= 0x60
-			}
+		} else if cpu.isFlagSet(FlagCarry) && cpu.isFlagSet(FlagHalfCarry) {
+			cpu.A += 0x9a
+			cpu.clearFlag(FlagHalfCarry)
+		} else if cpu.isFlagSet(FlagCarry) {
+			cpu.A += 0xa0
+		} else if cpu.isFlagSet(FlagHalfCarry) {
+			cpu.A += 0xfa
+			cpu.clearFlag(FlagHalfCarry)
 		}
-		cpu.clearFlag(FlagHalfCarry)
-		if a&0x100 == 0x100 {
-			cpu.setFlag(FlagCarry)
-		}
-		a &= 0xFF
-		cpu.shouldZeroFlag(uint8(a))
-		cpu.A = uint8(a)
-	}),
-	// the contents of Register A are complemented (i.e. flip all bits)
-	0x2F: NewInstruction("CPL", 1, 1, func(cpu *CPU, operands []byte) {
-		cpu.Registers.A = ^cpu.Registers.A
+		cpu.shouldZeroFlag(cpu.A)
+	})
+	DefineInstruction(0x2F, "CPL", func(cpu *CPU) {
+		cpu.A = 0xFF ^ cpu.A
 		cpu.setFlag(FlagSubtract)
 		cpu.setFlag(FlagHalfCarry)
-	}),
-	// advances PC by 1, sets carry flag
-	0x37: NewInstruction("SCF", 1, 1, func(cpu *CPU, operands []byte) {
+	})
+	DefineInstruction(0x37, "SCF", func(cpu *CPU) {
 		cpu.setFlag(FlagCarry)
 		cpu.clearFlag(FlagSubtract)
 		cpu.clearFlag(FlagHalfCarry)
-	}),
-	// flips the carry flag
-	0x3F: NewInstruction("CCF", 1, 1, func(cpu *CPU, operands []byte) {
+	})
+	DefineInstruction(0x3F, "CCF", func(cpu *CPU) {
 		if cpu.isFlagSet(FlagCarry) {
 			cpu.clearFlag(FlagCarry)
 		} else {
@@ -112,35 +125,23 @@ var InstructionSet = map[uint8]Instructor{
 		}
 		cpu.clearFlag(FlagSubtract)
 		cpu.clearFlag(FlagHalfCarry)
-	}),
-	// halt the CPU and LCD until an interrupt occurs
-	0x76: NewInstruction("HALT", 1, 1, func(cpu *CPU, operands []byte) {
-		cpu.halt()
-	}),
-	// disable interrupts after the next instruction is executed
-	0xF3: NewInstruction("DI", 1, 1, func(cpu *CPU, operands []byte) {
-		cpu.irq.IME = false
-	}),
-	// set the interrupt master enable flag and enable maskable interrupts
-	0xFB: NewInstruction("EI", 1, 1, func(cpu *CPU, operands []byte) {
-		cpu.irq.IME = true
-	}),
-	// disallowed opcodes
-	0xCB: NewInstruction("", 0, 0, disallowedOpcode),
-	0xD3: NewInstruction("", 0, 0, disallowedOpcode),
-	0xDB: NewInstruction("", 0, 0, disallowedOpcode),
-	0xDD: NewInstruction("", 0, 0, disallowedOpcode),
-	0xE3: NewInstruction("", 0, 0, disallowedOpcode),
-	0xE4: NewInstruction("", 0, 0, disallowedOpcode),
-	0xEB: NewInstruction("", 0, 0, disallowedOpcode),
-	0xEC: NewInstruction("", 0, 0, disallowedOpcode),
-	0xED: NewInstruction("", 0, 0, disallowedOpcode),
-	0xF4: NewInstruction("", 0, 0, disallowedOpcode),
-	0xFC: NewInstruction("", 0, 0, disallowedOpcode),
-	0xFD: NewInstruction("", 0, 0, disallowedOpcode),
+	})
+	DefineInstruction(0x76, "HALT", func(c *CPU) { c.Halted = true })
+	DefineInstruction(0xF3, "DI", func(c *CPU) { c.irq.IME = false })
+	DefineInstruction(0xFB, "EI", func(c *CPU) { c.irq.Enabling = true })
+
+	for _, opcode := range disallowedOpcodes {
+		DefineInstruction(opcode, "disallowed", disallowedOpcode)
+	}
 }
 
-func disallowedOpcode(cpu *CPU, operands []byte) {
+var disallowedOpcodes = []uint8{
+	0xCB, 0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
+}
+
+var InstructionSet = map[uint8]Instructor{}
+
+func disallowedOpcode(cpu *CPU) {
 	panic(fmt.Sprintf("disallowed opcode %X", cpu.mmu.Read(cpu.PC)))
 }
 

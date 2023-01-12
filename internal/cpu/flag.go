@@ -43,7 +43,7 @@ func (c *CPU) clearFlags(flags ...Flag) {
 // setFlag sets a flag to the given value.
 func (c *CPU) setFlag(flag Flag) {
 	c.F = utils.Set(c.F, flag)
-	c.F &= 0xF0
+	c.F &= 0xF0 // the lower 4 bits of the F register are always 0
 }
 
 // isFlagSet returns true if the given flag is set.
@@ -70,11 +70,6 @@ func (c *CPU) isFlagsSet(flags ...Flag) bool {
 		}
 	}
 	return true
-}
-
-// isFlagNotSet returns true if the given flag is not set.
-func (c *CPU) isFlagNotSet(flag Flag) bool {
-	return !c.isFlagSet(flag)
 }
 
 // isFlagsNotSet returns true if all the given flags are not set.

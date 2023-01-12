@@ -13,22 +13,23 @@ package cpu
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) shiftLeftIntoCarry(value uint8) uint8 {
-	result := value << 1
+	newCarry := value >> 7
+	computed := (value << 1) & 0xFF
+	c.shouldZeroFlag(computed)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	c.shouldZeroFlag(result)
-	if value&0x80 == 0x80 {
+	if newCarry == 1 {
 		c.setFlag(FlagCarry)
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	return result
+	return computed
 }
 
 // shiftRightIntoCarry shifts the given value right by one bit, and sets the
 // carry flag to the old bit 0 data. The most significant bit does not change.
 //
-//	SRL n
+//	SRA n
 //	n = A, B, C, D, E, H, L, (HL)
 //
 // IF affected:
@@ -63,14 +64,15 @@ func (c *CPU) shiftRightIntoCarry(value uint8) uint8 {
 //	H - Reset.
 //	C - Contains old bit 0 data.
 func (c *CPU) shiftRightLogical(value uint8) uint8 {
-	result := value >> 1
+	newCarry := value & 0x1
+	computed := value >> 1
+	c.shouldZeroFlag(computed)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	c.shouldZeroFlag(result)
-	if value&0x01 == 0x01 {
+	if newCarry == 1 {
 		c.setFlag(FlagCarry)
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	return result
+	return computed
 }

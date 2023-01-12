@@ -212,6 +212,16 @@ func incrementRegisterTest(regName string) func(*testing.T, Instructor) {
 				t.Errorf("Expected flags to be 0x20, got 0x%02x", cpu.F)
 			}
 		})
+		// test the carry flag is not set
+		t.Run("Carry Flag", func(t *testing.T) {
+			*cpu.registerMap(regName) = 0xFF
+
+			instr.Execute(cpu, nil)
+
+			if cpu.isFlagsSet(FlagCarry) {
+				t.Errorf("Expected flags to be 0x00, got 0x%02x", cpu.F)
+			}
+		})
 	}
 }
 
@@ -503,6 +513,6 @@ var registerNames = map[uint8]string{
 
 func randomizeFlags(cpu *CPU) uint8 {
 	r := uint8(rand.Intn(255))
-	cpu.F = r
+	cpu.F = r & 0xF0
 	return r
 }

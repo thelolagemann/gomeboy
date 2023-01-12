@@ -2,12 +2,13 @@ package cpu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
+	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/io"
-	"github.com/thelolagemann/go-gameboy/internal/io/timer"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
+	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"testing"
 )
 
@@ -455,18 +456,18 @@ func TestLogic(t *testing.T) {
 func testInstruction(t *testing.T, name string, opcode uint8, f func(*testing.T, Instructor)) {
 	// reset CPU
 	cart := cartridge.NewEmptyCartridge()
-	pad := joypad.New()
+	irq := interrupts.NewService()
+	pad := joypad.New(irq)
 	serial := io.NewSerial()
-	tCtl := timer.NewController()
-	interrupts := io.NewInterrupts()
+	tCtl := timer.NewController(irq)
 	sound := ram.NewRAM(0x10)
 
-	memBus := mmu.NewMMU(cart, pad, serial, tCtl, interrupts, sound)
+	memBus := mmu.NewMMU(cart, pad, serial, tCtl, irq, sound)
 	memBus.EnableMock()
 
-	video := ppu.New(memBus, interrupts)
+	video := ppu.New(memBus, irq)
 	memBus.AttachVideo(video)
-	cpu = NewCPU(memBus, interrupts)
+	cpu = NewCPU(memBus, irq)
 
 	t.Run(name, func(t *testing.T) {
 		f(t, InstructionSet[opcode])
@@ -476,18 +477,18 @@ func testInstruction(t *testing.T, name string, opcode uint8, f func(*testing.T,
 func testInstructionCB(t *testing.T, name string, opcode uint8, f func(*testing.T, Instructor)) {
 	// reset CPU
 	cart := cartridge.NewEmptyCartridge()
-	pad := joypad.New()
+	irq := interrupts.NewService()
+	pad := joypad.New(irq)
 	serial := io.NewSerial()
-	tCtl := timer.NewController()
-	interrupts := io.NewInterrupts()
+	tCtl := timer.NewController(irq)
 	sound := ram.NewRAM(0x10)
 
-	memBus := mmu.NewMMU(cart, pad, serial, tCtl, interrupts, sound)
+	memBus := mmu.NewMMU(cart, pad, serial, tCtl, irq, sound)
 	memBus.EnableMock()
 
-	video := ppu.New(memBus, interrupts)
+	video := ppu.New(memBus, irq)
 	memBus.AttachVideo(video)
-	cpu = NewCPU(memBus, interrupts)
+	cpu = NewCPU(memBus, irq)
 
 	t.Run(name, func(t *testing.T) {
 		f(t, InstructionSetCB[opcode].Instruction())

@@ -1,8 +1,7 @@
 package cpu
 
-// rotateLeft rotates the given value left by 1 bit. The least significant bit is
-// copied to the carry flag, and the most significant bit is copied to the least
-// significant bit.
+// rotateLeft rotates the given value left by 1 bit. Bit 7 is copied to both
+// the carry flag and the least significant bit.
 //
 //	RLC n
 //	n = A, B, C, D, E, H, L, (HL)
@@ -14,7 +13,6 @@ package cpu
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeft(value uint8) uint8 {
-	// get carry
 	carry := value >> 7
 	rotated := (value<<1)&0xFF | carry
 	c.clearFlag(FlagSubtract)
@@ -43,17 +41,46 @@ func (c *CPU) rotateLeft(value uint8) uint8 {
 //	H - Reset.
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRight(value uint8) uint8 {
-	result := value >> 1
-	if value&0x01 == 0x01 {
+	newCarry := value & 0x1
+	computed := (value >> 1) | (newCarry << 7)
+	c.shouldZeroFlag(computed)
+	c.clearFlag(FlagSubtract)
+	c.clearFlag(FlagHalfCarry)
+	if newCarry == 1 {
 		c.setFlag(FlagCarry)
-		result ^= 0x80
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	c.shouldZeroFlag(result)
+	return computed
+}
+
+// rotateRightThroughCarry rotates the given value right by 1 bit through the carry flag.
+//
+//	RR n
+//	n = A, B, C, D, E, H, L, (HL)
+//
+// IF affected:
+//
+//	Z - Set if result is zero.
+//	N - Reset.
+//	H - Reset.
+//	C - Contains old bit 0 data.
+func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
+	newCarry := value & 0x01
+	computed := value >> 1
+	if c.isFlagSet(FlagCarry) {
+		computed |= 1 << 7
+	}
+
+	if newCarry == 1 {
+		c.setFlag(FlagCarry)
+	} else {
+		c.clearFlag(FlagCarry)
+	}
+	c.shouldZeroFlag(computed)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	return result
+	return computed
 }
 
 // rotateLeftThroughCarry rotates the given value left by 1 bit through the carry flag.
@@ -68,19 +95,21 @@ func (c *CPU) rotateRight(value uint8) uint8 {
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftThroughCarry(value uint8) uint8 {
-	result := value << 1
+	newCarry := value >> 7
+	computed := (value << 1) & 0xFF
 	if c.isFlagSet(FlagCarry) {
-		result ^= 0x01
+		computed |= 0x01
 	}
-	if value&0x80 == 0x80 {
+
+	if newCarry == 1 {
 		c.setFlag(FlagCarry)
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	c.shouldZeroFlag(result)
+	c.shouldZeroFlag(computed)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	return result
+	return computed
 }
 
 // rotateLeftAccumulator rotates the accumulator left by 1 bit. The least significant bit is
@@ -96,17 +125,19 @@ func (c *CPU) rotateLeftThroughCarry(value uint8) uint8 {
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftAccumulator() {
-	computed := c.A << 1
-	if c.A&0x80 == 0x80 {
-		c.setFlag(FlagCarry)
-		computed ^= 0x01
-	} else {
-		c.clearFlag(FlagCarry)
+	carry := c.A&0x80 != 0
+	c.A = (c.A << 1) & 0xFF
+	if carry {
+		c.A |= 0x01
 	}
 	c.clearFlag(FlagZero)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	c.A = computed
+	if carry {
+		c.setFlag(FlagCarry)
+	} else {
+		c.clearFlag(FlagCarry)
+	}
 }
 
 // rotateLeftAccumulatorThroughCarry rotates the accumulator left by 1 bit through the carry flag.
@@ -120,23 +151,20 @@ func (c *CPU) rotateLeftAccumulator() {
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftAccumulatorThroughCarry() {
-	bit7 := false
-	if c.A&0x80 == 0x80 {
-		bit7 = true
-	}
-	computed := c.A << 1
-	if c.isFlagSet(FlagCarry) {
-		computed ^= 0x01
-	}
-	if bit7 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
+	newCarry := c.A&0x80 != 0
+	oldCarry := c.isFlagSet(FlagCarry)
+	c.A = (c.A << 1) & 0xFF
+	if oldCarry {
+		c.A |= 0x01
 	}
 	c.clearFlag(FlagZero)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	c.A = computed
+	if newCarry {
+		c.setFlag(FlagCarry)
+	} else {
+		c.clearFlag(FlagCarry)
+	}
 }
 
 // rotateRightAccumulator rotates the accumulator right by 1 bit. The most significant bit is
@@ -152,17 +180,19 @@ func (c *CPU) rotateLeftAccumulatorThroughCarry() {
 //	H - Reset.
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightAccumulator() {
-	computed := c.A >> 1
-	if c.A&1 == 1 {
-		c.setFlag(FlagCarry)
-		computed ^= 0x80
-	} else {
-		c.clearFlag(FlagCarry)
+	carry := c.A&0x1 != 0
+	c.A = (c.A >> 1) & 0xFF
+	if carry {
+		c.A |= 0x80
 	}
 	c.clearFlag(FlagZero)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	c.A = computed
+	if carry {
+		c.setFlag(FlagCarry)
+	} else {
+		c.clearFlag(FlagCarry)
+	}
 }
 
 // rotateRightAccumulatorThroughCarry rotates the accumulator right by 1 bit through the carry flag.
@@ -176,82 +206,25 @@ func (c *CPU) rotateRightAccumulator() {
 //	H - Reset.
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightAccumulatorThroughCarry() {
-	bit0 := false
-	if c.A&1 == 1 {
-		bit0 = true
-	}
-	computed := c.A >> 1
+	newCarry := c.A&0x1 != 0
+	c.A = (c.A >> 1) & 0xFF
 	if c.isFlagSet(FlagCarry) {
-		computed ^= 0x80
+		c.A |= 0x80
 	}
-	if bit0 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+
 	c.clearFlag(FlagZero)
 	c.clearFlag(FlagSubtract)
 	c.clearFlag(FlagHalfCarry)
-	c.A = computed
-}
-
-// rotateRightThroughCarry rotates the given value right by 1 bit through the carry flag.
-//
-//	RR n
-//	n = A, B, C, D, E, H, L, (HL)
-//
-// IF affected:
-//
-//	Z - Set if result is zero.
-//	N - Reset.
-//	H - Reset.
-//	C - Contains old bit 0 data.
-func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
-	result := value >> 1
-	if c.isFlagSet(FlagCarry) {
-		result ^= 0x80
-	}
-	if result&0x01 == 0x01 {
+	if newCarry {
 		c.setFlag(FlagCarry)
 	} else {
 		c.clearFlag(FlagCarry)
 	}
-	c.shouldZeroFlag(result)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	return result
 }
 
 func init() {
-	// 0x07 - RLCA - Rotate A left. Old bit 7 to Carry flag.
-	InstructionSet[0x07] = NewInstruction("RLCA", 1, 1, func(c *CPU, _ []uint8) {
-		c.rotateLeftAccumulator()
-	})
-	// 0x0F - RRCA - Rotate A right. Old bit 0 to Carry flag.
-	InstructionSet[0x0F] = Instruction{
-		name:   "RRCA",
-		length: 1,
-		cycles: 1,
-		fn: func(c *CPU, operands []byte) {
-			c.rotateRightAccumulator()
-		},
-	}
-	// 0x17 - RLA - Rotate A left through Carry flag.
-	InstructionSet[0x17] = Instruction{
-		name:   "RLA",
-		cycles: 1,
-		length: 1,
-		fn: func(c *CPU, operands []byte) {
-			c.rotateLeftAccumulatorThroughCarry()
-		},
-	}
-	// 0x1F - RRA - Rotate A right through Carry flag.
-	InstructionSet[0x1F] = Instruction{
-		name:   "RRA",
-		cycles: 1,
-		length: 1,
-		fn: func(c *CPU, operands []byte) {
-			c.rotateRightAccumulatorThroughCarry()
-		},
-	}
+	DefineInstruction(0x07, "RLCA", func(c *CPU) { c.rotateLeftAccumulator() })
+	DefineInstruction(0x0F, "RRCA", func(c *CPU) { c.rotateRightAccumulator() })
+	DefineInstruction(0x17, "RLA", func(c *CPU) { c.rotateLeftAccumulatorThroughCarry() })
+	DefineInstruction(0x1F, "RRA", func(c *CPU) { c.rotateRightAccumulatorThroughCarry() })
 }

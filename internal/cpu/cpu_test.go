@@ -18,11 +18,11 @@ func TestInstruction_Control(t *testing.T) {
 	})
 	// 0x76 - HALT
 	testInstruction(t, "HALT", 0x76, func(t *testing.T, instruction Instructor) {
-		cpu.halted = false
+		cpu.Halted = false
 		instruction.Execute(cpu, nil)
 
-		if !cpu.halted {
-			t.Errorf("Expected CPU to be halted, got running")
+		if !cpu.Halted {
+			t.Errorf("Expected CPU to be Halted, got running")
 		}
 	})
 	// 0xF3 - DI
