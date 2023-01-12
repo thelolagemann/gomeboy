@@ -3,15 +3,7 @@ package ppu
 // Tile represents a tile. Each tile has a size of 8x8 pixels and a color
 // depth of 4 colors/gray shades. Tiles can be displayed as sprites or as
 // background/window tiles.
-type Tile struct {
-	// The tile's pixels. Each tile occupies 16 bytes of memory, which
-	// corresponds to 2 bytes per row. For each line, the first byte
-	// specifies the low bits of the color index, and the second byte
-	// specifies the high bits of the color index. In both bytes,
-	// the most significant bit is the leftmost pixel, and the least
-	// significant bit is the rightmost pixel.
-	Pixels [8][2]byte
-}
+type Tile [8][8]int
 
 type TileAttributes struct {
 	// UseBGPriority is the BG Priority bit. When set, the tile is displayed
@@ -30,10 +22,13 @@ type TileAttributes struct {
 	VRAMBank uint8
 }
 
-func NewTile(b []byte) Tile {
+func NewTile(b [16]uint8) Tile {
 	t := Tile{}
-	for i := 0; i < 16; i++ {
-		t.Pixels[i/2][i%2] = b[i]
+	for tileY := 0; tileY < 8; tileY++ {
+		lo, hi := int(b[tileY*2]), int(b[tileY*2+1])
+		for tileX := 0; tileX < 8; tileX++ {
+			t[tileY][tileX] = (lo >> (7 - tileX) & 1) | (hi>>(7-tileX)&1)<<1
+		}
 	}
 
 	return t

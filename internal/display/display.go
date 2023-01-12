@@ -11,7 +11,7 @@ import (
 )
 
 // PixelScale is the multiplier for the pixel size.
-var PixelScale float64 = 4
+var PixelScale float64 = 8
 
 type Display struct {
 	window  *pixelgl.Window
@@ -98,8 +98,9 @@ var keyMap = map[pixelgl.Button]Input{
 	pixelgl.KeyUp:        joypad.ButtonUp,
 	pixelgl.KeyDown:      joypad.ButtonDown,
 
-	pixelgl.KeyC: CyclePalette,
-	pixelgl.KeyP: Pause,
+	pixelgl.KeyC:           CyclePalette,
+	pixelgl.KeyP:           Pause,
+	pixelgl.KeyLeftControl: Speedup,
 }
 
 type Inputs struct {
@@ -112,6 +113,7 @@ const (
 	// CyclePalette changes the palette
 	CyclePalette Input = iota + 8
 	Pause
+	Speedup
 )
 
 // PollKeys polls the keys and returns the pressed and released keys.

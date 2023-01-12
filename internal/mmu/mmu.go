@@ -33,7 +33,7 @@ type MMU struct {
 	// (0x4000-0x7FFF) - ROM bank 1 TODO implement ROM bank switching
 
 	// (0x8000-0x9FFF) - VRAM
-	vRAM ram.RAM
+	// TODO redirect to video component
 
 	// (0xA000-0xBFFF) - external RAM TODO implement RAM bank switching
 
@@ -43,8 +43,8 @@ type MMU struct {
 	// (0xE000-0xFDFF) - echo of 8kB internal RAM
 	eRAM ram.RAM
 
-	// (0xFE00-0xFE9F) - OAM sprite attribute table
-	oam ram.RAM
+	// (0xFE00-0xFE9F) - sprite attribute table (OAM)
+	// TODO redirect to video component
 
 	// (0xFEA0-0xFEFF) - unusable memory
 
@@ -76,10 +76,8 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 		biosFinished: false,
 		bios:         []uint8{},
 		Cart:         cart,
-		vRAM:         ram.NewRAM(0x2000),
 		iRAM:         ram.NewRAM(0x2000),
 		eRAM:         ram.NewRAM(0x1E00),
-		oam:          ram.NewRAM(0xA0),
 
 		zRAM: ram.NewRAM(0x7F),
 
@@ -130,7 +128,7 @@ func (m *MMU) Read(address uint16) uint8 {
 		return m.Cart.Read(address)
 	// VRAM (0x8000-0x9FFF)
 	case address <= 0x9FFF:
-		return m.vRAM.Read(address - 0x8000)
+		return m.Video.Read(address)
 	// External RAM (0xA000-0xBFFF)
 	case address <= 0xBFFF:
 		return m.Cart.Read(address)
@@ -142,7 +140,7 @@ func (m *MMU) Read(address uint16) uint8 {
 		return m.iRAM.Read(address - 0xE000)
 	// OAM (0xFE00-0xFE9F)
 	case address <= 0xFE9F:
-		return m.oam.Read(address - 0xFE00)
+		return m.Video.Read(address)
 	// Unusable memory (0xFEA0-0xFEFF)
 	case address <= 0xFEFF:
 		return 1
@@ -204,7 +202,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 		m.Cart.Write(address, value)
 	// VRAM (0x8000-0x9FFF)
 	case address <= 0x9FFF:
-		m.vRAM.Write(address-0x8000, value)
+		m.Video.Write(address, value)
 	// External RAM (0xA000-0xBFFF)
 	case address <= 0xBFFF:
 		m.Cart.Write(address, value)
@@ -216,7 +214,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 		m.iRAM.Write(address-0xE000, value)
 	// OAM (0xFE00-0xFE9F)
 	case address <= 0xFE9F:
-		m.oam.Write(address-0xFE00, value)
+		m.Video.Write(address, value)
 	// I/O (0xFF00-0xFF7F)
 	case address <= 0xFF7F:
 		switch address {

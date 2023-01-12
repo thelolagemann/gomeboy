@@ -8,7 +8,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/background"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
+	"github.com/thelolagemann/go-gameboy/internal/ram"
 )
 
 const (
@@ -76,13 +76,20 @@ type PPU struct {
 	WindowX         uint8
 	WindowY         uint8
 
+	oam  ram.RAM
+	vRAM ram.RAM
+
+	tileData               [2][512]Tile
+	rawTileData            [2][512][16]uint8
+	sprites                [40]Sprite
+	currentTileLineDotData *[8]int
+
 	irq *interrupts.Service
 
 	PreparedFrame [ScreenWidth][ScreenHeight][3]uint8
 
 	currentCycle       int16
 	bus                mmu.IOBus
-	bgPriority         [ScreenWidth][ScreenHeight]bool
 	screenData         [ScreenWidth][ScreenHeight][3]uint8
 	tileScanline       [ScreenWidth]uint8
 	screenCleared      bool
@@ -90,7 +97,7 @@ type PPU struct {
 }
 
 func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
-	return &PPU{
+	p := &PPU{
 		Background:      background.NewBackground(),
 		Controller:      lcd.NewController(),
 		Status:          lcd.NewStatus(),
@@ -102,12 +109,32 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 		WindowY:         0,
 		currentCycle:    0,
 
-		bus: mmu,
-		irq: irq,
+		sprites:                [40]Sprite{},
+		currentTileLineDotData: new([8]int),
+
+		bus:  mmu,
+		irq:  irq,
+		oam:  ram.NewRAM(160),
+		vRAM: ram.NewRAM(8192),
 	}
+
+	// initialize sprites
+	for i := 0; i < 40; i++ {
+		p.sprites[i] = NewDefaultSprite()
+	}
+	return p
 }
 
 func (p *PPU) Read(address uint16) uint8 {
+	// read from VRAM
+	if address >= 0x8000 && address <= 0x9FFF {
+		return p.vRAM.Read(address - 0x8000)
+	}
+	// read from OAM
+	if address >= 0xFE00 && address <= 0xFE9F {
+		// TODO: check if OAM is locked
+		return p.oam.Read(address - 0xFE00)
+	}
 	switch address {
 	case lcd.ControlRegister:
 		return p.Controller.Read(address)
@@ -135,6 +162,21 @@ func (p *PPU) Read(address uint16) uint8 {
 }
 
 func (p *PPU) Write(address uint16, value uint8) {
+	// write to VRAM
+	if address >= 0x8000 && address <= 0x9FFF {
+		p.vRAM.Write(address-0x8000, value)
+		// update tile data
+		p.UpdateTile(address-0x8000, value)
+		return
+	}
+	// write to OAM
+	if address >= 0xFE00 && address <= 0xFE9F {
+		p.oam.Write(address-0xFE00, value)
+		// update sprite data
+		p.UpdateSprite(address-0xFE00, value)
+		return
+	}
+
 	switch address {
 	case lcd.ControlRegister:
 		p.Controller.Write(address, value)
@@ -160,6 +202,27 @@ func (p *PPU) Write(address uint16, value uint8) {
 	}
 }
 
+func (p *PPU) UpdateSprite(address uint16, value uint8) {
+	spriteId := address & 0x00FF / 4
+	if p.SpriteSize == 8 {
+		p.sprites[spriteId].UpdateSprite(address, value)
+	} else {
+		fmt.Println("TODO: 16x16 sprites")
+	}
+}
+
+// UpdateTile updates the tile at the given index with the given data.
+func (p *PPU) UpdateTile(index uint16, value uint8) {
+	// get the ID of the tile being updated (0-383)
+	tileID := uint16((index&0x1FFF)>>4) & 511
+
+	// update the tile data
+	p.rawTileData[0][tileID][index%16] = value
+
+	// update the tile
+	p.tileData[0][tileID] = NewTile(p.rawTileData[0][tileID])
+}
+
 // Step advances the PPU by the given number of cycles. This is
 // to keep the PPU in sync with the CPU.
 func (p *PPU) Step(cycles uint16) {
@@ -177,12 +240,25 @@ func (p *PPU) Step(cycles uint16) {
 
 		// if we've reached the start of the VBlank period, we need to set the VBlank interrupt flag
 		if p.CurrentScanline == 144 {
+			for _, s := range p.sprites {
+				s.ResetScanlines()
+			}
 			p.irq.Request(interrupts.VBlankFlag)
+			p.PreparedFrame = p.screenData
 		} else if p.CurrentScanline > 153 {
 			p.CurrentScanline = 0
-			p.renderFrame()
 		} else if p.CurrentScanline < 144 {
-			p.renderScanline()
+			if p.Controller.BackgroundEnabled {
+				p.renderBackground()
+			}
+
+			if p.Controller.WindowEnabled {
+				p.renderWindow()
+			}
+
+			if p.Controller.SpriteEnabled {
+				p.renderSprites()
+			}
 		}
 	}
 }
@@ -231,208 +307,143 @@ func (p *PPU) setLCDStatus() {
 	}
 }
 
-// renderScanline renders the current scanline to the screen.
-func (p *PPU) renderScanline() {
-	if p.Controller.BackgroundEnabled {
-		p.renderBackground()
-	}
+func (p *PPU) renderWindow() {
+	// determine yPos
+	yPos := int(p.CurrentScanline - p.WindowY)
 
-	if p.Controller.SpriteEnabled {
-		p.renderSprites()
-	}
-}
+	if (p.WindowX <= 166) && (p.WindowY <= 143) && yPos >= 0 {
+		tileMapOffset := p.WindowTileMapAddress + uint16(yPos)/8*32
+		lineOffset := uint16(0)
 
-// renderTiles renders the background and window tiles to the screen.
-func (p *PPU) renderTiles() {
-	var usingWindow = false
+		xPos := int((p.WindowX - 7) % 255)
 
-	// determine if we're using the window or the background
-	if p.Controller.WindowEnabled && p.WindowY <= p.CurrentScanline {
-		usingWindow = true
-	}
+		// determine where in the tile we are
+		tileX := xPos % 8
+		tileY := yPos % 8
 
-	var tileMap uint16
-
-	if usingWindow {
-		tileMap = p.Controller.WindowTileMapAddress
-	} else {
-		tileMap = p.Controller.BackgroundTileMapAddress
-	}
-
-	// yPos is used to determine which of the 32 vertical tiles we're rendering
-	yPos := byte(0)
-	if usingWindow {
-		yPos = p.CurrentScanline - p.WindowY
-	} else {
-		yPos = p.CurrentScanline + p.Background.ScrollY
-	}
-
-	// determine tile row
-	tileRow := uint16(yPos/8) * 32
-
-	// start rendering the tiles
-	for pixel := uint8(0); pixel < ScreenWidth; pixel++ {
-		// xPos is used to determine which of the 32 horizontal tiles we're rendering
-		xPos := pixel + p.WindowX
-
-		// if we're using the window, we need to offset xPos by the window's X position
-		if usingWindow && pixel >= p.WindowX {
-			xPos = pixel - p.WindowX
-		}
-
-		// determine tile column
-		tileCol := uint16(xPos / 8)
-
-		// determine tile number (which can be signed or unsigned)
-		var tileNum uint16
-
-		tileAddress := tileMap + tileRow + tileCol
-		if !p.UsingSignedTileData() {
-			tileNum = uint16(p.bus.Read(tileAddress))
-		} else {
-			tileNum = uint16(int8(p.bus.Read(tileAddress)))
-		}
-
-		// determine the tile's address
-		var tileLocation = p.TileDataAddress
-		if !p.UsingSignedTileData() {
-			tileLocation += tileNum * 16
-		} else {
-			tileLocation += (tileNum + 128) * 16
-		}
-
-		// determine the line of the tile to render
-		line := byte(yPos % 8)
-		line *= 2
-		data1 := p.bus.Read(tileLocation + uint16(line))
-		data2 := p.bus.Read(tileLocation + uint16(line) + 1)
-
-		// determine pixel color
-		colourBit := int((xPos%8)-7) * -1
-		colourNum := utils.Val(data2, uint8(colourBit))<<1 | utils.Val(data1, uint8(colourBit))
-
-		// determine the color palette to use
-		colour := palette.GetColour(colourNum)
-
-		// set the pixels
-		p.screenData[pixel][p.CurrentScanline] = colour
+		// draw scanline
+		p.drawScanline(tileMapOffset, lineOffset, xPos, tileX, tileY)
 	}
 }
 
 func (p *PPU) renderBackground() {
-	// yPos is used to determine which of the 32 vertical tiles we're rendering
-	yPos := byte(0)
-	yPos = p.CurrentScanline + p.Background.ScrollY
+	// determine yPos
+	yPos := int(p.CurrentScanline) + int(p.Background.ScrollY)
+	tilemapOffset := p.BackgroundTileMapAddress + uint16(yPos)%256/8*32
+	lineOffset := uint16(p.ScrollX) / 8 % 32
 
-	// determine tile row
-	tileRow := uint16(yPos/8) * 32
+	// determine where in the tile we are
+	tileX := int(p.ScrollX) % 8
+	tileY := yPos % 8
 
-	// start rendering the tiles
-	for pixel := uint8(0); pixel < ScreenWidth; pixel++ {
-		// xPos is used to determine which of the 32 horizontal tiles we're rendering
-		xPos := pixel + p.Background.ScrollX
+	// draw scanline
+	p.drawScanline(tilemapOffset, lineOffset, 0, tileX, tileY)
+}
 
-		// determine tile column
-		tileCol := uint16(xPos / 8)
+// drawScanline draws the current scanline
+func (p *PPU) drawScanline(tilemapOffset, lineOffset uint16, screenX, tileX, tileY int) {
+	// determine the tile ID
+	tileID := p.calculateTileID(tilemapOffset, lineOffset)
 
-		// determine the tile's address
-		var tileLocation = p.TileDataAddress
-		tileAddress := p.BackgroundTileMapAddress + tileRow + tileCol
-		if !p.UsingSignedTileData() {
-			tileNum := int16(p.bus.Read(tileAddress))
-			tileLocation = tileLocation + uint16(tileNum*16)
-		} else {
-			tileNum := int16(int8(p.bus.Read(tileAddress)))
-			tileLocation = uint16(int32(tileLocation) + int32((tileNum+128)*16))
+	// draw loop
+	for ; screenX < ScreenWidth; screenX++ {
+		// get the colour for the tile using the background palette
+		color := p.Palette[p.tileData[0][tileID][tileY][tileX]]
+
+		// draw the pixel to the framebuffer
+		p.screenData[screenX][p.CurrentScanline] = palette.GetColour(color)
+
+		// increment the tile X position until we reach the end of the tile
+		tileX++
+		if tileX == 8 {
+			tileX = 0
+			lineOffset = (lineOffset + 1) % 32
+
+			// get the next tile ID
+			tileID = p.calculateTileID(tilemapOffset, lineOffset)
 		}
-
-		// determine the line of the tile to render
-		line := yPos % 8
-		line *= 2
-		data1 := p.bus.Read(tileLocation + uint16(line))
-		data2 := p.bus.Read(tileLocation + uint16(line) + 1)
-
-		// determine pixel color
-		colourBit := int8((xPos%8)-7) * -1
-		colourNum := utils.Val(data2, uint8(colourBit))<<1 | utils.Val(data1, uint8(colourBit))
-
-		// determine the color palette to use
-		colour := palette.GetColour(colourNum)
-
-		// set the pixels
-		p.screenData[pixel][p.CurrentScanline] = colour
 	}
+}
+
+// calculateTileID calculates the tile ID for the current scanline
+func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint16) int {
+	// determine the tile ID
+	tileID := int(p.bus.Read(tilemapOffset + lineOffset))
+
+	// if the tile ID is signed, we need to convert it to an unsigned value
+	if p.UsingSignedTileData() {
+		if tileID < 128 {
+			tileID += 256
+		}
+	}
+
+	return tileID
 }
 
 // renderSprites renders the sprites on the current scanline.
 func (p *PPU) renderSprites() {
-	for i := uint8(0); i < 40; i++ {
-		// sprite occupies 4 bytes in OAM
-		index := i * 4
-		yPos := p.bus.Read(0xFE00+uint16(index)) - 16
-		xPos := p.bus.Read(0xFE00+uint16(index)+1) - 8
-
-		tileLocation := p.bus.Read(0xFE00 + uint16(index) + 2)
-		attributes := p.bus.Read(0xFE00 + uint16(index) + 3)
-
-		yFlip := utils.Test(attributes, 6)
-		xFlip := utils.Test(attributes, 5)
-
-		// does sprite overlap with current scanline?
-		if p.CurrentScanline >= yPos && p.CurrentScanline < yPos+p.Controller.SpriteSize {
-			// determine which line of the tile to render
-			line := int(p.CurrentScanline - yPos)
-
-			// if the sprite is flipped vertically, we need to render the opposite line
-			if yFlip {
-				line -= int(p.Controller.SpriteSize)
-				line *= -1
-			}
-
-			line *= 2
-			tileAddress := (0x8000 + uint16(tileLocation)*16) + uint16(line)
-			data1 := p.bus.Read(tileAddress)
-			data2 := p.bus.Read(tileAddress + 1)
-
-			for tilePixel := int8(7); tilePixel >= 0; tilePixel-- {
-				colourBit := tilePixel
-				if xFlip {
-					colourBit -= 7
-					colourBit *= -1
+	if p.Controller.SpriteSize == 8 {
+		for _, sprite := range p.sprites {
+			if sprite.Attributes().X != 0x00 && sprite.Attributes().Y != 0x00 {
+				if sprite.Attributes().Y-16 <= 0 {
+					sprite.PushScanlines(int(p.CurrentScanline), 8)
+				} else if sprite.Attributes().Y-16 == int(p.CurrentScanline) {
+					sprite.PushScanlines(int(p.CurrentScanline), 8)
 				}
 
-				colourNum := utils.Val(data2, uint8(colourBit))
-				colourNum <<= 1
-				colourNum |= utils.Val(data1, uint8(colourBit))
-
-				colour := palette.GetColour(colourNum)
-
-				// index 0 is transparent for sprites
-				if colourNum == 0 {
-					continue
+				if !sprite.IsScanlineEmpty() {
+					if scanline, tileLine := sprite.PopScanline(); scanline == int(p.CurrentScanline) {
+						p.drawSpriteLine(sprite, sprite.TileID(0), 0, tileLine)
+					}
 				}
-
-				xPix := 0 - int(tilePixel)
-				xPix += 7
-
-				pixel := xPos + uint8(xPix)
-
-				// check within bounds
-				if pixel < 0 || pixel >= ScreenWidth || p.CurrentScanline < 0 || p.CurrentScanline >= ScreenHeight {
-					continue
-				}
-
-				p.screenData[pixel][p.CurrentScanline] = colour
 			}
 		}
 	}
 }
 
-// renderFrame renders the current frame to the screen.
-func (p *PPU) renderFrame() {
-	for x := 0; x < ScreenWidth; x++ {
-		for y := 0; y < ScreenHeight; y++ {
-			p.PreparedFrame[x][y] = p.screenData[x][y]
+// drawSpriteLine draws a single line of a sprite to the framebuffer.
+func (p *PPU) drawSpriteLine(sprite Sprite, tileId, yOffset, tileY int) {
+	if sprite.Attributes().X >= 0 && sprite.Attributes().Y >= 0 {
+		var t *Tile = &p.tileData[0][tileId]
+		formatTileLine(t, tileY, sprite.Attributes().FlipX, sprite.Attributes().FlipY, p.currentTileLineDotData)
+
+		sx, sy := sprite.Attributes().X-8, sprite.Attributes().Y-16
+		for tileX := 0; tileX < 8; tileX++ {
+			if p.currentTileLineDotData[tileX] != 0 {
+				adjX, adjY := sx+tileX, sy+tileY+yOffset
+				if (adjY < ScreenHeight && adjY >= 0) && (adjX < ScreenWidth && adjX >= 0) {
+					// if sprite doesn't have priority and background color isn't shade 0 then don't draw
+					if sprite.Attributes().Priority && p.screenData[adjX][adjY] != palette.GetColour(0) {
+						continue
+					}
+					p.screenData[adjX][adjY] = palette.GetColour(p.Palette[p.currentTileLineDotData[tileX]])
+				}
+			}
 		}
+	}
+}
+
+func formatTileLine(t *Tile, tileY int, flipX, flipY bool, tileLine *[8]int) {
+	// flip both
+	if flipX && flipY {
+		for x := 0; x < 8; x++ {
+			tileLine[x] = t[7-tileY][7-x]
+		}
+		return
+	}
+	if flipX {
+		for x := 0; x < 8; x++ {
+			tileLine[x] = t[tileY][7-x]
+		}
+		return
+	}
+	if flipY {
+		for y := 0; y < len(t[7-tileY]); y++ {
+			tileLine[y] = t[7-tileY][y]
+		}
+		return
+	}
+	for y := 0; y < len(t[tileY]); y++ {
+		tileLine[y] = t[tileY][y]
 	}
 }

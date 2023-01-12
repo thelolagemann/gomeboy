@@ -16,7 +16,6 @@ const (
 // Palette represents a palette. A palette is an array of 4 RGB values,
 // that can be used to represent a colour.
 type Palette struct {
-	// The palette's colors.
 	Colors [4][3]uint8
 }
 
