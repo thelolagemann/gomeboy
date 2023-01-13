@@ -74,6 +74,7 @@ type PPU struct {
 	SpritePalettes  [2]palette.Palette
 	WindowX         uint8
 	WindowY         uint8
+	WindowYInternal uint8
 
 	oam  ram.RAM
 	vRAM ram.RAM
@@ -81,7 +82,6 @@ type PPU struct {
 	tileData               [2][512]Tile
 	rawTileData            [2][512][16]uint8
 	sprites                [40]Sprite
-	spritesLarge           [40]Sprite
 	currentTileLineDotData *[8]int
 
 	irq *interrupts.Service
@@ -111,7 +111,6 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 		currentCycle:    0,
 
 		sprites:                [40]Sprite{},
-		spritesLarge:           [40]Sprite{},
 		currentTileLineDotData: new([8]int),
 
 		bus:  mmu,
@@ -122,8 +121,7 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 
 	// initialize sprites
 	for i := 0; i < 40; i++ {
-		p.sprites[i] = NewDefaultSprite()
-		p.spritesLarge[i] = NewLargeSprite()
+		p.sprites[i] = NewSprite()
 	}
 	return p
 }
@@ -135,7 +133,9 @@ func (p *PPU) Read(address uint16) uint8 {
 	}
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		// TODO: check if OAM is locked
+		if p.Status.Mode == lcd.VRAM || p.Status.Mode == lcd.OAM {
+			return 0xFF
+		}
 		return p.oam.Read(address - 0xFE00)
 	}
 	switch address {
@@ -174,6 +174,10 @@ func (p *PPU) Write(address uint16, value uint8) {
 	}
 	// write to OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
+		// if mode 2 or 3, the cpu can't access OAM
+		if p.Status.Mode == lcd.OAM || p.Status.Mode == lcd.VRAM {
+			return
+		}
 		p.oam.Write(address-0xFE00, value)
 		// update sprite data
 		p.UpdateSprite(address-0xFE00, value)
@@ -207,11 +211,7 @@ func (p *PPU) Write(address uint16, value uint8) {
 
 func (p *PPU) UpdateSprite(address uint16, value uint8) {
 	spriteId := address & 0x00FF / 4
-	if p.SpriteSize == 8 {
-		p.sprites[spriteId].UpdateSprite(address, value)
-	} else {
-		p.spritesLarge[spriteId].UpdateSprite(address, value)
-	}
+	p.sprites[spriteId].UpdateSprite(address, value)
 }
 
 // UpdateTile updates the tile at the given index with the given data.
@@ -234,6 +234,7 @@ func (p *PPU) Step(cycles uint16) {
 		p.CurrentScanline = 0
 		p.currentCycle = 456
 		p.SetMode(lcd.HBlank)
+		p.WindowYInternal = 0
 	} else {
 		if p.CurrentScanline >= 144 {
 			p.SetMode(lcd.VBlank)
@@ -259,13 +260,6 @@ func (p *PPU) Step(cycles uint16) {
 		p.CurrentScanline++
 		// if the scanline is 144, we are in VBlank and we need to throw an interrupt
 		if p.CurrentScanline == 144 {
-			for _, s := range p.sprites {
-				s.ResetScanlines()
-			}
-			for _, s := range p.spritesLarge {
-				s.ResetScanlines()
-			}
-
 			if !p.vBlankIntThrow {
 				p.irq.Request(interrupts.VBlankFlag)
 
@@ -278,6 +272,7 @@ func (p *PPU) Step(cycles uint16) {
 
 			// draw the screen
 			p.PreparedFrame = p.screenData
+			p.WindowYInternal = 0
 		} else if p.CurrentScanline > 153 {
 			p.CurrentScanline = 0
 			p.vBlankIntThrow = false
@@ -306,110 +301,70 @@ func (p *PPU) Step(cycles uint16) {
 	}
 }
 
-// setLCDStatus determines the current LCD status and sets the appropriate bits
-// in the LCD Status Register.
-func (p *PPU) setLCDStatus() {
-	if !p.Controller.Enabled {
-		// if the LCD is disabled, set mode to 0 and reset
-		p.Status.SetMode(lcd.HBlank)
+func (p *PPU) renderWindow() {
+	var xPos, yPos uint8
 
-		// reset the current scanline to 0
-		p.CurrentScanline = 0
-		p.currentCycle = 456
+	// do nothing if window is out of bounds
+	if p.CurrentScanline < p.WindowY {
+		return
+	} else if p.WindowX > ScreenWidth {
+		return
+	} else if p.WindowY > ScreenHeight {
 		return
 	}
 
-	currentMode := p.Status.Mode
-	reqInt := false
-	if p.CurrentScanline >= 144 {
-		p.Status.SetMode(lcd.VBlank)
-		reqInt = p.Status.VBlankInterrupt
-	} else {
-		if p.currentCycle >= 376 {
-			p.Status.SetMode(lcd.OAM)
-			reqInt = p.Status.OAMInterrupt
-		} else if p.currentCycle >= 204 {
-			p.Status.SetMode(lcd.VRAM)
-		} else {
-			p.Status.SetMode(lcd.HBlank)
-			reqInt = p.Status.HBlankInterrupt
+	yPos = p.WindowYInternal
+	tileYIndex := p.WindowTileMapAddress + uint16(yPos)/8*32
+
+	for i := uint8(0); i < ScreenWidth; i++ {
+		if i < p.WindowX-7 {
+			continue
 		}
+
+		xPos = i - (p.WindowX - 7)
+		tileXIndex := xPos / 8
+
+		tileID := p.calculateTileID(tileYIndex, uint16(tileXIndex))
+		if p.UsingSignedTileData() && tileID < 128 {
+			tileID += 256
+		}
+
+		// get pixel position within tile
+		xPixelPos := xPos % 8
+		yPixelPos := yPos % 8
+
+		// get the color of the pixel using the background palette
+		color := p.tileData[0][tileID][yPixelPos][xPixelPos]
+		p.screenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
 	}
-
-	// if the current mode is different from the previous mode, we need to request an interrupt
-	if reqInt && currentMode != p.Status.Mode {
-		p.irq.Request(interrupts.LCDFlag)
-	}
-
-	// if LY == LYC, we need to set the coincidence flag and request an interrupt if necessary
-	if p.Status.CoincidenceInterrupt && p.CurrentScanline == p.LYCompare {
-		p.Coincidence = true
-		p.irq.Request(interrupts.LCDFlag)
-	} else {
-		p.Coincidence = false
-	}
-}
-
-func (p *PPU) renderWindow() {
-	// determine yPos
-	yPos := int(p.CurrentScanline) - int(p.WindowY)
-
-	if (p.WindowX <= 166) && (p.WindowY <= 143) && yPos >= 0 {
-		tileMapOffset := p.WindowTileMapAddress + uint16(yPos)/8*32
-		lineOffset := uint16(0)
-
-		xPos := int((p.WindowX - 7) % 255)
-
-		// determine where in the tile we are
-		tileX := xPos % 8
-		tileY := yPos % 8
-
-		// draw scanline
-		p.drawScanline(tileMapOffset, lineOffset, xPos, tileX, tileY)
-	}
+	p.WindowYInternal++
 }
 
 func (p *PPU) renderBackground() {
-	// determine yPos
-	yPos := int(p.CurrentScanline) + int(p.Background.ScrollY)
-	tilemapOffset := p.BackgroundTileMapAddress + uint16(yPos)%256/8*32
-	lineOffset := uint16(p.ScrollX) / 8 % 32
+	var xPos, yPos uint8
 
-	// determine where in the tile we are
-	tileX := int(p.ScrollX) % 8
-	tileY := yPos % 8
+	yPos = p.CurrentScanline + p.ScrollY
+	tileYIndex := p.BackgroundTileMapAddress + uint16(yPos)%256/8*32
 
-	// draw scanline
-	p.drawScanline(tilemapOffset, lineOffset, 0, tileX, tileY)
-}
+	for i := uint8(0); i < ScreenWidth; i++ {
+		xPos = i + p.ScrollX
+		tileXIndex := uint16(xPos / 8)
+		tileID := p.calculateTileID(tileYIndex, tileXIndex)
 
-// drawScanline draws the current scanline
-func (p *PPU) drawScanline(tilemapOffset, lineOffset uint16, screenX, tileX, tileY int) {
-	// determine the tile ID
-	tileID := p.calculateTileID(tilemapOffset, lineOffset)
+		// get pixel position within tile
+		xPixelPos := xPos % 8
+		yPixelPos := yPos % 8
 
-	// draw loop
-	for ; screenX < ScreenWidth; screenX++ {
-
-		// draw the pixel to the framebuffer
-		p.screenData[screenX][p.CurrentScanline] = p.Background.Palette.GetColour(uint8(p.tileData[0][tileID][tileY][tileX]))
-
-		// increment the tile X position until we reach the end of the tile
-		tileX++
-		if tileX == 8 {
-			tileX = 0
-			lineOffset = (lineOffset + 1) % 32
-
-			// get the next tile ID
-			tileID = p.calculateTileID(tilemapOffset, lineOffset)
-		}
+		// get the color of the pixel using the background palette
+		color := p.tileData[0][tileID][yPixelPos][xPixelPos]
+		p.screenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
 	}
 }
 
 // calculateTileID calculates the tile ID for the current scanline
 func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint16) int {
 	// determine the tile ID
-	tileID := int(p.bus.Read(tilemapOffset + lineOffset))
+	tileID := int(p.vRAM.Read(tilemapOffset + lineOffset - 0x8000))
 
 	// if the tile ID is signed, we need to convert it to an unsigned value
 	if p.UsingSignedTileData() {
@@ -423,102 +378,78 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint16) int {
 
 // renderSprites renders the sprites on the current scanline.
 func (p *PPU) renderSprites() {
-	if p.Controller.SpriteSize == 8 {
-		count := 0
-		for _, sprite := range p.sprites {
-			if sprite.Attributes().X != 0x00 && sprite.Attributes().Y != 0x00 {
-				if sprite.Attributes().Y-16 <= 0 || sprite.Attributes().Y-16 == int(p.CurrentScanline) {
-					count++
-					sprite.PushScanlines(int(p.CurrentScanline), 8)
-				}
+	spriteXPerScreen := [ScreenWidth]uint8{}
+	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
-				if !sprite.IsScanlineEmpty() {
-					if scanline, tileLine := sprite.PopScanline(); scanline == int(p.CurrentScanline) {
-						p.drawSpriteLine(sprite, sprite.TileID(0), 0, tileLine)
-					}
-				}
-			}
-			if count == 10 {
-				break
-			}
+	for _, sprite := range p.sprites {
+
+		if sprite.Y > p.CurrentScanline || sprite.Y+p.SpriteSize <= p.CurrentScanline {
+			continue
 		}
-	} else {
-		count := 0
-		for _, sprite := range p.spritesLarge {
-			if sprite.Attributes().X != 0x00 && sprite.Attributes().Y != 0x00 {
-				if sprite.Attributes().Y-16 <= 0 || sprite.Attributes().Y-16 == int(p.CurrentScanline) {
-					count++
-					sprite.PushScanlines(int(p.CurrentScanline), 16)
-				}
-
-				if !sprite.IsScanlineEmpty() {
-					if scanline, tileLine := sprite.PopScanline(); scanline == int(p.CurrentScanline) {
-						if sprite.Attributes().FlipY {
-							if tileLine < 8 {
-								p.drawSpriteLine(sprite, sprite.TileID(1), 0, tileLine)
-							} else {
-								p.drawSpriteLine(sprite, sprite.TileID(0), 8, tileLine-8)
-							}
-						} else {
-							if tileLine < 8 {
-								p.drawSpriteLine(sprite, sprite.TileID(0), 0, tileLine)
-							} else {
-								p.drawSpriteLine(sprite, sprite.TileID(1), 8, tileLine-8)
-							}
-						}
-					}
-				}
-			}
-			if count == 10 {
-				break
-			}
+		if spriteCount >= 10 {
+			break
 		}
-	}
-}
+		spriteCount++
 
-// drawSpriteLine draws a single line of a sprite to the framebuffer.
-func (p *PPU) drawSpriteLine(sprite Sprite, tileId, yOffset, tileY int) {
-	if sprite.Attributes().X >= 0 && sprite.Attributes().Y >= 0 {
-		var t = &p.tileData[0][tileId]
-		formatTileLine(t, tileY, sprite.Attributes().FlipX, sprite.Attributes().FlipY, p.currentTileLineDotData)
-
-		sx, sy := sprite.Attributes().X-8, sprite.Attributes().Y-16
-		for tileX := 0; tileX < 8; tileX++ {
-			if p.currentTileLineDotData[tileX] != 0 {
-				adjX, adjY := sx+tileX, sy+tileY+yOffset
-				if (adjY < ScreenHeight && adjY >= 0) && (adjX < ScreenWidth && adjX >= 0) {
-					// if sprite doesn't have priority and background color isn't shade 0 then don't draw
-					if sprite.Attributes().Priority && p.screenData[adjX][adjY] != p.SpritePalettes[sprite.Attributes().UseSecondPalette].GetColour(0) {
-						continue
-					}
-					p.screenData[adjX][adjY] = p.SpritePalettes[sprite.Attributes().UseSecondPalette].GetColour(uint8(p.currentTileLineDotData[tileX]))
+		tilerowIndex := p.CurrentScanline - sprite.Y
+		if sprite.FlipY {
+			tilerowIndex = p.SpriteSize - tilerowIndex - 1
+		}
+		tilerowIndex %= 8
+		tileID := uint16(sprite.tileID)
+		if p.SpriteSize == 16 {
+			if p.CurrentScanline-sprite.Y < 8 {
+				if sprite.FlipY {
+					tileID |= 0x01
+				} else {
+					tileID &= 0xFE
+				}
+			} else {
+				if sprite.FlipY {
+					tileID &= 0xFE
+				} else {
+					tileID |= 0x01
 				}
 			}
 		}
-	}
-}
 
-func formatTileLine(t *Tile, tileY int, flipX, flipY bool, tileLine *[8]int) {
-	// flip both
-	if flipX && flipY {
-		for x := 0; x < 8; x++ {
-			tileLine[x] = t[7-tileY][7-x]
+		tilerow := p.tileData[0][tileID][tilerowIndex]
+
+		for x := uint8(0); x < 8; x++ {
+			// skip if the sprite is out of bounds
+			pixelPos := sprite.X + x
+			if pixelPos < 0 || pixelPos >= ScreenWidth {
+				continue
+			}
+
+			// get the color of the pixel using the sprite palette
+			color := tilerow[x]
+			if sprite.FlipX {
+				color = tilerow[7-x]
+			}
+
+			// skip if the color is transparent
+			if color == 0 {
+				continue
+			}
+
+			// skip if the sprite doesn't have priority and the background is not transparent
+			if p.BackgroundEnabled {
+				if !sprite.Priority && p.screenData[pixelPos][p.CurrentScanline] != p.SpritePalettes[sprite.UseSecondPalette].GetColour(0) {
+					continue
+				}
+			}
+
+			// skip if pixel is occupied by sprite with lower x coordinate
+			if spriteXPerScreen[pixelPos] != 0 && spriteXPerScreen[pixelPos] <= sprite.X {
+				continue
+			}
+
+			// draw the pixel
+			p.screenData[pixelPos][p.CurrentScanline] = p.SpritePalettes[sprite.UseSecondPalette].GetColour(uint8(color))
+
+			// mark the pixel as occupied
+			spriteXPerScreen[pixelPos] = sprite.X
 		}
-		return
-	}
-	if flipX {
-		for x := 0; x < 8; x++ {
-			tileLine[x] = t[tileY][7-x]
-		}
-		return
-	}
-	if flipY {
-		for y := 0; y < len(t[7-tileY]); y++ {
-			tileLine[y] = t[7-tileY][y]
-		}
-		return
-	}
-	for y := 0; y < len(t[tileY]); y++ {
-		tileLine[y] = t[tileY][y]
 	}
 }
