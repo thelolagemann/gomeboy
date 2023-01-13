@@ -1,6 +1,9 @@
 package cartridge
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Flag uint8
 
@@ -69,7 +72,7 @@ type Header struct {
 	// 0x0144-0x0145 - NewLicenseeCode of the game. This is used to identify the
 	// licensee of the game. This is used in newer cartridges, and is used in
 	// conjunction with the CartridgeType to determine the type of cartridge.
-	NewLicenseeCode string
+	NewLicenseeCode [2]byte
 	SGBFlag         bool
 	CartridgeType   Type
 	ROMSize         uint
@@ -109,11 +112,14 @@ func parseHeader(header []byte) *Header {
 		h.Title = string(header[0x34:0x43])
 	}
 
+	// strip any trailing null bytes
+	h.Title = strings.Replace(h.Title, "\x00", "", -1)
+
 	// parse the manufacturer code
-	h.ManufacturerCode = string(header[0x3F:0x43])
+	h.ManufacturerCode = string(header[0x3F:0x43]) // TODO map
 
 	// parse the new licensee code
-	h.NewLicenseeCode = string(header[0x44:0x46])
+	h.NewLicenseeCode = [2]byte{header[0x44], header[0x45]}
 
 	// parse the SGB flag
 	h.SGBFlag = header[0x46] == 0x03
@@ -162,6 +168,235 @@ func (h *Header) Hardware() string {
 	}
 }
 
+func (h *Header) Licensee() string {
+	if h.OldLicenseeCode == 0x33 {
+		// infer 2 byte slice as ASCII string and return mapped value
+		return newLicenseeCodeMap[string(h.NewLicenseeCode[:])]
+	}
+
+	return oldLicenseeCodeMap[h.OldLicenseeCode]
+}
+
 func (h *Header) String() string {
-	return fmt.Sprintf("%s Mode: %s | ROM Size: %dkB | RAM Size: %dkB | Cart Type: %s", h.Title, h.Hardware(), h.ROMSize/1024, h.RAMSize/1024, h.CartridgeType)
+	return fmt.Sprintf("%s (%s) | Mode: %s | ROM Size: %dkB | RAM Size: %dkB", h.Title, h.Licensee(), h.Hardware(), h.ROMSize/1024, h.RAMSize/1024)
+}
+
+// oldLicenseeCodeMap maps the old licensee code to the licensee name,
+// this is used for cartridges prior to the release of the SGB. A value
+// of 0x33 in the OldLicenseeCode field indicates that the NewLicenseeCode
+// field should be used instead.
+var oldLicenseeCodeMap = map[uint8]string{
+	0x00: "None",
+	0x01: "Nintendo",
+	0x08: "Capcom",
+	0x09: "Hot B Co.",
+	0x0A: "Jaleco",
+	0x0B: "Coconuts",
+	0x0C: "Elite Systems",
+	0x13: "Electronic Arts",
+	0x18: "Hudson Soft",
+	0x19: "ITC Entertainment",
+	0x1A: "Yanoman",
+	0x1D: "Clary",
+	0x1F: "Virgin",
+	0x24: "PCM Complete",
+	0x25: "San-X",
+	0x28: "Kotobuki Systems",
+	0x29: "Seta",
+	0x30: "Infogrames",
+	0x31: "Nintendo",
+	0x32: "Bandai",
+	// 0x33 is used for new licensee code
+	0x34: "Konami",
+	0x35: "Hector",
+	0x38: "Capcom",
+	0x39: "Banpresto",
+	0x3C: "Entertainment i",
+	0x3E: "Gremlin",
+	0x41: "Ubisoft",
+	0x42: "Atlus",
+	0x44: "Malibu",
+	0x46: "Angel",
+	0x47: "Spectrum Holoby",
+	0x49: "Irem",
+	0x4A: "Virgin",
+	0x4D: "Malibu",
+	0x4F: "U.S. Gold",
+	0x50: "Absolute",
+	0x51: "Acclaim",
+	0x52: "Activision",
+	0x53: "American Sammy",
+	0x54: "GameTek",
+	0x55: "Park Place",
+	0x56: "LJN",
+	0x57: "Matchbox",
+	0x59: "Milton Bradley",
+	0x5A: "Mindscape",
+	0x5B: "Romstar",
+	0x5C: "Naxat Soft",
+	0x5D: "Tradewest",
+	0x60: "Titus",
+	0x61: "Virgin",
+	0x67: "Ocean",
+	0x69: "Electronic Arts",
+	0x6E: "Elite Systems",
+	0x6F: "Electro Brain",
+	0x70: "Infogrames",
+	0x71: "Interplay",
+	0x72: "Broderbund",
+	0x73: "Sculptured",
+	0x75: "The Sales Curve",
+	0x78: "THQ",
+	0x79: "Accolade",
+	0x7A: "Triffix Entertainment",
+	0x7C: "Microprose",
+	0x7F: "Kemco",
+	0x80: "Misawa",
+	0x83: "LOZC",
+	0x86: "Tokuma Shoten i",
+	0x8B: "Bullet-Proof",
+	0x8C: "Vic Tokai",
+	0x8E: "Ape",
+	0x8F: "I'Max",
+	0x91: "Chun Soft",
+	0x92: "Video System",
+	0x93: "Tsuburaya",
+	0x95: "Varie",
+	0x96: "Yonezawa/S'pal",
+	0x97: "Kaneko",
+	0x99: "Arc",
+	0x9A: "Nihon Bussan",
+	0x9B: "Tecmo",
+	0x9C: "Imagineer",
+	0x9D: "Banpresto",
+	0x9F: "Nova",
+	0xA1: "Hori Electric",
+	0xA2: "Bandai",
+	0xA4: "Konami",
+	0xA6: "Kawada",
+	0xA7: "Takara",
+	0xA9: "Technos Japan",
+	0xAA: "Broderbund",
+	0xAC: "Toei Animation",
+	0xAD: "Toho",
+	0xAF: "Namco",
+	0xB0: "Acclaim",
+	0xB1: "Ascii or Nexoft",
+	0xB2: "Bandai",
+	0xB4: "Square Enix",
+	0xB6: "HAL Laboratory",
+	0xB7: "SNK",
+	0xB9: "Pony Canyon",
+	0xBA: "Culture Brain",
+	0xBB: "Sunsoft",
+	0xBD: "Sony Imagesoft",
+	0xBF: "Sammy",
+	0xC0: "Taito",
+	0xC2: "Kemco",
+	0xC3: "Squaresoft",
+	0xC4: "Tokuma Shoten i",
+	0xC5: "Data East",
+	0xC6: "Tonkin House",
+	0xC8: "Koei",
+	0xC9: "UFL",
+	0xCA: "Ultra",
+	0xCB: "Vap",
+	0xCC: "Use",
+	0xCD: "Meldac",
+	0xCE: "Pony Canyon or",
+	0xCF: "Angel",
+	0xD0: "Taito",
+	0xD1: "Sofel",
+	0xD2: "Quest",
+	0xD3: "Sigma Enterprises",
+	0xD4: "Ask Kodansha",
+	0xD6: "Naxat Soft",
+	0xD7: "Copya System",
+	0xD9: "Banpresto",
+	0xDA: "Tomy",
+	0xDB: "LJN",
+	0xDD: "NCs",
+	0xDE: "Human",
+	0xDF: "Altron",
+	0xE0: "Jaleco",
+	0xE1: "Towachiki",
+	0xE2: "Uutaka",
+	0xE3: "Varie",
+	0xE5: "Epoch",
+	0xE7: "Athena",
+	0xE8: "Asmik",
+	0xE9: "Natsume",
+	0xEA: "King Records",
+	0xEB: "Atlus",
+	0xEC: "Epic/Sony Records",
+	0xEE: "IGS",
+	0xF0: "A Wave",
+	0xF3: "Extreme Entertainment",
+	0xFF: "LJN",
+}
+
+// newLicenseeCodeMap maps the new licensee code to the licensee name,
+// used for cartridges released after the SGB, and have a value of 0x33
+// in the field of their OldLicenseeCode.
+var newLicenseeCodeMap = map[string]string{
+	"28": "Kemco Japan",
+	"00": "None",
+	"01": "Nintendo R&D1",
+	"08": "Capcom",
+	"13": "Electronic Arts",
+	"18": "Hudson Soft",
+	"19": "b-ai",
+	"20": "KSS",
+	"22": "pow",
+	"24": "PCM Complete",
+	"25": "san-x",
+	"29": "Seta",
+	"30": "Viacom",
+	"31": "Nintendo",
+	"32": "Bandai",
+	"33": "Ocean/Acclaim",
+	"34": "Konami",
+	"35": "Hector",
+	"37": "Taito",
+	"38": "Hudson",
+	"39": "Banpresto",
+	"41": "Ubi Soft",
+	"42": "Atlus",
+	"44": "Malibu",
+	"46": "angel",
+	"47": "Bullet-Proof",
+	"49": "irem",
+	"50": "Absolute",
+	"51": "Acclaim",
+	"52": "Activision",
+	"53": "American sammy",
+	"54": "Konami",
+	"55": "Hi tech entertainment",
+	"56": "LJN",
+	"57": "Matchbox",
+	"58": "Mattel",
+	"59": "Milton Bradley",
+	"60": "Titus",
+	"61": "Virgin",
+	"67": "Ocean/Acclaim",
+	"69": "Electronic Arts",
+	"70": "Infogrames",
+	"71": "Interplay",
+	"72": "Broderbund",
+	"73": "Sculptured",
+	"75": "sci",
+	"78": "THQ",
+	"79": "Accolade",
+	"80": "misawa",
+	"83": "lozc",
+	"86": "tokuma shoten i",
+	"87": "tsukuda ori",
+	"91": "Chun Soft",
+	"92": "Video System",
+	"93": "Ocean/Acclaim",
+	"95": "Varie",
+	"96": "Yonezawa/s'pal",
+	"97": "Kaneo",
+	"99": "Pack in soft",
+	"A4": "Konami (Yu-Gi-Oh!)",
 }
