@@ -157,10 +157,8 @@ func (h *Header) GameboyColor() bool {
 
 func (h *Header) Hardware() string {
 	switch h.CartridgeGBMode {
-	case FlagOnlyDMG:
+	case FlagOnlyDMG, FlagSupportsCGB:
 		return "DMG"
-	case FlagSupportsCGB:
-		return "CGB"
 	case FlagOnlyCGB:
 		return "CGB"
 	default:
@@ -341,7 +339,7 @@ var oldLicenseeCodeMap = map[uint8]string{
 var newLicenseeCodeMap = map[string]string{
 	"28": "Kemco Japan",
 	"00": "None",
-	"01": "Nintendo R&D1",
+	"01": "Nintendo",
 	"08": "Capcom",
 	"13": "Electronic Arts",
 	"18": "Hudson Soft",
