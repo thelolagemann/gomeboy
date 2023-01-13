@@ -68,6 +68,9 @@ func GetColour(index uint8) [3]uint8 {
 	return Palettes[Current].Colors[index]
 }
 
+// TODO recalculate the palette based on the current palette
+// wh
+
 // ByteToPalette creates a new palette from a byte, using the
 // selected palette as a base.
 func ByteToPalette(b byte) Palette {

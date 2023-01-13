@@ -94,6 +94,8 @@ type PPU struct {
 	tileScanline       [ScreenWidth]uint8
 	screenCleared      bool
 	statInterruptDelay bool
+	lcdIntThrow        bool
+	vBlankIntThrow     bool
 }
 
 func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
@@ -227,19 +229,35 @@ func (p *PPU) UpdateTile(index uint16, value uint8) {
 // Step advances the PPU by the given number of cycles. This is
 // to keep the PPU in sync with the CPU.
 func (p *PPU) Step(cycles uint16) {
-	p.setLCDStatus()
-
-	if !p.Controller.Enabled {
-		return
+	// update the status register
+	if !p.Enabled {
+		p.CurrentScanline = 0
+		p.currentCycle = 456
+		p.SetMode(lcd.HBlank)
+	} else {
+		if p.CurrentScanline >= 144 {
+			p.SetMode(lcd.VBlank)
+			p.lcdIntThrow = false
+		} else if p.currentCycle >= 456-80 {
+			p.SetMode(lcd.OAM)
+			p.lcdIntThrow = false
+		} else if p.currentCycle >= 456-80-172 {
+			p.SetMode(lcd.VRAM)
+			p.lcdIntThrow = false
+		} else {
+			p.SetMode(lcd.HBlank)
+			if p.HBlankInterrupt && !p.lcdIntThrow {
+				p.irq.Request(interrupts.LCDFlag)
+				p.lcdIntThrow = true
+			}
+		}
 	}
 
 	p.currentCycle -= int16(cycles)
 	if p.currentCycle <= 0 {
-		// we've reached the end of the current scanline and need to move on to the next one
+		p.currentCycle += 456
 		p.CurrentScanline++
-		p.currentCycle = 456
-
-		// if we've reached the start of the VBlank period, we need to set the VBlank interrupt flag
+		// if the scanline is 144, we are in VBlank and we need to throw an interrupt
 		if p.CurrentScanline == 144 {
 			for _, s := range p.sprites {
 				s.ResetScanlines()
@@ -247,21 +265,42 @@ func (p *PPU) Step(cycles uint16) {
 			for _, s := range p.spritesLarge {
 				s.ResetScanlines()
 			}
-			p.irq.Request(interrupts.VBlankFlag)
+
+			if !p.vBlankIntThrow {
+				p.irq.Request(interrupts.VBlankFlag)
+
+				// throw LCD interrupt if enabled
+				if p.VBlankInterrupt {
+					p.irq.Request(interrupts.LCDFlag)
+				}
+				p.vBlankIntThrow = true
+			}
+
+			// draw the screen
 			p.PreparedFrame = p.screenData
 		} else if p.CurrentScanline > 153 {
 			p.CurrentScanline = 0
-		} else if p.CurrentScanline < 144 {
-			if p.Controller.BackgroundEnabled {
-				p.renderBackground()
-			}
+			p.vBlankIntThrow = false
+		}
 
-			if p.Controller.WindowEnabled {
-				p.renderWindow()
-			}
+		// throw LCD interrupt if enabled
+		if p.CurrentScanline == p.LYCompare && p.CoincidenceInterrupt {
+			p.irq.Request(interrupts.LCDFlag)
+			p.Status.Write(lcd.StatusRegister, p.Status.Read(lcd.StatusRegister)|0x04)
+		}
 
-			if p.Controller.SpriteEnabled {
-				p.renderSprites()
+		// render the scanline
+		if p.CurrentScanline < 144 {
+			if p.Enabled {
+				if p.BackgroundEnabled {
+					p.renderBackground()
+				}
+				if p.WindowEnabled {
+					p.renderWindow()
+				}
+				if p.SpriteEnabled {
+					p.renderSprites()
+				}
 			}
 		}
 	}
@@ -385,11 +424,11 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint16) int {
 // renderSprites renders the sprites on the current scanline.
 func (p *PPU) renderSprites() {
 	if p.Controller.SpriteSize == 8 {
+		count := 0
 		for _, sprite := range p.sprites {
 			if sprite.Attributes().X != 0x00 && sprite.Attributes().Y != 0x00 {
-				if sprite.Attributes().Y-16 <= 0 {
-					sprite.PushScanlines(int(p.CurrentScanline), 8)
-				} else if sprite.Attributes().Y-16 == int(p.CurrentScanline) {
+				if sprite.Attributes().Y-16 <= 0 || sprite.Attributes().Y-16 == int(p.CurrentScanline) {
+					count++
 					sprite.PushScanlines(int(p.CurrentScanline), 8)
 				}
 
@@ -399,13 +438,16 @@ func (p *PPU) renderSprites() {
 					}
 				}
 			}
+			if count == 10 {
+				break
+			}
 		}
 	} else {
+		count := 0
 		for _, sprite := range p.spritesLarge {
 			if sprite.Attributes().X != 0x00 && sprite.Attributes().Y != 0x00 {
-				if sprite.Attributes().Y-16 <= 0 {
-					sprite.PushScanlines(int(p.CurrentScanline), 16)
-				} else if sprite.Attributes().Y-16 == int(p.CurrentScanline) {
+				if sprite.Attributes().Y-16 <= 0 || sprite.Attributes().Y-16 == int(p.CurrentScanline) {
+					count++
 					sprite.PushScanlines(int(p.CurrentScanline), 16)
 				}
 
@@ -427,6 +469,9 @@ func (p *PPU) renderSprites() {
 					}
 				}
 			}
+			if count == 10 {
+				break
+			}
 		}
 	}
 }
@@ -443,7 +488,7 @@ func (p *PPU) drawSpriteLine(sprite Sprite, tileId, yOffset, tileY int) {
 				adjX, adjY := sx+tileX, sy+tileY+yOffset
 				if (adjY < ScreenHeight && adjY >= 0) && (adjX < ScreenWidth && adjX >= 0) {
 					// if sprite doesn't have priority and background color isn't shade 0 then don't draw
-					if sprite.Attributes().Priority && p.screenData[adjX][adjY] != palette.GetColour(0) {
+					if sprite.Attributes().Priority && p.screenData[adjX][adjY] != p.SpritePalettes[sprite.Attributes().UseSecondPalette].GetColour(0) {
 						continue
 					}
 					p.screenData[adjX][adjY] = p.SpritePalettes[sprite.Attributes().UseSecondPalette].GetColour(uint8(p.currentTileLineDotData[tileX]))
