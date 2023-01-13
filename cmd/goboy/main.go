@@ -34,7 +34,7 @@ func main() {
 
 	pixelgl.Run(func() {
 		// create a new pixel binding
-		mon := display.NewDisplay()
+		mon := display.NewDisplay(gb.MMU.Cart.Header().String())
 		// start the gameboy
 		gb.Start(mon)
 	})

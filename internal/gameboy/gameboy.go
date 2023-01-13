@@ -112,7 +112,7 @@ func (g *GameBoy) Start(mon *display.Display) {
 			mon.Render(g.ppu.PreparedFrame)
 
 			if time.Since(start) > time.Second {
-				title := fmt.Sprintf("GomeBoy %s (FPS: %2v)", g.MMU.Cart.Header().String(), frames)
+				title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), frames)
 				mon.SetTitle(title)
 
 				frames = 0

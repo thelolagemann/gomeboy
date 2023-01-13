@@ -1,6 +1,7 @@
 package display
 
 import (
+	"fmt"
 	"github.com/faiface/pixel"
 	"github.com/faiface/pixel/pixelgl"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
@@ -18,9 +19,9 @@ type Display struct {
 	picture *pixel.PictureData
 }
 
-func NewDisplay() *Display {
+func NewDisplay(title string) *Display {
 	cfg := pixelgl.WindowConfig{
-		Title: "GomeBoy",
+		Title: "GomeBoy | " + title,
 		Bounds: pixel.R(
 			0, 0,
 			float64(ppu.ScreenWidth*PixelScale), float64(ppu.ScreenHeight*PixelScale)),
@@ -85,7 +86,7 @@ func (d *Display) updateCamera() {
 
 // SetTitle sets the title of the window.
 func (d *Display) SetTitle(title string) {
-	d.window.SetTitle(title)
+	d.window.SetTitle(fmt.Sprintf("GomeBoy | %s", title))
 }
 
 var keyMap = map[pixelgl.Button]Input{
