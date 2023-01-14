@@ -38,6 +38,10 @@ type Controller struct {
 	modulo  uint8 // the modulo register (TMA)
 	control uint8 // the control register (TAC)
 
+	counterCarry     bool
+	releaseOverflow  bool
+	fallingEdgeDelay bool
+
 	overflowing bool // true if the timer overflowed during the last cycle
 
 	irq *interrupts.Service // the interrupt controller
@@ -90,32 +94,41 @@ func (c *Controller) Write(address uint16, value uint8) {
 
 // Step steps the timer by the specified number of cycles.
 func (c *Controller) Step(cycles uint8) {
-	// update DIV 16 bit value (always incrementing at 16384Hz)
-	c.divider += uint16(cycles)
 
-	// handle delayed IRQ
-	if c.irq.Enabling {
-		c.irq.Enabling = false
-		c.irq.IME = true
-	}
+	for i := uint8(0); i < cycles; i++ {
+		// update DIV 16 bit value (always incrementing at 16384Hz)
+		c.divider += 4
 
-	// handle TIMA overflow during last cycle
-	if c.overflowing {
-		c.overflowing = false
-		c.counter = c.modulo
-		c.irq.Request(interrupts.TimerFlag)
-	}
+		signal := (c.divider&c.getMultiplexerMask()) == c.getMultiplexerMask() && c.isEnabled()
 
-	if c.isEnabled() {
-		if c.counter == 0xFF {
-			c.overflowing = true
-			c.divider = 0
-		} else {
-			// update the timer's value at certain frequencies (specified by the control register)
-			freq := c.getMultiplexerMask()
-			c.counter += uint8(((c.divider + uint16(cycles)) / freq) - (c.divider / freq))
+		if c.releaseOverflow {
+			c.overflowing = false
+			c.releaseOverflow = false
+		}
+
+		// handle TIMA overflow during last cycle
+		if c.overflowing {
+			c.counter = c.modulo
+			c.irq.Request(interrupts.TimerFlag)
+			c.counterCarry = false
+			c.releaseOverflow = true
+		}
+
+		if c.detectFallingEdge(signal) {
+			c.counter++
+			if c.counter == 0 && c.counterCarry {
+				c.overflowing = true
+			} else if c.counter == 0xFF {
+				c.counterCarry = true
+			}
 		}
 	}
+}
+
+func (c *Controller) detectFallingEdge(signal bool) bool {
+	result := !signal && c.fallingEdgeDelay
+	c.fallingEdgeDelay = signal
+	return result
 }
 
 // isEnabled returns true if the timer is enabled.
