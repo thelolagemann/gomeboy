@@ -96,6 +96,10 @@ type PPU struct {
 	statInterruptDelay bool
 	lcdIntThrow        bool
 	vBlankIntThrow     bool
+	cleared            bool
+	dmaRegister        uint8
+
+	currentFramePalette palette.Colour
 }
 
 func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
@@ -133,16 +137,13 @@ func (p *PPU) Read(address uint16) uint8 {
 	}
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		if p.Status.Mode == lcd.VRAM || p.Status.Mode == lcd.OAM {
-			return 0xFF
-		}
 		return p.oam.Read(address - 0xFE00)
 	}
 	switch address {
 	case lcd.ControlRegister:
 		return p.Controller.Read(address)
 	case lcd.StatusRegister:
-		return p.Status.Read(address)
+		return 0xFF
 	case background.ScrollYRegister, background.ScrollXRegister, background.PaletteRegister:
 		return p.Background.Read(address)
 	case CurrentScanlineRegister:
@@ -158,9 +159,18 @@ func (p *PPU) Read(address uint16) uint8 {
 	case WindowYRegister:
 		return p.WindowY
 	case DMARegister:
-		return 0xFF
+		return p.dmaRegister
 	default:
 		panic(fmt.Sprintf("ppu: illegal read from address %04X", address))
+	}
+}
+
+// doHDMATransfer performs a DMA transfer from the given address to the PPU's OAM.
+func (p *PPU) doHDMATransfer(value uint8) {
+	srcAddress := uint16(value) << 8 // src address is value * 100 (shift left 8 bits)
+	for i := 0; i < 0xA0; i++ {
+		toAddress := 0xFE00 + uint16(i) // OAM starts at 0xFE00 then subtract 0x8000 to get the offset
+		p.Write(toAddress, p.bus.Read(srcAddress+uint16(i)))
 	}
 }
 
@@ -174,10 +184,6 @@ func (p *PPU) Write(address uint16, value uint8) {
 	}
 	// write to OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		// if mode 2 or 3, the cpu can't access OAM
-		if p.Status.Mode == lcd.OAM || p.Status.Mode == lcd.VRAM {
-			return
-		}
 		p.oam.Write(address-0xFE00, value)
 		// update sprite data
 		p.UpdateSprite(address-0xFE00, value)
@@ -204,6 +210,9 @@ func (p *PPU) Write(address uint16, value uint8) {
 		p.WindowX = value
 	case WindowYRegister:
 		p.WindowY = value
+	case DMARegister:
+		p.doHDMATransfer(value)
+		p.dmaRegister = value
 	default:
 		panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
 	}
@@ -229,75 +238,116 @@ func (p *PPU) UpdateTile(index uint16, value uint8) {
 // Step advances the PPU by the given number of cycles. This is
 // to keep the PPU in sync with the CPU.
 func (p *PPU) Step(cycles uint16) {
-	// update the status register
+	// reset values if the LCD is disabled
 	if !p.Enabled {
 		p.CurrentScanline = 0
-		p.currentCycle = 456
-		p.SetMode(lcd.HBlank)
+		p.currentCycle = 0
 		p.WindowYInternal = 0
-	} else {
-		if p.CurrentScanline >= 144 {
-			p.SetMode(lcd.VBlank)
-			p.lcdIntThrow = false
-		} else if p.currentCycle >= 456-80 {
-			p.SetMode(lcd.OAM)
-			p.lcdIntThrow = false
-		} else if p.currentCycle >= 456-80-172 {
+		p.SetMode(lcd.HBlank)
+		return
+	}
+
+	// update the current cycle
+	p.currentCycle += int16(cycles)
+
+	// step logic
+	switch p.Status.Mode {
+	case lcd.HBlank:
+		// HBlank (85 to 208 dots) TODO : adjust timing
+		if p.currentCycle >= 208 {
+			p.currentCycle = 0
+			p.CurrentScanline++
+
+			// check if we've reached the end of the screen (144 lines)
+			if p.CurrentScanline == 144 {
+				// set VBlank and request an interrupt
+				p.SetMode(lcd.VBlank)
+				// render the frame
+				p.PreparedFrame = p.screenData
+				// reset values
+				p.screenData = [ScreenWidth][ScreenHeight][3]uint8{}
+				p.WindowYInternal = 0
+
+				// the LCD never receives the first frame after being enabled
+				if !p.Cleared() {
+					p.renderBlank()
+				}
+				p.irq.Request(interrupts.VBlankFlag)
+				palette.UpdatePalette()
+			} else {
+				p.SetMode(lcd.OAM)
+			}
+		}
+	case lcd.VBlank:
+		// VBlank (4560 dots, 10 lines)
+		if p.currentCycle >= 456 {
+			// if OAM interrupt is enabled, request an interrupt
+
+			p.currentCycle = 0
+			p.CurrentScanline++
+
+			// check if we've reached the end of the VBlank period (10 lines)
+			if p.CurrentScanline > 153 {
+				// reset scanline to 0, and set to HBlank
+				p.CurrentScanline = 0
+				p.SetMode(lcd.HBlank)
+			}
+		}
+	case lcd.OAM:
+		// OAM (80 dots)
+		if p.currentCycle >= 80 {
+			p.currentCycle = 0
 			p.SetMode(lcd.VRAM)
-			p.lcdIntThrow = false
-		} else {
+		}
+	case lcd.VRAM:
+		// 172 cycles VRAM
+		if p.currentCycle >= 172 {
+			p.currentCycle = 0
 			p.SetMode(lcd.HBlank)
-			if p.HBlankInterrupt && !p.lcdIntThrow {
-				p.irq.Request(interrupts.LCDFlag)
-				p.lcdIntThrow = true
+
+			// if background enabled, render the background
+			if p.BackgroundEnabled {
+				p.renderBackground()
+			} else {
+				// otherwise, render a blank line using the background palette
+				fmt.Println("rendering blank line")
+				p.renderBlankLine()
+			}
+
+			// if window enabled, render the window
+			if p.BackgroundEnabled && p.WindowEnabled {
+				p.renderWindow()
+			}
+
+			// if sprites enabled, render the sprites
+			if p.SpriteEnabled {
+				p.renderSprites()
 			}
 		}
 	}
+	// get ly compare
+	lyInt := p.LYCompare == p.CurrentScanline && p.CoincidenceInterrupt
+	mode0Int := p.HBlankInterrupt && p.Status.Mode == lcd.HBlank
+	mode1Int := p.VBlankInterrupt && p.Status.Mode == lcd.VBlank
 
-	p.currentCycle -= int16(cycles)
-	if p.currentCycle <= 0 {
-		p.currentCycle += 456
-		p.CurrentScanline++
-		// if the scanline is 144, we are in VBlank and we need to throw an interrupt
-		if p.CurrentScanline == 144 {
-			if !p.vBlankIntThrow {
-				p.irq.Request(interrupts.VBlankFlag)
+	if triggered := p.detectRisingEdge(lyInt || mode0Int || mode1Int); triggered {
+		p.irq.Request(interrupts.LCDFlag)
+	}
+}
 
-				// throw LCD interrupt if enabled
-				if p.VBlankInterrupt {
-					p.irq.Request(interrupts.LCDFlag)
-				}
-				p.vBlankIntThrow = true
-			}
-
-			// draw the screen
-			p.PreparedFrame = p.screenData
-			p.WindowYInternal = 0
-		} else if p.CurrentScanline > 153 {
-			p.CurrentScanline = 0
-			p.vBlankIntThrow = false
+func (p *PPU) renderBlank() {
+	for x := 0; x < ScreenWidth; x++ {
+		for y := 0; y < ScreenHeight; y++ {
+			p.screenData[x][y] = p.Palette.GetColour(0)
 		}
+	}
+	p.PreparedFrame = p.screenData
+	p.Clear()
+}
 
-		// throw LCD interrupt if enabled
-		if p.CurrentScanline == p.LYCompare && p.CoincidenceInterrupt {
-			p.irq.Request(interrupts.LCDFlag)
-			p.Status.Write(lcd.StatusRegister, p.Status.Read(lcd.StatusRegister)|0x04)
-		}
-
-		// render the scanline
-		if p.CurrentScanline < 144 {
-			if p.Enabled {
-				if p.BackgroundEnabled {
-					p.renderBackground()
-				}
-				if p.WindowEnabled {
-					p.renderWindow()
-				}
-				if p.SpriteEnabled {
-					p.renderSprites()
-				}
-			}
-		}
+func (p *PPU) renderBlankLine() {
+	for x := 0; x < ScreenWidth; x++ {
+		p.screenData[x][p.CurrentScanline] = p.Palette.GetColour(0)
 	}
 }
 
@@ -322,12 +372,9 @@ func (p *PPU) renderWindow() {
 		}
 
 		xPos = i - (p.WindowX - 7)
-		tileXIndex := xPos / 8
+		tileXIndex := uint16(xPos / 8)
 
-		tileID := p.calculateTileID(tileYIndex, uint16(tileXIndex))
-		if p.UsingSignedTileData() && tileID < 128 {
-			tileID += 256
-		}
+		tileID := p.calculateTileID(tileYIndex, tileXIndex)
 
 		// get pixel position within tile
 		xPixelPos := xPos % 8
@@ -345,7 +392,6 @@ func (p *PPU) renderBackground() {
 
 	yPos = p.CurrentScanline + p.ScrollY
 	tileYIndex := p.BackgroundTileMapAddress + uint16(yPos)%256/8*32
-
 	for i := uint8(0); i < ScreenWidth; i++ {
 		xPos = i + p.ScrollX
 		tileXIndex := uint16(xPos / 8)
@@ -359,6 +405,12 @@ func (p *PPU) renderBackground() {
 		color := p.tileData[0][tileID][yPixelPos][xPixelPos]
 		p.screenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
 	}
+}
+
+func (p *PPU) detectRisingEdge(signal bool) bool {
+	result := signal && !p.statInterruptDelay
+	p.statInterruptDelay = signal
+	return result
 }
 
 // calculateTileID calculates the tile ID for the current scanline

@@ -59,6 +59,8 @@ type Controller struct {
 	// BackgroundEnabled is the BG/Window Display/Priority bit. When set, the
 	// background and window are enabled.
 	BackgroundEnabled bool
+
+	cleared bool
 }
 
 // NewController returns a new LCD controller.
@@ -79,6 +81,11 @@ func NewController() *Controller {
 func (c *Controller) Write(address uint16, value uint8) {
 	switch address {
 	case ControlRegister:
+		// if rising edge, clear the cleared flag
+		if !c.Enabled && utils.Test(value, 7) {
+			c.cleared = false
+		}
+
 		c.Enabled = utils.Test(value, 7)
 		if utils.Test(value, 6) {
 			c.WindowTileMapAddress = 0x9C00
@@ -144,4 +151,12 @@ func (c *Controller) Read(address uint16) uint8 {
 // data.
 func (c *Controller) UsingSignedTileData() bool {
 	return c.TileDataAddress == 0x8800
+}
+
+func (c *Controller) Clear() {
+	c.cleared = true
+}
+
+func (c *Controller) Cleared() bool {
+	return c.cleared
 }

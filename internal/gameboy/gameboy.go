@@ -125,10 +125,7 @@ func (g *GameBoy) Start(mon *display.Display) {
 func (g *GameBoy) keyHandlers() map[uint8]func() {
 	return map[uint8]func(){
 		8: func() {
-			palette.Current++
-			if palette.Current > 3 {
-				palette.Current = 0
-			}
+			palette.CyclePalette()
 		},
 		9: func() {
 			g.paused = !g.paused
