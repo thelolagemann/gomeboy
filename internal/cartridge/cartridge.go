@@ -83,6 +83,8 @@ func NewCartridge(rom []byte) *Cartridge {
 		cart.MemoryBankController = NewMemoryBankedCartridge1(rom, header)
 	case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge3(rom, header)
+	case MBC5, MBC5RAM, MBC5RAMBATT:
+		cart.MemoryBankController = NewMemoryBankedCartridge5(rom, header)
 	default:
 		panic(fmt.Sprintf("cartridge type %d not implemented", header.CartridgeType))
 	}
