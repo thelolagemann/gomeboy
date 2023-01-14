@@ -68,7 +68,7 @@ func (c *Controller) Read(address uint16) uint8 {
 	case ModuloRegister:
 		return c.modulo
 	case ControlRegister:
-		return c.control & 0b111
+		return 0xFF
 	}
 
 	panic(fmt.Sprintf("timer: illegal read from address 0x%04X", address))
@@ -80,13 +80,25 @@ func (c *Controller) Write(address uint16, value uint8) {
 	case DividerRegister:
 		// writing to the divider register resets it
 		c.divider = 0
+		c.Step(0)
 	case CounterRegister:
+		if c.releaseOverflow {
+			return
+		}
 		c.counter = value
+		c.counterCarry = false
+		c.overflowing = false
+		c.releaseOverflow = false
 	case ModuloRegister:
+		if c.releaseOverflow {
+			c.counter = value
+		}
 		c.modulo = value
 	case ControlRegister:
 		// only the lower 3 bits are writable
-		c.control = value & 0b111
+		c.control = value & 0x7
+		c.Step(0)
+		c.Step(0)
 	default:
 		panic(fmt.Sprintf("timer: illegal write to address 0x%04X", address))
 	}
@@ -95,34 +107,41 @@ func (c *Controller) Write(address uint16, value uint8) {
 // Step steps the timer by the specified number of cycles.
 func (c *Controller) Step(cycles uint8) {
 
-	for i := uint8(0); i < cycles; i++ {
-		// update DIV 16 bit value (always incrementing at 16384Hz)
-		c.divider += 4
+	// divider is always incremented
+	c.divider += uint16(cycles * 4)
+	// determine signal
+	signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
 
-		signal := (c.divider&c.getMultiplexerMask()) == c.getMultiplexerMask() && c.isEnabled()
+	// if need to release overflow, do so
+	if c.releaseOverflow {
+		// TIME: 8
+		c.overflowing = false
+		c.releaseOverflow = false
+	}
 
-		if c.releaseOverflow {
-			c.overflowing = false
-			c.releaseOverflow = false
-		}
+	// after brief delay, TIMA will execute as normal
+	if c.overflowing {
+		// TIME: 4
+		c.counter = c.modulo
+		c.counterCarry = false
+		c.releaseOverflow = true
+		c.irq.Request(interrupts.TimerFlag)
+	}
 
-		// handle TIMA overflow during last cycle
-		if c.overflowing {
-			c.counter = c.modulo
-			c.irq.Request(interrupts.TimerFlag)
-			c.counterCarry = false
-			c.releaseOverflow = true
-		}
+	// check for falling edge
+	if c.detectFallingEdge(signal) {
+		c.counter++
 
-		if c.detectFallingEdge(signal) {
-			c.counter++
-			if c.counter == 0 && c.counterCarry {
-				c.overflowing = true
-			} else if c.counter == 0xFF {
-				c.counterCarry = true
-			}
+		// 1 cycle TIMA has the value 0
+		if c.counter == 0 && c.counterCarry {
+			// TIME: 0
+			c.overflowing = true
+		} else if c.counter == 0xff {
+			// about to overflow
+			c.counterCarry = true
 		}
 	}
+
 }
 
 func (c *Controller) detectFallingEdge(signal bool) bool {
