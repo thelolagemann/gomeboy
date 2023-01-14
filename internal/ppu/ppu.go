@@ -100,6 +100,8 @@ type PPU struct {
 	dmaRegister        uint8
 
 	currentFramePalette palette.Colour
+
+	HasDMA bool
 }
 
 func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
@@ -172,6 +174,7 @@ func (p *PPU) doHDMATransfer(value uint8) {
 		toAddress := 0xFE00 + uint16(i) // OAM starts at 0xFE00 then subtract 0x8000 to get the offset
 		p.Write(toAddress, p.bus.Read(srcAddress+uint16(i)))
 	}
+	p.HasDMA = true
 }
 
 func (p *PPU) Write(address uint16, value uint8) {
@@ -238,13 +241,14 @@ func (p *PPU) UpdateTile(index uint16, value uint8) {
 // Step advances the PPU by the given number of cycles. This is
 // to keep the PPU in sync with the CPU.
 func (p *PPU) Step(cycles uint16) {
-	// reset values if the LCD is disabled
 	if !p.Enabled {
+		// reset values if the LCD is disabled
 		p.CurrentScanline = 0
 		p.currentCycle = 0
 		p.WindowYInternal = 0
+
+		// LCD goes into HBlank mode when disabled
 		p.SetMode(lcd.HBlank)
-		return
 	}
 
 	// update the current cycle
@@ -254,43 +258,47 @@ func (p *PPU) Step(cycles uint16) {
 	switch p.Status.Mode {
 	case lcd.HBlank:
 		// HBlank (85 to 208 dots) TODO : adjust timing
-		if p.currentCycle >= 208 {
+		if p.currentCycle >= 204 {
 			p.currentCycle = 0
-			p.CurrentScanline++
+			p.stepScanline()
 
 			// check if we've reached the end of the screen (144 lines)
 			if p.CurrentScanline == 144 {
 				// set VBlank and request an interrupt
 				p.SetMode(lcd.VBlank)
+				p.irq.Request(interrupts.VBlankFlag)
+
 				// render the frame
 				p.PreparedFrame = p.screenData
+
 				// reset values
 				p.screenData = [ScreenWidth][ScreenHeight][3]uint8{}
 				p.WindowYInternal = 0
 
-				// the LCD never receives the first frame after being enabled
+				// the LCD never receives the first frame after being enabled,
+				// so we need to render a blank frame
+				// https://github.com/pinobatch/little-things-gb/tree/master/firstwhite
 				if !p.Cleared() {
 					p.renderBlank()
 				}
-				p.irq.Request(interrupts.VBlankFlag)
+
+				// update the palette (to avoid mid-frame palette changes)
 				palette.UpdatePalette()
 			} else {
 				p.SetMode(lcd.OAM)
 			}
 		}
 	case lcd.VBlank:
-		// VBlank (4560 dots, 10 lines)
+		// VBlank (4560 dots, 10 lines) (144 to 153 lines)
 		if p.currentCycle >= 456 {
-			// if OAM interrupt is enabled, request an interrupt
-
 			p.currentCycle = 0
-			p.CurrentScanline++
+			p.stepScanline()
 
 			// check if we've reached the end of the VBlank period (10 lines)
 			if p.CurrentScanline > 153 {
 				// reset scanline to 0, and set to HBlank
 				p.CurrentScanline = 0
-				p.SetMode(lcd.HBlank)
+				p.SetMode(lcd.OAM)
 			}
 		}
 	case lcd.OAM:
@@ -309,12 +317,13 @@ func (p *PPU) Step(cycles uint16) {
 			if p.BackgroundEnabled {
 				p.renderBackground()
 			} else {
-				// otherwise, render a blank line using the background palette
-				fmt.Println("rendering blank line")
+				// otherwise, render a blank line
 				p.renderBlankLine()
 			}
 
-			// if window enabled, render the window
+			// if background and window enabled, render the window (as window piggybacks
+			// on the background rendering, so if the background is disabled, the window
+			// will be disabled too)
 			if p.BackgroundEnabled && p.WindowEnabled {
 				p.renderWindow()
 			}
@@ -325,14 +334,20 @@ func (p *PPU) Step(cycles uint16) {
 			}
 		}
 	}
-	// get ly compare
+
+	// should we request an interrupt?
 	lyInt := p.LYCompare == p.CurrentScanline && p.CoincidenceInterrupt
 	mode0Int := p.HBlankInterrupt && p.Status.Mode == lcd.HBlank
 	mode1Int := p.VBlankInterrupt && p.Status.Mode == lcd.VBlank
+	mode2Int := p.OAMInterrupt && p.Status.Mode == lcd.OAM
 
-	if triggered := p.detectRisingEdge(lyInt || mode0Int || mode1Int); triggered {
+	if p.detectRisingEdge(lyInt || mode0Int || mode1Int || mode2Int) {
 		p.irq.Request(interrupts.LCDFlag)
 	}
+}
+
+func (p *PPU) stepScanline() {
+	p.CurrentScanline++
 }
 
 func (p *PPU) renderBlank() {
@@ -391,7 +406,7 @@ func (p *PPU) renderBackground() {
 	var xPos, yPos uint8
 
 	yPos = p.CurrentScanline + p.ScrollY
-	tileYIndex := p.BackgroundTileMapAddress + uint16(yPos)%256/8*32
+	tileYIndex := p.BackgroundTileMapAddress + uint16(yPos/8)*32
 	for i := uint8(0); i < ScreenWidth; i++ {
 		xPos = i + p.ScrollX
 		tileXIndex := uint16(xPos / 8)
