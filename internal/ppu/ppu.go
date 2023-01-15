@@ -170,8 +170,19 @@ func (p *PPU) Read(address uint16) uint8 {
 // doHDMATransfer performs a DMA transfer from the given address to the PPU's OAM.
 func (p *PPU) doHDMATransfer(value uint8) {
 	srcAddress := uint16(value) << 8 // src address is value * 100 (shift left 8 bits)
+
+	// handle if the source address is in the OAM range
+	if srcAddress >= 0xFE00 {
+		// OAM doesn't actually read from >= 0xFE00, but is instead
+		// offset by 0x2000 (8192) bytes, so that it is reading
+		// from 0xDE00 - 0xDFFF. This is because in the hardware
+		// the OAM because it disconnects from the memory bus
+		// to allow parallel write / read operations.
+		srcAddress -= 0x2000
+	}
+
 	for i := 0; i < 0xA0; i++ {
-		toAddress := 0xFE00 + uint16(i) // OAM starts at 0xFE00 then subtract 0x8000 to get the offset
+		toAddress := 0xFE00 + uint16(i)
 		p.Write(toAddress, p.bus.Read(srcAddress+uint16(i)))
 	}
 	p.HasDMA = true
