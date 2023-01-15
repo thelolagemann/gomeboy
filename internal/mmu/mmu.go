@@ -234,10 +234,8 @@ func (m *MMU) Write(address uint16, value uint8) {
 			// waveform RAM
 		case 0xFF30, 0xFF31, 0xFF32, 0xFF33, 0xFF34, 0xFF35, 0xFF36, 0xFF37, 0xFF38, 0xFF39, 0xFF3A, 0xFF3B, 0xFF3C, 0xFF3D, 0xFF3E, 0xFF3F:
 			m.Sound.Write(address, value)
-		case 0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B:
+		case 0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF46, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B:
 			m.Video.Write(address, value)
-		case 0xFF46:
-			m.doHDMATransfer(value)
 		case 0xFF50:
 			m.biosFinished = true
 		}
@@ -257,14 +255,6 @@ func (m *MMU) Write16(address uint16, value uint16) {
 	upper, lower := utils.Uint16ToBytes(value)
 	m.Write(address, lower)
 	m.Write(address+1, upper)
-}
-
-// doHDMATransfer performs a DMA transfer from the given address to the PPU's OAM.
-func (m *MMU) doHDMATransfer(value uint8) {
-	srcAddress := uint16(value) << 8 // src address is value * 100 (shift left 8 bits)
-	for i := 0; i < 0xA0; i++ {
-		m.Write(0xFE00+uint16(i), m.Read(srcAddress+uint16(i)))
-	}
 }
 
 // LoadCartridge loads a cartridge from a byte slice into the MMU.
