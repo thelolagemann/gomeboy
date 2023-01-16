@@ -13,6 +13,7 @@ import (
 type Cartridge struct {
 	MemoryBankController
 	header *Header
+	MD5    string
 }
 
 type MemoryBankController interface {
@@ -73,8 +74,6 @@ func NewCartridge(rom []byte) *Cartridge {
 	header := parseHeader(rom[0x100:0x150])
 
 	// print some information about the cartridge
-	fmt.Println("Cartridge:")
-	fmt.Printf("\t%s\n", header.String())
 	cart := &Cartridge{header: header}
 	switch header.CartridgeType {
 	case ROM:
@@ -90,6 +89,10 @@ func NewCartridge(rom []byte) *Cartridge {
 	}
 
 	cart.init()
+
+	// calculate the md5 hash of the cartridge
+	hash := md5.Sum(rom)
+	cart.MD5 = hex.EncodeToString(hash[:])
 
 	return cart
 }

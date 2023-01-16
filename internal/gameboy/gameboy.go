@@ -54,7 +54,13 @@ type GameBoy struct {
 
 type GameBoyOpt func(gb *GameBoy)
 
-// NoBios disables the BIOS by setting CPU.PC to 0x100.
+func Debug() GameBoyOpt {
+	return func(gb *GameBoy) {
+		gb.CPU.Debug = true
+	}
+}
+
+// NoBios disables the BIOS by setting CPU.CPU.PC to 0x100.
 func NoBios() GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.CPU.PC = 0x0100
@@ -95,12 +101,13 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 // Start starts the Game Boy emulation. It will run until the game is closed.
 func (g *GameBoy) Start(mon *display.Display) {
 	t := time.NewTicker(time.Second / 60)
-
+	fmt.Println("Starting emulation")
 	// setup fps counter
 	frames := 0
 	start := time.Now()
+	g.APU.Play()
 	defer t.Stop()
-	for {
+	for !mon.IsClosed() {
 		select {
 		case <-t.C:
 			frames++
@@ -171,8 +178,70 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		g.Timer.Step(uint8(cyclesCPU))
 
 		g.APU.Step(int(cyclesCPU), 1)
-
+		cycles += g.DoInterrupts()
 	}
 
 	// TODO handle save
+}
+
+// DoInterrupts handles all the interrupts.
+func (g *GameBoy) DoInterrupts() uint {
+	// check if interrupts are enabling (EI is delayed by 1 instruction)
+	if g.Interrupts.Enabling {
+		g.Interrupts.Enabling = false
+		g.Interrupts.IME = true
+		return 0
+	}
+
+	if g.Interrupts.IME {
+		for i := uint8(0); i < 5; i++ {
+			if g.Interrupts.Enable&(1<<i) != 0 && g.Interrupts.Flag&(1<<i) != 0 {
+				cycles := 0
+				if g.CPU.Halted {
+					cycles += 1
+				}
+
+				if g.serviceInterrupt(i) {
+					cycles += 5
+				}
+				return uint(cycles)
+			}
+		}
+	}
+
+	return 0
+}
+
+// serviceInterrupt handles the given interrupt.
+func (g *GameBoy) serviceInterrupt(interrupt uint8) bool {
+	// if halted without IME enabled, just clear the halt flag
+	if !g.Interrupts.IME && g.CPU.Halted {
+		g.CPU.Halted = false
+		return false
+	}
+
+	g.Interrupts.IME = false
+	g.CPU.Halted = false
+	g.Interrupts.Clear(interrupt)
+
+	// save the current execution address by pushing it to the stack
+	g.CPU.PushStack(g.CPU.PC)
+
+	// jump to the interrupt handler
+	switch interrupt {
+	case 0:
+		g.CPU.PC = 0x0040
+	case 1:
+		g.CPU.PC = 0x0048
+	case 2:
+		g.CPU.PC = 0x0050
+	case 3:
+		g.CPU.PC = 0x0058
+	case 4:
+		g.CPU.PC = 0x0060
+	default:
+		panic("illegal interrupt")
+	}
+
+	return true
 }
