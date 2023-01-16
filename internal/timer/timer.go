@@ -106,9 +106,9 @@ func (c *Controller) Write(address uint16, value uint8) {
 
 // Step steps the timer by the specified number of cycles.
 func (c *Controller) Step(cycles uint8) {
-
 	// divider is always incremented
 	c.divider += uint16(cycles * 4)
+
 	// determine signal
 	signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
 
