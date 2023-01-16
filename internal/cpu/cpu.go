@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 const (
@@ -22,8 +23,6 @@ type CPU struct {
 
 	// Speed is the current speed of the CPU.
 	Speed float32
-	// Cycles is the number of cycles the CPU has executed.
-	Cycles uint
 
 	mmu     *mmu.MMU
 	stopped bool
@@ -222,10 +221,69 @@ func (c *CPU) Step() uint {
 			}
 		}
 	}
-	c.Cycles += cyclesCPU
 	cycles = cyclesCPU
+	cycles += c.DoInterrupts()
 
 	return cycles
+}
+
+// DoInterrupts handles all the interrupts.
+func (c *CPU) DoInterrupts() uint {
+	// check if interrupts are enabling (EI is delayed by 1 instruction)
+	if c.irq.Enabling {
+		c.irq.Enabling = false
+		c.irq.IME = true
+		return 0
+	}
+
+	// if not halted and IME is disabled, return
+	if !c.Halted && !c.irq.IME {
+		return 0
+	}
+
+	for i := uint8(0); i < 5; i++ {
+		if utils.Test(c.irq.Flag, i) && utils.Test(c.irq.Enable, i) {
+			if c.serviceInterrupt(i) {
+				return 20
+			}
+		}
+	}
+
+	return 0
+}
+
+// serviceInterrupt handles the given interrupt.
+func (c *CPU) serviceInterrupt(interrupt uint8) bool {
+	// if halted without IME enabled, just clear the halt flag
+	// do not jump or reset IF
+	if c.Halted && !c.irq.IME {
+		c.Halted = false
+		return false
+	}
+	c.irq.IME = false
+	c.Halted = false
+	c.irq.Flag = utils.Reset(c.irq.Flag, interrupt)
+
+	// save the current execution address by pushing it to the stack
+	c.PushStack(c.PC)
+
+	// jump to the interrupt handler
+	switch interrupt {
+	case 0:
+		c.PC = 0x0040
+	case 1:
+		c.PC = 0x0048
+	case 2:
+		c.PC = 0x0050
+	case 3:
+		c.PC = 0x0058
+	case 4:
+		c.PC = 0x0060
+	default:
+		panic("illegal interrupt")
+	}
+
+	return true
 }
 
 // fetch returns the next byte in memory and increments the PC.
