@@ -34,6 +34,7 @@ type Display struct {
 	direction  *pixel.Sprite
 	cart       *pixel.Sprite
 	label      *pixel.Sprite
+	rear       *pixel.Sprite
 
 	debounce *buttonDebouncer
 }
@@ -98,6 +99,12 @@ func NewDisplay(title string, md5sum string) *Display {
 		panic(err)
 	}
 
+	// load rear
+	rear, err := loadPicture("frames/rear.png")
+	if err != nil {
+		panic(err)
+	}
+
 	sprite := pixel.NewSprite(pic, pic.Bounds())
 
 	// load buttons
@@ -138,6 +145,7 @@ func NewDisplay(title string, md5sum string) *Display {
 		action:     action,
 		direction:  direction,
 		label:      pixel.NewSprite(label, label.Bounds()),
+		rear:       pixel.NewSprite(rear, rear.Bounds()),
 		debounce: &buttonDebouncer{
 			framesActive: make(map[joypad.Button]uint8),
 			isReleased:   make(map[joypad.Button]bool),
@@ -151,19 +159,52 @@ func NewDisplay(title string, md5sum string) *Display {
 }
 
 // RenderBootAnimation renders the boot animation.
+// TODO refactor this to use sprite sheets
 func (d *Display) RenderBootAnimation() {
+	rearCover, err := loadPicture("frames/rear-cover.png")
+	if err != nil {
+		panic(err)
+	}
+
+	rearCoverSprite := pixel.NewSprite(rearCover, rearCover.Bounds())
+	// render the cart sliding in
 	for i := 0; i < 120; i++ {
 		// clear window and draw background
 		d.window.Clear(color.RGBA{0, 0, 0, 255})
-		d.background.Draw(d.window, pixel.IM)
+
+		d.rear.Draw(d.window, pixel.IM)
 
 		// draw cart image
-		d.label.Draw(d.window, pixel.IM.Scaled(pixel.ZV, 0.2).Moved(pixel.V(0, float64(-i*2))))
+		d.label.Draw(d.window, pixel.IM.Scaled(pixel.ZV, 0.2).Moved(pixel.V(0, 450+float64(-i*2))))
+
+		// draw rear cover
+		rearCoverSprite.Draw(d.window, pixel.IM.Moved(pixel.V(0, 140)))
 
 		// update window and camera
 		d.window.Update()
 
 		// wait for 1/60th of a second
+		time.Sleep(time.Second / 60)
+	}
+
+	// flip the screen, so it looks like the game boy is
+	// being turned over
+	for i := 0; i < 80; i++ {
+		// clear window and draw background
+		d.window.Clear(color.RGBA{0, 0, 0, 255})
+
+		// begin flip
+		if i < 40 {
+			d.rear.Draw(d.window, pixel.IM.ScaledXY(pixel.ZV, pixel.V(1-float64(i*2)*0.0125, 1)))
+			d.label.Draw(d.window, pixel.IM.Scaled(pixel.ZV, 0.2).Moved(pixel.V(0, 210)).ScaledXY(pixel.ZV, pixel.V(1-float64(i*2)*0.0125, 1)))
+			rearCoverSprite.Draw(d.window, pixel.IM.Moved(pixel.V(0, 140)).ScaledXY(pixel.ZV, pixel.V(1-float64(i*2)*0.0125, 1)))
+		} else {
+			d.background.Draw(d.window, pixel.IM.ScaledXY(pixel.ZV, pixel.V(float64((i-40)*2)*0.0125, 1)))
+
+		}
+		d.window.Update()
+
+		// sleep for 1/60th of a second
 		time.Sleep(time.Second / 60)
 	}
 }
