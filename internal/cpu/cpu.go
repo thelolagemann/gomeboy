@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 const (
@@ -30,6 +29,9 @@ type CPU struct {
 	stopped bool
 	Halted  bool
 	irq     *interrupts.Service
+
+	Debug           bool
+	DebugBreakpoint bool
 }
 
 // PopStack pops a 16-bit value from the stack.
@@ -173,7 +175,7 @@ func (c *CPU) Step() uint {
 	var cyclesCPU uint
 
 	if c.Halted {
-		cyclesCPU = 4
+		cyclesCPU = 1
 	} else {
 		// fetch opcode
 		opcode := c.fetch()
@@ -212,79 +214,18 @@ func (c *CPU) Step() uint {
 		}
 		instruction.Execute(c, operands)
 		cyclesCPU = uint(instruction.Cycles())
+
+		// handle debug
+		if c.Debug {
+			if instruction.Name() == "LD B, B" {
+				c.DebugBreakpoint = true
+			}
+		}
 	}
 	c.Cycles += cyclesCPU
 	cycles = cyclesCPU
 
-	// handle interrupts
-	cyclesInt := c.DoInterrupts()
-	c.Cycles += cyclesInt
-	cycles += cyclesInt
-
 	return cycles
-}
-
-// DoInterrupts handles all the interrupts.
-func (c *CPU) DoInterrupts() uint {
-	if c.irq.Enabling {
-		c.irq.IME = true
-		c.irq.Enabling = false
-		return 0
-	}
-	if !c.irq.IME && !c.Halted {
-		return 0
-	}
-
-	if c.irq.Flag > 0 {
-		for i := uint8(0); i < 5; i++ {
-			if utils.Test(c.irq.Flag, i) && utils.Test(c.irq.Enable, i) {
-				cycles := 0
-				if c.Halted {
-					cycles += 4
-				}
-				if serviced := c.serviceInterrupt(i); serviced {
-					cycles += 20
-				}
-				return uint(cycles)
-			}
-		}
-	}
-
-	return 0
-}
-
-// serviceInterrupt handles the given interrupt.
-func (c *CPU) serviceInterrupt(interrupt uint8) bool {
-	// if halted without IME, just clear the halt flag
-	if !c.irq.IME && c.Halted {
-		c.Halted = false
-		return false
-	}
-
-	c.irq.IME = false
-	c.Halted = false
-	c.irq.Flag = utils.Reset(c.irq.Flag, interrupt)
-
-	// save the current execution address by pushing it to the stack
-	c.PushStack(c.PC)
-
-	// jump to the interrupt handler
-	switch interrupt {
-	case 0:
-		c.PC = 0x0040
-	case 1:
-		c.PC = 0x0048
-	case 2:
-		c.PC = 0x0050
-	case 3:
-		c.PC = 0x0058
-	case 4:
-		c.PC = 0x0060
-	default:
-		panic("illegal interrupt")
-	}
-
-	return true
 }
 
 // fetch returns the next byte in memory and increments the PC.
