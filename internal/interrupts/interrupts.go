@@ -81,7 +81,7 @@ func (s *Service) Clear(flag Flag) {
 func (s *Service) Read(address uint16) uint8 {
 	switch address {
 	case FlagRegister:
-		return 0xFF
+		return s.Flag&0b00011111 | 0b11100000
 	case EnableRegister:
 		return s.Enable
 	}

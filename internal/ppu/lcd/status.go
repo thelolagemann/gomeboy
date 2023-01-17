@@ -1,5 +1,7 @@
 package lcd
 
+import "fmt"
+
 const (
 	// StatusRegister is the address of the status register.
 	StatusRegister = 0xFF41
@@ -62,6 +64,7 @@ func (s *Status) Write(address uint16, value uint8) {
 	s.OAMInterrupt = value&0x20 != 0
 	s.VBlankInterrupt = value&0x10 != 0
 	s.HBlankInterrupt = value&0x08 != 0
+	fmt.Printf("write to status register: %08b", value)
 }
 
 // Read returns the value of the status register.

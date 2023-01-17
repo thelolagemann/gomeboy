@@ -174,9 +174,6 @@ func (c *CPU) registerName(reg *Register) string {
 // returns the number of cycles it took to execute.
 func (c *CPU) Step() uint {
 	// advance peripherals
-	for _, p := range c.peripherals {
-		p.Step() // 4
-	}
 
 	var cycles uint
 	var cyclesCPU uint
@@ -208,7 +205,7 @@ func (c *CPU) Step() uint {
 		for i := uint8(0); i < instruction.Length()-1; i++ {
 			operands[i] = c.fetch()
 		}
-		if instruction.Name() != "NOP" && c.PC > 0x0010 {
+		if instruction.Name() != "NOP" && c.PC > 0x0100 {
 			/*time.Sleep(100 * time.Millisecond)
 			if len(operands) == 1 {
 				c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[0])
@@ -237,10 +234,9 @@ func (c *CPU) Step() uint {
 
 // DoInterrupts handles all the interrupts.
 func (c *CPU) DoInterrupts() uint {
-	// check if interrupts are enabling (EI is delayed by 1 instruction)
 	if c.irq.Enabling {
-		c.irq.Enabling = false
 		c.irq.IME = true
+		c.irq.Enabling = false
 		return 0
 	}
 
@@ -248,12 +244,17 @@ func (c *CPU) DoInterrupts() uint {
 	if !c.Halted && !c.irq.IME {
 		return 0
 	}
-
 	for i := uint8(0); i < 5; i++ {
-		if utils.Test(c.irq.Flag, i) && utils.Test(c.irq.Enable, i) {
-			if c.serviceInterrupt(i) {
-				return 5
+		if utils.Test(c.irq.Enable, i) && utils.Test(c.irq.Flag, i) {
+			cycles := 0
+			if c.Halted {
+				cycles += 1
 			}
+			if c.serviceInterrupt(i) {
+				cycles += 5
+			}
+
+			return uint(cycles)
 		}
 	}
 
@@ -262,15 +263,25 @@ func (c *CPU) DoInterrupts() uint {
 
 // serviceInterrupt handles the given interrupt.
 func (c *CPU) serviceInterrupt(interrupt uint8) bool {
-	// if halted without IME enabled, just clear the halt flag
-	// do not jump or reset IF
+	// if halted but IME isn't enabled, just
+	// clear the halt flag and return
 	if c.Halted && !c.irq.IME {
 		c.Halted = false
 		return false
 	}
-	c.irq.IME = false
+
+	// clear the halted flag and disable IME
 	c.Halted = false
+	c.irq.IME = false
+
+	fmt.Printf("flag: %08b enable: %08b\n", c.irq.Flag, c.irq.Enable)
+
+	// clear the interrupt flag
 	c.irq.Flag = utils.Reset(c.irq.Flag, interrupt)
+
+	fmt.Printf("interrupt: %08b\n", interrupt)
+
+	fmt.Printf("flag: %08b enable: %08b\n", c.irq.Flag, c.irq.Enable)
 
 	// save the current execution address by pushing it to the stack
 	c.PushStack(c.PC)

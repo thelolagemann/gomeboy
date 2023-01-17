@@ -176,7 +176,6 @@ func (g *GameBoy) Update(cyclesPerFrame uint) {
 		cycles += cyclesCPU
 		g.ppu.Step(uint16(cyclesCPU))
 		g.Timer.Step(uint8(cyclesCPU))
-
 		g.APU.Step(int(cyclesCPU), 1)
 	}
 
