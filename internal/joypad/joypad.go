@@ -4,14 +4,9 @@
 package joypad
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
-)
-
-const (
-	// JoypadRegister is the address of the joypad register.
-	JoypadRegister = 0xFF00
 )
 
 // Button represents a physical button on the Game Boy.
@@ -51,7 +46,7 @@ const (
 type State struct {
 	// Register is the joypad register. It is used to select
 	// either the action or direction buttons.
-	Register byte
+	Register *registers.Hardware
 	// State is the current state of the joypad. It is used to
 	// hold the state of the buttons, the lower 4 bits are
 	// used for the action buttons, and the upper 4 bits are
@@ -64,40 +59,35 @@ type State struct {
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
 	return &State{
-		Register: 0b1100_1111,
 		State:    0b1111_1111,
 		irq:      irq,
+		Register: registers.NewHardware(registers.P1, registers.IsReadableWritable()),
 	}
 }
 
 // Read reads the joypad state.
 func (s *State) Read(address uint16) uint8 {
-	if address != JoypadRegister {
-		panic(fmt.Sprintf("joypad: illegal read address 0x%04X", address))
-	}
+	// read value from the register
+	value := s.Register.Read(address)
 	// P14 and P15 are set to 1 by default, so if they are set to 0,
 	// we are reading the state of the buttons.
-	if !utils.Test(s.Register, 4) {
+	if !utils.Test(value, 4) {
 		// direction buttons are in the upper 4 bits
-		return s.Register | s.State>>4
-	} else if !utils.Test(s.Register, 5) {
+		return value | s.State>>4
+	} else if !utils.Test(value, 5) {
 		// action buttons are in the lower 4 bits
-		return s.Register | s.State&0b0000_1111
+		return value | s.State&0b0000_1111
 	}
 
-	return s.Register
+	return value
 }
 
 // Write writes to the joypad register. Only bits 4 and 5 are
 // writable. The rest of the bits are read-only. Bits 6 and 7
 // are always set to 1.
 func (s *State) Write(address uint16, value byte) {
-	// handle illegal writes
-	if address != JoypadRegister {
-		panic(fmt.Sprintf("joypad: illegal write address 0x%04X", address))
-	}
 	// write bits 4 and 5 to the register
-	s.Register = 0b1100_0000 | (value & 0b0011_0000)
+	s.Register.Write(address, 0b1100_0000|(value&0b0011_0000))
 }
 
 // Press presses a button.
