@@ -116,16 +116,16 @@ func init() {
 	DefineInstruction(0x18, "JR n", func(c *CPU, operands []byte) { c.jumpRelative(operands[0]) }, Length(2), Cycles(3))
 	DefineInstruction(0x20, "JR NZ, n", func(c *CPU, operands []byte) {
 		c.jumpRelativeConditional(!c.isFlagSet(FlagZero), operands[0])
-	}, Length(2), Cycles(3))
+	}, Length(2), Cycles(2))
 	DefineInstruction(0x28, "JR Z, n", func(c *CPU, operands []byte) {
 		c.jumpRelativeConditional(c.isFlagSet(FlagZero), operands[0])
-	}, Length(2), Cycles(3))
+	}, Length(2), Cycles(2))
 	DefineInstruction(0x30, "JR NC, n", func(c *CPU, operands []byte) {
 		c.jumpRelativeConditional(!c.isFlagSet(FlagCarry), operands[0])
-	}, Length(2), Cycles(3))
+	}, Length(2), Cycles(2))
 	DefineInstruction(0x38, "JR C, n", func(c *CPU, operands []byte) {
 		c.jumpRelativeConditional(c.isFlagSet(FlagCarry), operands[0])
-	}, Length(2), Cycles(3))
+	}, Length(2), Cycles(2))
 	DefineInstruction(0xC0, "RET NZ", func(c *CPU, operands []byte) { c.retConditional(!c.isFlagSet(FlagZero)) }, Cycles(2))
 	DefineInstruction(0xC2, "JP NZ, nn", func(c *CPU, operands []byte) {
 		c.jumpAbsoluteConditional(!c.isFlagSet(FlagZero), binary.LittleEndian.Uint16(operands))
@@ -146,7 +146,7 @@ func init() {
 	}, Length(3), Cycles(3))
 	DefineInstruction(0xCD, "CALL nn", func(c *CPU, operands []byte) {
 		c.call(binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(5))
+	}, Length(3), Cycles(6))
 	DefineInstruction(0xD0, "RET NC", func(c *CPU, operands []byte) { c.retConditional(!c.isFlagSet(FlagCarry)) }, Cycles(2))
 	DefineInstruction(0xD2, "JP NC, nn", func(c *CPU, operands []byte) {
 		c.jumpAbsoluteConditional(!c.isFlagSet(FlagCarry), binary.LittleEndian.Uint16(operands))
@@ -162,7 +162,7 @@ func init() {
 	DefineInstruction(0xDC, "CALL C, nn", func(c *CPU, operands []byte) {
 		c.callConditional(c.isFlagSet(FlagCarry), binary.LittleEndian.Uint16(operands))
 	}, Length(3), Cycles(3))
-	DefineInstruction(0xe9, "JP (HL)", func(c *CPU, operands []byte) { c.jumpAbsolute(c.HL.Uint16()) }, Cycles(4))
+	DefineInstruction(0xe9, "JP (HL)", func(c *CPU, operands []byte) { c.jumpAbsolute(c.HL.Uint16()) }, Cycles(1))
 }
 
 // generateRSTInstructions generates the 8 RST instructions.
@@ -171,6 +171,6 @@ func (c *CPU) generateRSTInstructions() {
 		address := uint16(i * 8)
 		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU, operands []byte) {
 			c.call(address)
-		})
+		}, Cycles(4))
 	}
 }

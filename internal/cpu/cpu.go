@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
@@ -31,6 +32,8 @@ type CPU struct {
 
 	Debug           bool
 	DebugBreakpoint bool
+
+	peripherals []types.Component
 }
 
 // PopStack pops a 16-bit value from the stack.
@@ -170,6 +173,11 @@ func (c *CPU) registerName(reg *Register) string {
 // Step executes the next instruction in the CPU and
 // returns the number of cycles it took to execute.
 func (c *CPU) Step() uint {
+	// advance peripherals
+	for _, p := range c.peripherals {
+		p.Step() // 4
+	}
+
 	var cycles uint
 	var cyclesCPU uint
 
@@ -244,7 +252,7 @@ func (c *CPU) DoInterrupts() uint {
 	for i := uint8(0); i < 5; i++ {
 		if utils.Test(c.irq.Flag, i) && utils.Test(c.irq.Enable, i) {
 			if c.serviceInterrupt(i) {
-				return 20
+				return 5
 			}
 		}
 	}

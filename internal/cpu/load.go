@@ -84,7 +84,7 @@ func init() {
 	DefineInstruction(0x06, "LD B, d8", func(c *CPU, operands []uint8) { c.loadRegister8(&c.B, operands[0]) }, Length(2), Cycles(2))
 	DefineInstruction(0x08, "LD (a16), SP", func(c *CPU, operands []uint8) {
 		c.mmu.Write16(binary.LittleEndian.Uint16(operands), c.SP)
-	}, Length(3), Cycles(20))
+	}, Length(3), Cycles(5))
 	DefineInstruction(0x0A, "LD A, (BC)", func(c *CPU) { c.loadMemoryToRegister(&c.A, c.BC.Uint16()) }, Cycles(2))
 	DefineInstruction(0x0E, "LD C, d8", func(c *CPU, operands []uint8) { c.loadRegister8(&c.C, operands[0]) }, Length(2), Cycles(2))
 	DefineInstruction(0x11, "LD DE, d16", func(c *CPU, operands []uint8) {

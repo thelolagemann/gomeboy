@@ -186,22 +186,22 @@ func (c *CPU) generateLogicInstructions() {
 
 func init() {
 	// Bitwise d8 instructions
-	DefineInstruction(0xC6, "ADD A, d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.add(cpu.A, operands[0], false) }, Length(2), Cycles(8))
-	DefineInstruction(0xCE, "ADC A, d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.add(cpu.A, operands[0], true) }, Length(2), Cycles(8))
-	DefineInstruction(0xD6, "SUB d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.sub(cpu.A, operands[0], false) }, Length(2), Cycles(8))
-	DefineInstruction(0xDE, "SBC A, d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.sub(cpu.A, operands[0], true) }, Length(2), Cycles(8))
-	DefineInstruction(0xE6, "AND d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.and(cpu.A, operands[0]) }, Length(2), Cycles(8))
-	DefineInstruction(0xEE, "XOR d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.xor(cpu.A, operands[0]) }, Length(2), Cycles(8))
-	DefineInstruction(0xF6, "OR d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.or(cpu.A, operands[0]) }, Length(2), Cycles(8))
-	DefineInstruction(0xFE, "CP d8", func(cpu *CPU, operands []byte) { cpu.compare(operands[0]) }, Length(2), Cycles(8))
+	DefineInstruction(0xC6, "ADD A, d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.add(cpu.A, operands[0], false) }, Length(2), Cycles(2))
+	DefineInstruction(0xCE, "ADC A, d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.add(cpu.A, operands[0], true) }, Length(2), Cycles(2))
+	DefineInstruction(0xD6, "SUB d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.sub(cpu.A, operands[0], false) }, Length(2), Cycles(2))
+	DefineInstruction(0xDE, "SBC A, d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.sub(cpu.A, operands[0], true) }, Length(2), Cycles(2))
+	DefineInstruction(0xE6, "AND d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.and(cpu.A, operands[0]) }, Length(2), Cycles(2))
+	DefineInstruction(0xEE, "XOR d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.xor(cpu.A, operands[0]) }, Length(2), Cycles(2))
+	DefineInstruction(0xF6, "OR d8", func(cpu *CPU, operands []byte) { cpu.A = cpu.or(cpu.A, operands[0]) }, Length(2), Cycles(2))
+	DefineInstruction(0xFE, "CP d8", func(cpu *CPU, operands []byte) { cpu.compare(operands[0]) }, Length(2), Cycles(2))
 
 	// (HL) instructions
-	DefineInstruction(0x86, "ADD A, (HL)", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), false) }, Cycles(8))
-	DefineInstruction(0x8E, "ADC A, (HL)", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), true) }, Cycles(8))
-	DefineInstruction(0x96, "SUB (HL)", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), false) }, Cycles(8))
-	DefineInstruction(0x9E, "SBC A, (HL)", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), true) }, Cycles(8))
-	DefineInstruction(0xA6, "AND (HL)", func(cpu *CPU) { cpu.A = cpu.and(cpu.A, cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(8))
-	DefineInstruction(0xAE, "XOR (HL)", func(cpu *CPU) { cpu.A = cpu.xor(cpu.A, cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(8))
-	DefineInstruction(0xB6, "OR (HL)", func(cpu *CPU) { cpu.A = cpu.or(cpu.A, cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(8))
-	DefineInstruction(0xBE, "CP (HL)", func(cpu *CPU) { cpu.compare(cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(8))
+	DefineInstruction(0x86, "ADD A, (HL)", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), false) }, Cycles(2))
+	DefineInstruction(0x8E, "ADC A, (HL)", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), true) }, Cycles(2))
+	DefineInstruction(0x96, "SUB (HL)", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), false) }, Cycles(2))
+	DefineInstruction(0x9E, "SBC A, (HL)", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.mmu.Read(cpu.HL.Uint16()), true) }, Cycles(2))
+	DefineInstruction(0xA6, "AND (HL)", func(cpu *CPU) { cpu.A = cpu.and(cpu.A, cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(2))
+	DefineInstruction(0xAE, "XOR (HL)", func(cpu *CPU) { cpu.A = cpu.xor(cpu.A, cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(2))
+	DefineInstruction(0xB6, "OR (HL)", func(cpu *CPU) { cpu.A = cpu.or(cpu.A, cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(2))
+	DefineInstruction(0xBE, "CP (HL)", func(cpu *CPU) { cpu.compare(cpu.mmu.Read(cpu.HL.Uint16())) }, Cycles(2))
 }

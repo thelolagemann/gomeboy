@@ -23,259 +23,259 @@ func (i InstructionCB) Instruction() Instruction {
 
 var InstructionSetCB = map[uint8]InstructionCB{
 	// 0x00 - RLC B
-	0x00: {"RLC B", 8, func(cpu *CPU) {
+	0x00: {"RLC B", 2, func(cpu *CPU) {
 		cpu.B = cpu.rotateLeft(cpu.B)
 	}},
 	// 0x01 - RLC C
-	0x01: {"RLC C", 8, func(cpu *CPU) {
+	0x01: {"RLC C", 2, func(cpu *CPU) {
 		cpu.C = cpu.rotateLeft(cpu.C)
 	}},
 	// 0x02 - RLC D
-	0x02: {"RLC D", 8, func(cpu *CPU) {
+	0x02: {"RLC D", 2, func(cpu *CPU) {
 		cpu.D = cpu.rotateLeft(cpu.D)
 	}},
 	// 0x03 - RLC E
-	0x03: {"RLC E", 8, func(cpu *CPU) {
+	0x03: {"RLC E", 2, func(cpu *CPU) {
 		cpu.E = cpu.rotateLeft(cpu.E)
 	}},
 	// 0x04 - RLC H
-	0x04: {"RLC H", 8, func(cpu *CPU) {
+	0x04: {"RLC H", 2, func(cpu *CPU) {
 		cpu.H = cpu.rotateLeft(cpu.H)
 	}},
 	// 0x05 - RLC L
-	0x05: {"RLC L", 8, func(cpu *CPU) {
+	0x05: {"RLC L", 2, func(cpu *CPU) {
 		cpu.L = cpu.rotateLeft(cpu.L)
 	}},
 	// 0x06 - RLC (HL)
-	0x06: {"RLC (HL)", 16, func(cpu *CPU) {
+	0x06: {"RLC (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.rotateLeft(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x07 - RLC A
-	0x07: {"RLC A", 8, func(cpu *CPU) {
+	0x07: {"RLC A", 2, func(cpu *CPU) {
 		cpu.A = cpu.rotateLeft(cpu.A)
 	}},
 	// 0x08 - RRC B
-	0x08: {"RRC B", 8, func(cpu *CPU) {
+	0x08: {"RRC B", 2, func(cpu *CPU) {
 		cpu.B = cpu.rotateRight(cpu.B)
 	}},
 	// 0x09 - RRC C
-	0x09: {"RRC C", 8, func(cpu *CPU) {
+	0x09: {"RRC C", 2, func(cpu *CPU) {
 		cpu.C = cpu.rotateRight(cpu.C)
 	}},
 	// 0x0A - RRC D
-	0x0A: {"RRC D", 8, func(cpu *CPU) {
+	0x0A: {"RRC D", 2, func(cpu *CPU) {
 		cpu.D = cpu.rotateRight(cpu.D)
 	}},
 	// 0x0B - RRC E
-	0x0B: {"RRC E", 8, func(cpu *CPU) {
+	0x0B: {"RRC E", 2, func(cpu *CPU) {
 		cpu.E = cpu.rotateRight(cpu.E)
 	}},
 	// 0x0C - RRC H
-	0x0C: {"RRC H", 8, func(cpu *CPU) {
+	0x0C: {"RRC H", 2, func(cpu *CPU) {
 		cpu.H = cpu.rotateRight(cpu.H)
 	}},
 	// 0x0D - RRC L
-	0x0D: {"RRC L", 8, func(cpu *CPU) {
+	0x0D: {"RRC L", 2, func(cpu *CPU) {
 		cpu.L = cpu.rotateRight(cpu.L)
 	}},
 	// 0x0E - RRC (HL)
-	0x0E: {"RRC (HL)", 16, func(cpu *CPU) {
+	0x0E: {"RRC (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.rotateRight(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x0F - RRC A
-	0x0F: {"RRC A", 8, func(cpu *CPU) {
+	0x0F: {"RRC A", 2, func(cpu *CPU) {
 		cpu.A = cpu.rotateRight(cpu.A)
 	}},
 	// 0x10 - RL B
-	0x10: {"RL B", 8, func(cpu *CPU) {
+	0x10: {"RL B", 2, func(cpu *CPU) {
 		cpu.B = cpu.rotateLeftThroughCarry(cpu.B)
 	}},
 	// 0x11 - RL C
-	0x11: {"RL C", 8, func(cpu *CPU) {
+	0x11: {"RL C", 2, func(cpu *CPU) {
 		cpu.C = cpu.rotateLeftThroughCarry(cpu.C)
 	}},
 	// 0x12 - RL D
-	0x12: {"RL D", 8, func(cpu *CPU) {
+	0x12: {"RL D", 2, func(cpu *CPU) {
 		cpu.D = cpu.rotateLeftThroughCarry(cpu.D)
 	}},
 	// 0x13 - RL E
-	0x13: {"RL E", 8, func(cpu *CPU) {
+	0x13: {"RL E", 2, func(cpu *CPU) {
 		cpu.E = cpu.rotateLeftThroughCarry(cpu.E)
 	}},
 	// 0x14 - RL H
-	0x14: {"RL H", 8, func(cpu *CPU) {
+	0x14: {"RL H", 2, func(cpu *CPU) {
 		cpu.H = cpu.rotateLeftThroughCarry(cpu.H)
 	}},
 	// 0x15 - RL L
-	0x15: {"RL L", 8, func(cpu *CPU) {
+	0x15: {"RL L", 2, func(cpu *CPU) {
 		cpu.L = cpu.rotateLeftThroughCarry(cpu.L)
 	}},
 	// 0x16 - RL (HL)
-	0x16: {"RL (HL)", 16, func(cpu *CPU) {
+	0x16: {"RL (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.rotateLeftThroughCarry(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x17 - RL A
-	0x17: {"RL A", 8, func(cpu *CPU) {
+	0x17: {"RL A", 2, func(cpu *CPU) {
 		cpu.A = cpu.rotateLeftThroughCarry(cpu.A)
 	}},
 	// 0x18 - RR B
-	0x18: {"RR B", 8, func(cpu *CPU) {
+	0x18: {"RR B", 2, func(cpu *CPU) {
 		cpu.B = cpu.rotateRightThroughCarry(cpu.B)
 	}},
 	// 0x19 - RR C
-	0x19: {"RR C", 8, func(cpu *CPU) {
+	0x19: {"RR C", 2, func(cpu *CPU) {
 		cpu.C = cpu.rotateRightThroughCarry(cpu.C)
 	}},
 	// 0x1A - RR D
-	0x1A: {"RR D", 8, func(cpu *CPU) {
+	0x1A: {"RR D", 2, func(cpu *CPU) {
 		cpu.D = cpu.rotateRightThroughCarry(cpu.D)
 	}},
 	// 0x1B - RR E
-	0x1B: {"RR E", 8, func(cpu *CPU) {
+	0x1B: {"RR E", 2, func(cpu *CPU) {
 		cpu.E = cpu.rotateRightThroughCarry(cpu.E)
 	}},
 	// 0x1C - RR H
-	0x1C: {"RR H", 8, func(cpu *CPU) {
+	0x1C: {"RR H", 2, func(cpu *CPU) {
 		cpu.H = cpu.rotateRightThroughCarry(cpu.H)
 	}},
 	// 0x1D - RR L
-	0x1D: {"RR L", 8, func(cpu *CPU) {
+	0x1D: {"RR L", 2, func(cpu *CPU) {
 		cpu.L = cpu.rotateRightThroughCarry(cpu.L)
 	}},
 	// 0x1E - RR (HL)
-	0x1E: {"RR (HL)", 16, func(cpu *CPU) {
+	0x1E: {"RR (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.rotateRightThroughCarry(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x1F - RR A
-	0x1F: {"RR A", 8, func(cpu *CPU) {
+	0x1F: {"RR A", 2, func(cpu *CPU) {
 		cpu.A = cpu.rotateRightThroughCarry(cpu.A)
 	}},
 	// 0x20 - SLA B
-	0x20: {"SLA B", 8, func(cpu *CPU) {
+	0x20: {"SLA B", 2, func(cpu *CPU) {
 		cpu.B = cpu.shiftLeftIntoCarry(cpu.B)
 	}},
 	// 0x21 - SLA C
-	0x21: {"SLA C", 8, func(cpu *CPU) {
+	0x21: {"SLA C", 2, func(cpu *CPU) {
 		cpu.C = cpu.shiftLeftIntoCarry(cpu.C)
 	}},
 	// 0x22 - SLA D
-	0x22: {"SLA D", 8, func(cpu *CPU) {
+	0x22: {"SLA D", 2, func(cpu *CPU) {
 		cpu.D = cpu.shiftLeftIntoCarry(cpu.D)
 	}},
 	// 0x23 - SLA E
-	0x23: {"SLA E", 8, func(cpu *CPU) {
+	0x23: {"SLA E", 2, func(cpu *CPU) {
 		cpu.E = cpu.shiftLeftIntoCarry(cpu.E)
 	}},
 	// 0x24 - SLA H
-	0x24: {"SLA H", 8, func(cpu *CPU) {
+	0x24: {"SLA H", 2, func(cpu *CPU) {
 		cpu.H = cpu.shiftLeftIntoCarry(cpu.H)
 	}},
 	// 0x25 - SLA L
-	0x25: {"SLA L", 8, func(cpu *CPU) {
+	0x25: {"SLA L", 2, func(cpu *CPU) {
 		cpu.L = cpu.shiftLeftIntoCarry(cpu.L)
 	}},
 	// 0x26 - SLA (HL)
-	0x26: {"SLA (HL)", 16, func(cpu *CPU) {
+	0x26: {"SLA (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.shiftLeftIntoCarry(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x27 - SLA A
-	0x27: {"SLA A", 8, func(cpu *CPU) {
+	0x27: {"SLA A", 2, func(cpu *CPU) {
 		cpu.A = cpu.shiftLeftIntoCarry(cpu.A)
 	}},
 	// 0x28 - SRA B
-	0x28: {"SRA B", 8, func(cpu *CPU) {
+	0x28: {"SRA B", 2, func(cpu *CPU) {
 		cpu.B = cpu.shiftRightIntoCarry(cpu.B)
 	}},
 	// 0x29 - SRA C
-	0x29: {"SRA C", 8, func(cpu *CPU) {
+	0x29: {"SRA C", 2, func(cpu *CPU) {
 		cpu.C = cpu.shiftRightIntoCarry(cpu.C)
 	}},
 	// 0x2A - SRA D
-	0x2A: {"SRA D", 8, func(cpu *CPU) {
+	0x2A: {"SRA D", 2, func(cpu *CPU) {
 		cpu.D = cpu.shiftRightIntoCarry(cpu.D)
 	}},
 	// 0x2B - SRA E
-	0x2B: {"SRA E", 8, func(cpu *CPU) {
+	0x2B: {"SRA E", 2, func(cpu *CPU) {
 		cpu.E = cpu.shiftRightIntoCarry(cpu.E)
 	}},
 	// 0x2C - SRA H
-	0x2C: {"SRA H", 8, func(cpu *CPU) {
+	0x2C: {"SRA H", 2, func(cpu *CPU) {
 		cpu.H = cpu.shiftRightIntoCarry(cpu.H)
 	}},
 	// 0x2D - SRA L
-	0x2D: {"SRA L", 8, func(cpu *CPU) {
+	0x2D: {"SRA L", 2, func(cpu *CPU) {
 		cpu.L = cpu.shiftRightIntoCarry(cpu.L)
 	}},
 	// 0x2E - SRA (HL)
-	0x2E: {"SRA (HL)", 16, func(cpu *CPU) {
+	0x2E: {"SRA (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.shiftRightIntoCarry(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x2F - SRA A
-	0x2F: {"SRA A", 8, func(cpu *CPU) {
+	0x2F: {"SRA A", 2, func(cpu *CPU) {
 		cpu.A = cpu.shiftRightIntoCarry(cpu.A)
 	}},
 	// 0x30 - SWAP B
-	0x30: {"SWAP B", 8, func(cpu *CPU) {
+	0x30: {"SWAP B", 2, func(cpu *CPU) {
 		cpu.B = cpu.swap(cpu.B)
 	}},
 	// 0x31 - SWAP C
-	0x31: {"SWAP C", 8, func(cpu *CPU) {
+	0x31: {"SWAP C", 2, func(cpu *CPU) {
 		cpu.C = cpu.swap(cpu.C)
 	}},
 	// 0x32 - SWAP D
-	0x32: {"SWAP D", 8, func(cpu *CPU) {
+	0x32: {"SWAP D", 2, func(cpu *CPU) {
 		cpu.D = cpu.swap(cpu.D)
 	}},
 	// 0x33 - SWAP E
-	0x33: {"SWAP E", 8, func(cpu *CPU) {
+	0x33: {"SWAP E", 2, func(cpu *CPU) {
 		cpu.E = cpu.swap(cpu.E)
 	}},
 	// 0x34 - SWAP H
-	0x34: {"SWAP H", 8, func(cpu *CPU) {
+	0x34: {"SWAP H", 2, func(cpu *CPU) {
 		cpu.H = cpu.swap(cpu.H)
 	}},
 	// 0x35 - SWAP L
-	0x35: {"SWAP L", 8, func(cpu *CPU) {
+	0x35: {"SWAP L", 2, func(cpu *CPU) {
 		cpu.L = cpu.swap(cpu.L)
 	}},
 	// 0x36 - SWAP (HL)
-	0x36: {"SWAP (HL)", 16, func(cpu *CPU) {
+	0x36: {"SWAP (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.swap(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x37 - SWAP A
-	0x37: {"SWAP A", 8, func(cpu *CPU) {
+	0x37: {"SWAP A", 2, func(cpu *CPU) {
 		cpu.A = cpu.swap(cpu.A)
 	}},
 	// 0x38 - SRL B
-	0x38: {"SRL B", 8, func(cpu *CPU) {
+	0x38: {"SRL B", 2, func(cpu *CPU) {
 		cpu.B = cpu.shiftRightLogical(cpu.B)
 	}},
 	// 0x39 - SRL C
-	0x39: {"SRL C", 8, func(cpu *CPU) {
+	0x39: {"SRL C", 2, func(cpu *CPU) {
 		cpu.C = cpu.shiftRightLogical(cpu.C)
 	}},
 	// 0x3A - SRL D
-	0x3A: {"SRL D", 8, func(cpu *CPU) {
+	0x3A: {"SRL D", 2, func(cpu *CPU) {
 		cpu.D = cpu.shiftRightLogical(cpu.D)
 	}},
 	// 0x3B - SRL E
-	0x3B: {"SRL E", 8, func(cpu *CPU) {
+	0x3B: {"SRL E", 2, func(cpu *CPU) {
 		cpu.E = cpu.shiftRightLogical(cpu.E)
 	}},
 	// 0x3C - SRL H
-	0x3C: {"SRL H", 8, func(cpu *CPU) {
+	0x3C: {"SRL H", 2, func(cpu *CPU) {
 		cpu.H = cpu.shiftRightLogical(cpu.H)
 	}},
 	// 0x3D - SRL L
-	0x3D: {"SRL L", 8, func(cpu *CPU) {
+	0x3D: {"SRL L", 2, func(cpu *CPU) {
 		cpu.L = cpu.shiftRightLogical(cpu.L)
 	}},
 	// 0x3E - SRL (HL)
-	0x3E: {"SRL (HL)", 16, func(cpu *CPU) {
+	0x3E: {"SRL (HL)", 4, func(cpu *CPU) {
 		cpu.mmu.Write(cpu.HL.Uint16(), cpu.shiftRightLogical(cpu.mmu.Read(cpu.HL.Uint16())))
 	}},
 	// 0x3F - SRL A
-	0x3F: {"SRL A", 8, func(cpu *CPU) {
+	0x3F: {"SRL A", 2, func(cpu *CPU) {
 		cpu.A = cpu.shiftRightLogical(cpu.A)
 	}},
 }
@@ -302,7 +302,7 @@ func (c *CPU) generateBitInstructions() {
 				// BIT
 				InstructionSetCB[0x40+bit*8+reg] = InstructionCB{
 					Name:   fmt.Sprintf("BIT %d, (HL)", currentBit),
-					Cycles: 12,
+					Cycles: 3,
 					fn: func(cpu *CPU) {
 						cpu.testBit(cpu.mmu.Read(cpu.HL.Uint16()), currentBit)
 					},
@@ -311,7 +311,7 @@ func (c *CPU) generateBitInstructions() {
 				// RES
 				InstructionSetCB[0x80+bit*8+reg] = InstructionCB{
 					Name:   fmt.Sprintf("RES %d, (HL)", currentBit),
-					Cycles: 16,
+					Cycles: 4,
 					fn: func(cpu *CPU) {
 						cpu.mmu.Write(cpu.HL.Uint16(), utils.Reset(cpu.mmu.Read(cpu.HL.Uint16()), currentBit))
 					},
@@ -320,7 +320,7 @@ func (c *CPU) generateBitInstructions() {
 				// SET
 				InstructionSetCB[0xC0+bit*8+reg] = InstructionCB{
 					Name:   fmt.Sprintf("SET %d, (HL)", bit),
-					Cycles: 16,
+					Cycles: 4,
 					fn: func(cpu *CPU) {
 						cpu.mmu.Write(cpu.HL.Uint16(), utils.Set(cpu.mmu.Read(cpu.HL.Uint16()), currentBit))
 					},
@@ -334,7 +334,7 @@ func (c *CPU) generateBitInstructions() {
 			// Create BIT instruction
 			InstructionSetCB[0x40+(bit*8)+reg] = InstructionCB{
 				Name:   fmt.Sprintf("BIT %d, %s", bit, c.registerName(register)),
-				Cycles: 8,
+				Cycles: 2,
 				fn: func(cpu *CPU) {
 					cpu.testBit(*register, currentBit)
 				},
@@ -343,7 +343,7 @@ func (c *CPU) generateBitInstructions() {
 			// Create RES instruction
 			InstructionSetCB[0x80+bit*8+reg] = InstructionCB{
 				Name:   fmt.Sprintf("RES %d, %s", bit, c.registerName(register)),
-				Cycles: 8,
+				Cycles: 2,
 				fn: func(cpu *CPU) {
 					*register = utils.Reset(*register, currentBit)
 				},
@@ -351,7 +351,7 @@ func (c *CPU) generateBitInstructions() {
 			// Create SET instruction
 			InstructionSetCB[0xC0+bit*8+reg] = InstructionCB{
 				Name:   fmt.Sprintf("SET %d, %s", bit, c.registerName(register)),
-				Cycles: 8,
+				Cycles: 2,
 				fn: func(cpu *CPU) {
 					*register = utils.Set(*register, currentBit)
 				},
