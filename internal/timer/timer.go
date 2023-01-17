@@ -95,10 +95,8 @@ func (c *Controller) Write(address uint16, value uint8) {
 		}
 		c.modulo = value
 	case ControlRegister:
-		// only the lower 3 bits are writable
-		c.control = value & 0x7
-		c.Step(0)
-		c.Step(0)
+		// will this write disable the timer?
+		c.control = value
 	default:
 		panic(fmt.Sprintf("timer: illegal write to address 0x%04X", address))
 	}
@@ -106,42 +104,41 @@ func (c *Controller) Write(address uint16, value uint8) {
 
 // Step steps the timer by the specified number of cycles.
 func (c *Controller) Step(cycles uint8) {
-	// divider is always incremented
-	c.divider += uint16(cycles * 4)
+	for i := uint8(0); i < (cycles); i++ {
+		c.divider += 4
+		// determine signal
+		signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
 
-	// determine signal
-	signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
+		// if need to release overflow, do so
+		if c.releaseOverflow {
+			// TIME: 8
+			c.overflowing = false
+			c.releaseOverflow = false
+		}
 
-	// if need to release overflow, do so
-	if c.releaseOverflow {
-		// TIME: 8
-		c.overflowing = false
-		c.releaseOverflow = false
-	}
+		// after brief delay, TIMA will execute as normal
+		if c.overflowing {
+			// TIME: 4
+			c.counter = c.modulo
+			c.counterCarry = false
+			c.releaseOverflow = true
+			c.irq.Request(interrupts.TimerFlag)
+		}
 
-	// after brief delay, TIMA will execute as normal
-	if c.overflowing {
-		// TIME: 4
-		c.counter = c.modulo
-		c.counterCarry = false
-		c.releaseOverflow = true
-		c.irq.Request(interrupts.TimerFlag)
-	}
+		// check for falling edge
+		if c.detectFallingEdge(signal) {
+			c.counter++
 
-	// check for falling edge
-	if c.detectFallingEdge(signal) {
-		c.counter++
-
-		// 1 cycle TIMA has the value 0
-		if c.counter == 0 && c.counterCarry {
-			// TIME: 0
-			c.overflowing = true
-		} else if c.counter == 0xff {
-			// about to overflow
-			c.counterCarry = true
+			// 1 cycle TIMA has the value 0
+			if c.counter == 0 && c.counterCarry {
+				// TIME: 0
+				c.overflowing = true
+			} else if c.counter == 0xff {
+				// about to overflow
+				c.counterCarry = true
+			}
 		}
 	}
-
 }
 
 func (c *Controller) detectFallingEdge(signal bool) bool {
@@ -152,7 +149,7 @@ func (c *Controller) detectFallingEdge(signal bool) bool {
 
 // isEnabled returns true if the timer is enabled.
 func (c *Controller) isEnabled() bool {
-	return c.control&0x4 > 0
+	return c.control&0x4 == 0x4
 }
 
 // getMultiplexerMask returns the multiplexer mask.
