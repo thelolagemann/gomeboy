@@ -172,9 +172,10 @@ func (m *MMU) Read(address uint16) uint8 {
 	// GPU (0xFF40-0xFF4B)
 	case address >= 0xFF40 && address <= 0xFF4B:
 		return m.Video.Read(address)
+
 	// Unusable memory (0xFF4C-0xFF7F)
 	case address <= 0xFF7F:
-		return 1
+		return 0xFF
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address <= 0xFFFE:
 		return m.zRAM.Read(address - 0xFF80)
@@ -236,6 +237,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 			m.Sound.Write(address, value)
 		case 0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF46, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B:
 			m.Video.Write(address, value)
+
 		case 0xFF50:
 			m.biosFinished = true
 		}

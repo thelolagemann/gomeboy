@@ -5,12 +5,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"math"
-	"time"
 )
 
 const (
 	// sampleRate is the sample rate of the audio.
-	sampleRate = 48000
+	sampleRate = 44100
 	// twoPi is 2 * Pi.
 	twoPi = 2 * math.Pi
 	// perSample is the number of samples per second.
@@ -28,9 +27,6 @@ func init() {
 	context = audio.NewContext(sampleRate)
 
 	// wait for context to be ready
-	for !context.IsReady() {
-		time.Sleep(time.Millisecond * 100)
-	}
 }
 
 // APU represents the GameBoy's audio processing unit. It comprises 4
@@ -63,7 +59,6 @@ func (b *buffer) Read(p []byte) (int, error) {
 	if len(b.data) > 0 {
 		n := copy(p, b.data)
 		b.data = b.data[n:]
-		fmt.Println("read", n, "bytes", "left", len(b.data))
 		return n, nil
 	}
 
@@ -100,16 +95,11 @@ func NewAPU() *APU {
 		panic(fmt.Sprintf("failed to create player: %v", err))
 	}
 	a.player = player
-	time.Sleep(time.Second * 3)
-	if !context.IsReady() {
-		panic("context not ready")
-	}
 
 	// set buffer to 512 samples
 	a.player.SetBufferSize(100)
 
 	// seems to be a bug in ebiten, and is delaying the audio by roughly 2 x sampleRate
-	time.Sleep(time.Second * 3)
 
 	return a
 }
@@ -167,8 +157,18 @@ var channel3Volume = map[byte]float64{
 	3: 0.25,
 }
 
+var unreadableRegisters = []uint16{
+	0xFF10, 0xFF15, 0xFF1A, 0xFF1C, 0xFF1F, 0xFF20, 0xFF23,
+	0xFF26,
+}
+
 // Read returns the value at the given address.
 func (a *APU) Read(address uint16) uint8 {
+	for _, reg := range unreadableRegisters {
+		if address == reg {
+			return 0xFF
+		}
+	}
 	if address >= 0xFF30 {
 		return a.waveformRam[address-0xFF30]
 	}
