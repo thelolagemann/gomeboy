@@ -118,6 +118,7 @@ func (c *CPU) ret() {
 //	RET cc
 //	cc = NZ, Z, NC, C
 func (c *CPU) retConditional(condition bool) {
+
 	if condition {
 		c.ret()
 	}
@@ -157,7 +158,7 @@ func init() {
 	DefineInstruction(0xC4, "CALL NZ, nn", func(c *CPU) {
 		c.callConditional(!c.isFlagSet(FlagZero))
 	})
-	DefineInstruction(0xC8, "RET Z", func(c *CPU) { c.retConditional(c.isFlagSet(FlagZero)) })
+	DefineInstruction(0xC8, "RET Z", func(c *CPU) { c.ticks(4); c.retConditional(c.isFlagSet(FlagZero)) })
 	DefineInstruction(0xC9, "RET", func(c *CPU) { c.ret() })
 	DefineInstruction(0xCA, "JP Z, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(c.isFlagSet(FlagZero))
@@ -168,14 +169,14 @@ func init() {
 	DefineInstruction(0xCD, "CALL nn", func(c *CPU) {
 		c.call()
 	})
-	DefineInstruction(0xD0, "RET NC", func(c *CPU) { c.retConditional(!c.isFlagSet(FlagCarry)) })
+	DefineInstruction(0xD0, "RET NC", func(c *CPU) { c.ticks(4); c.retConditional(!c.isFlagSet(FlagCarry)) })
 	DefineInstruction(0xD2, "JP NC, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(!c.isFlagSet(FlagCarry))
 	})
 	DefineInstruction(0xD4, "CALL NC, nn", func(c *CPU) {
 		c.callConditional(!c.isFlagSet(FlagCarry))
 	})
-	DefineInstruction(0xD8, "RET C", func(c *CPU) { c.retConditional(c.isFlagSet(FlagCarry)) })
+	DefineInstruction(0xD8, "RET C", func(c *CPU) { c.ticks(4); c.retConditional(c.isFlagSet(FlagCarry)) })
 	DefineInstruction(0xD9, "RETI", func(c *CPU) { c.retInterrupt() })
 	DefineInstruction(0xDA, "JP C, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(c.isFlagSet(FlagCarry))
@@ -195,6 +196,7 @@ func (c *CPU) generateRSTInstructions() {
 		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU) {
 			c.pushStack(uint8(c.PC>>8), uint8(c.PC&0xFF))
 			c.PC = address
+			c.ticks(4)
 		})
 	}
 }

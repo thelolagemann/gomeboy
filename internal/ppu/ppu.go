@@ -169,7 +169,7 @@ func (p *PPU) Read(address uint16) uint8 {
 	case lcd.ControlRegister:
 		return p.Controller.Read(lcd.ControlRegister)
 	case lcd.StatusRegister:
-		return p.Status.Read(lcd.StatusRegister) | 0b10000000 // bit 7 is always set
+		return p.Status.Read(lcd.StatusRegister) // bit 7 is always set
 	case background.ScrollYRegister:
 		return p.Background.ScrollY
 	case background.ScrollXRegister:
@@ -307,6 +307,7 @@ func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
 		p.Mode == lcd.HBlank && p.HBlankInterrupt ||
 		vblankTrigger && p.OAMInterrupt // OAM interrupt can be triggered during vblank
 
+	// fmt.Printf("%08b\n", p.Status.Read(lcd.StatusRegister))
 	if reqInt {
 		panic("stat interrupt requested")
 		// if not stat interrupt requested, request it

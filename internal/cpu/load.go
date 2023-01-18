@@ -103,14 +103,14 @@ func init() {
 	})
 	DefineInstruction(0x32, "LD (HL-), A", func(c *CPU) {
 		c.loadRegisterToMemory(&c.A, c.HL.Uint16())
-		c.decrementNN(c.HL)
+		c.HL.SetUint16(c.HL.Uint16() - 1)
 	})
 	DefineInstruction(0x36, "LD (HL), d8", func(c *CPU) {
 		c.writeByte(c.HL.Uint16(), c.readOperand())
 	})
 	DefineInstruction(0x3A, "LD A, (HL-)", func(c *CPU) {
 		c.loadMemoryToRegister(&c.A, c.HL.Uint16())
-		c.decrementNN(c.HL)
+		c.HL.SetUint16(c.HL.Uint16() - 1)
 	})
 	DefineInstruction(0x3E, "LD A, d8", func(c *CPU) { c.loadRegister8(&c.A) })
 	DefineInstruction(0xE0, "LDH (a8), A", func(c *CPU) {
