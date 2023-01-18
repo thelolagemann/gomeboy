@@ -81,11 +81,8 @@ func NewController() *Controller {
 func (c *Controller) Write(address uint16, value uint8) {
 	switch address {
 	case ControlRegister:
-		// if rising edge, clear the cleared flag
-		if !c.Enabled && utils.Test(value, 7) {
-			c.cleared = false
-		}
 
+		// process the value into the controller
 		c.Enabled = utils.Test(value, 7)
 		if utils.Test(value, 6) {
 			c.WindowTileMapAddress = 0x9C00
@@ -106,6 +103,7 @@ func (c *Controller) Write(address uint16, value uint8) {
 		c.SpriteSize = 8 + uint8(utils.Val(value, 2))*8
 		c.SpriteEnabled = utils.Test(value, 1)
 		c.BackgroundEnabled = utils.Test(value, 0)
+
 		return
 	}
 

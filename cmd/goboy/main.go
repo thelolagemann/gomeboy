@@ -2,13 +2,25 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/faiface/pixel/pixelgl"
 	"github.com/thelolagemann/go-gameboy/internal/display"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"net/http"
 	"os"
+
+	_ "net/http/pprof"
 )
 
 func main() {
+	// start pprof
+	go func() {
+		err := http.ListenAndServe("localhost:6060", nil)
+		if err != nil {
+			return
+		}
+	}()
+
 	romFile := flag.String("rom", "", "The rom file to load")
 	flag.Parse()
 
@@ -34,7 +46,12 @@ func main() {
 
 	pixelgl.Run(func() {
 		// create a new pixel binding
-		mon := display.NewDisplay(gb.MMU.Cart.Header().String())
+		mon := display.NewDisplay(gb.MMU.Cart.Header().String(), gb.MMU.Cart.MD5)
+
+		// render boot animation
+		// mon.RenderBootAnimation()
+		fmt.Println("Boot animation finished")
+
 		// start the gameboy
 		gb.Start(mon)
 	})

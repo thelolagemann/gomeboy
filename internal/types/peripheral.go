@@ -6,10 +6,8 @@ package types
 // the Fetch-Decode-Execute cycle. This should advance the peripheral
 // device by the Cl
 type Peripheral interface {
-	// Step advances the peripheral device by the given number of cycles.
-	Step(cycles uint8)
-	// Clock returns the clock speed of the hardware. This is used to
-	// calculate the number of cycles that have passed since the last
-	// call to Step.
-	Clock() uint8
+	// Tick is called by the CPU every time it executes the Fetch-Decode-Execute
+	// cycle. This should advance the peripheral device by the Clocks
+	// specified by the ClocksPerStep method.
+	Tick()
 }

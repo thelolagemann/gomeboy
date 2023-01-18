@@ -71,8 +71,15 @@ type MMU struct {
 
 // NewMMU returns a new MMU.
 func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound IOBus) *MMU {
+
 	l := logrus.New()
 	l.SetLevel(logrus.DebugLevel)
+	l.Formatter = &logrus.TextFormatter{
+		DisableColors:    true,
+		DisableTimestamp: true,
+		DisableSorting:   true,
+		DisableQuote:     true,
+	}
 	m := &MMU{
 		biosFinished: false,
 		Cart:         cart,

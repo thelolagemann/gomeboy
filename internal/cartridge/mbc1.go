@@ -62,23 +62,33 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 		m.updateRomBank()
 	case address < 0x6000:
 		if m.romBanking {
-			m.romBank = (m.romBank & 0x1F) | uint32(value&0xE0)
-			m.updateRomBank()
+			value = (value & 0x03) << 5
+			m.romBank = (m.romBank & 0x1F) + uint32(value)
+			if m.romBank*0x4000 >= uint32(len(m.rom)) {
+				m.romBank = m.romBank % uint32(len(m.rom)/0x4000)
+			}
+			if m.romBank == 0 {
+				m.romBank++
+			}
 		} else {
-			m.ramBank = uint32(value & 0x3)
+			m.ramBank = uint32(value) & 0x03
+			if len(m.ram) == 0 {
+				m.ramBank = 0
+			} else if m.ramBank*0x2000 >= uint32(len(m.ram)) {
+				m.ramBank = m.ramBank % uint32(len(m.ram)) / 0x2000
+			}
 		}
 	case address < 0x8000:
 		// ROM/RAM mode select
 		m.romBanking = value&0x1 == 0x00
-		if m.romBanking {
-			m.ramBank = 0
-		} else {
-			m.romBank = m.romBank & 0x1F
-		}
 	case address >= 0xA000 && address < 0xC000:
 		// Write to selected RAM bank
 		if m.ramEnabled {
-			m.ram[(0x2000*m.ramBank)+uint32(address-0xA000)] = value
+			if m.romBanking {
+				m.ram[address&0x1FFF] = value
+			} else {
+				m.ram[uint16(m.ramBank)*0x2000+address&0x1FFF] = value
+			}
 		}
 	default:
 		panic(fmt.Sprintf("mbc1: illegal write to address: %X", address))

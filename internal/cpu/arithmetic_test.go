@@ -39,7 +39,7 @@ func TestInstruction_Arithmetic(t *testing.T) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.mmu.Read(cpu.HL.Uint16()) != 0x43 {
 			t.Errorf("Expected memory at 0x1234 to be 0x43, got 0x%02x", cpu.mmu.Read(cpu.HL.Uint16()))
@@ -54,7 +54,7 @@ func TestInstruction_Arithmetic(t *testing.T) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.mmu.Read(cpu.HL.Uint16()) != 0x41 {
 			t.Errorf("Expected memory at 0x1234 to be 0x41, got 0x%02x", cpu.mmu.Read(cpu.HL.Uint16()))
@@ -117,7 +117,7 @@ func testInstruction_16BitArithmetic(t *testing.T) {
 	testInstruction(t, "INC SP", 0x33, func(t *testing.T, instr Instructor) {
 		cpu.SP = 0x1234
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.SP != 0x1235 {
 			t.Errorf("Expected SP to be 0x1235, got 0x%04x", cpu.SP)
@@ -132,7 +132,7 @@ func testInstruction_16BitArithmetic(t *testing.T) {
 		cpu.SP = 0x1234
 		cpu.HL.SetUint16(0x5678)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.HL.Uint16() != 0x68AC {
 			t.Errorf("Expected HL to be 0x68AC, got 0x%04x", cpu.HL.Uint16())
@@ -146,7 +146,7 @@ func testInstruction_16BitArithmetic(t *testing.T) {
 	testInstruction(t, "DEC SP", 0x3B, func(t *testing.T, instr Instructor) {
 		cpu.SP = 0x1234
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.SP != 0x1233 {
 			t.Errorf("Expected SP to be 0x1233, got 0x%04x", cpu.SP)
@@ -160,7 +160,7 @@ func testInstruction_16BitArithmetic(t *testing.T) {
 	testInstruction(t, "ADD SP, n", 0xE8, func(t *testing.T, instr Instructor) {
 		cpu.SP = 0x1234
 
-		instr.Execute(cpu, []byte{0x42})
+		instr.Execute(cpu)
 
 		if cpu.SP != 0x1276 {
 			t.Errorf("Expected SP to be 0x1276, got 0x%04x", cpu.SP)
@@ -179,7 +179,7 @@ func incrementRegisterTest(regName string) func(*testing.T, Instructor) {
 
 		*reg = 0x42
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if *cpu.registerMap(regName) != 0x43 {
 			t.Errorf("Expected register to be 0x43, got 0x%02x", *reg)
@@ -196,7 +196,7 @@ func incrementRegisterTest(regName string) func(*testing.T, Instructor) {
 		t.Run("Zero Flag", func(t *testing.T) {
 			*cpu.registerMap(regName) = 0xFF
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagZero) {
 				t.Errorf("Expected flags to be 0x80, got 0x%02x", cpu.F)
@@ -206,7 +206,7 @@ func incrementRegisterTest(regName string) func(*testing.T, Instructor) {
 		t.Run("Half Carry Flag", func(t *testing.T) {
 			*cpu.registerMap(regName) = 0x0F
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagHalfCarry) {
 				t.Errorf("Expected flags to be 0x20, got 0x%02x", cpu.F)
@@ -216,7 +216,7 @@ func incrementRegisterTest(regName string) func(*testing.T, Instructor) {
 		t.Run("Carry Flag", func(t *testing.T) {
 			*cpu.registerMap(regName) = 0xFF
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsSet(FlagCarry) {
 				t.Errorf("Expected flags to be 0x00, got 0x%02x", cpu.F)
@@ -232,7 +232,7 @@ func decrementRegisterTest(regName string) func(*testing.T, Instructor) {
 
 		*reg = 0x42
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if *cpu.registerMap(regName) != 0x41 {
 			t.Errorf("Expected register to be 0x41, got 0x%02x", *reg)
@@ -250,7 +250,7 @@ func addRegisterTest(regName string) func(*testing.T, Instructor) {
 		*cpu.registerMap(regName) = 0x22
 		cpu.A = 0x42
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x64 && regName != "A" {
 			t.Errorf("Expected A to be 0x64, got 0x%02x", cpu.A)
@@ -274,7 +274,7 @@ func addRegisterTest(regName string) func(*testing.T, Instructor) {
 			*cpu.registerMap(regName) = 0xFF
 			cpu.A = 0x01
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagZero) {
 				t.Errorf("Expected flags to be 0x80, got 0x%02x", cpu.F)
@@ -289,7 +289,7 @@ func addRegisterTest(regName string) func(*testing.T, Instructor) {
 			*cpu.registerMap(regName) = 0x0F
 			cpu.A = 0x10
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagHalfCarry) {
 				t.Errorf("Expected flags to be 0x20, got 0x%02x", cpu.F)
@@ -304,7 +304,7 @@ func addRegisterTest(regName string) func(*testing.T, Instructor) {
 			*cpu.registerMap(regName) = 0xFF
 			cpu.A = 0x01
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagCarry) {
 				t.Errorf("Expected flags to be 0x10, got 0x%02x", cpu.F)
@@ -319,7 +319,7 @@ func addCarryRegisterTest(regName string) func(*testing.T, Instructor) {
 		cpu.A = 0x42
 		cpu.setFlag(FlagCarry)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x65 && regName != "A" {
 			t.Errorf("Expected A to be 0x65, got 0x%02x", cpu.A)
@@ -334,7 +334,7 @@ func subtractRegisterTest(regName string) func(*testing.T, Instructor) {
 		*cpu.registerMap(regName) = 0x22
 		cpu.A = 0x42
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x20 && regName != "A" {
 			t.Errorf("Expected A to be 0x20, got 0x%02x", cpu.A)
@@ -350,7 +350,7 @@ func subtractRegisterTest(regName string) func(*testing.T, Instructor) {
 			*cpu.registerMap(regName) = 0x42
 			cpu.A = 0x42
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagZero) {
 				t.Errorf("Expected flags to be 0x80, got 0x%02x", cpu.F)
@@ -365,7 +365,7 @@ func subtractRegisterTest(regName string) func(*testing.T, Instructor) {
 			*cpu.registerMap(regName) = 0x42
 			cpu.A = 0x10
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagHalfCarry) {
 				t.Errorf("Expected flags to be 0x20, got 0x%02x", cpu.F)
@@ -380,7 +380,7 @@ func subtractRegisterTest(regName string) func(*testing.T, Instructor) {
 			*cpu.registerMap(regName) = 0x42
 			cpu.A = 0x10
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagCarry) {
 				t.Errorf("Expected flags to be 0x10, got 0x%02x", cpu.F)
@@ -395,7 +395,7 @@ func subtractCarryRegisterTest(regName string) func(*testing.T, Instructor) {
 		cpu.A = 0x42
 		cpu.setFlag(FlagCarry)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x1F && regName != "A" {
 			t.Errorf("Expected A to be 0x1F, got 0x%02x", cpu.A)
@@ -411,7 +411,7 @@ func incrementRegisterPairTest(regName string) func(*testing.T, Instructor) {
 		r := randomizeFlags(cpu)
 
 		cpu.registerPairMap(regName).SetUint16(0x4242)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.registerPairMap(regName).Uint16() != 0x4243 {
 			t.Errorf("Expected register pair to be 0x4243, got 0x%04x", *cpu.registerPairMap(regName))
@@ -429,7 +429,7 @@ func addRegisterPairHLTest(regName string) func(*testing.T, Instructor) {
 		cpu.HL.SetUint16(0x4242)
 		cpu.registerPairMap(regName).SetUint16(0x4242)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.HL.Uint16() != 0x8484 {
 			t.Errorf("Expected HL to be 0x8484, got 0x%04x", cpu.HL)
@@ -444,7 +444,7 @@ func addRegisterPairHLTest(regName string) func(*testing.T, Instructor) {
 			cpu.HL.SetUint16(0x0F0F)
 			cpu.registerPairMap(regName).SetUint16(0x0F0F)
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagHalfCarry) {
 				t.Errorf("Expected flags to be 0x20, got 0x%02x", cpu.F)
@@ -459,7 +459,7 @@ func addRegisterPairHLTest(regName string) func(*testing.T, Instructor) {
 			cpu.HL.SetUint16(0xFFFF)
 			cpu.registerPairMap(regName).SetUint16(0x0001)
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagCarry) {
 				t.Errorf("Expected flags to be 0x10, got 0x%02x", cpu.F)
@@ -471,7 +471,7 @@ func addRegisterPairHLTest(regName string) func(*testing.T, Instructor) {
 			cpu.HL.SetUint16(0x4242)
 			cpu.registerPairMap(regName).SetUint16(0x4242)
 
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			if cpu.isFlagsNotSet(FlagZero) {
 				t.Errorf("Expected flags to be 0x80, got 0x%02x", cpu.F)
@@ -487,7 +487,7 @@ func decrementRegisterPairTest(regName string) func(*testing.T, Instructor) {
 		r := randomizeFlags(cpu)
 		cpu.registerPairMap(regName).SetUint16(0x4242)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.registerPairMap(regName).Uint16() != 0x4241 {
 			t.Errorf("Expected register pair to be 0x4241, got 0x%04x", *cpu.registerPairMap(regName))

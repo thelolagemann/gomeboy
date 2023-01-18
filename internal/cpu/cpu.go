@@ -13,6 +13,23 @@ const (
 	ClockSpeed = 4194304
 )
 
+type mode = uint8
+
+const (
+	// ModeNormal is the normal CPU mode.
+	ModeNormal mode = iota
+	// ModeHalt is the halt CPU mode.
+	ModeHalt
+	// ModeStop is the stop CPU mode.
+	ModeStop
+	// ModeHaltBug is the halt bug CPU mode.
+	ModeHaltBug
+	// ModeHaltDI is the halt DI CPU mode.
+	ModeHaltDI
+	// ModeEnableIME is the enable IME CPU mode.
+	ModeEnableIME
+)
+
 // CPU represents the Gameboy CPU. It is responsible for executing instructions.
 type CPU struct {
 	// PC is the program counter, it points to the next instruction to be executed.
@@ -33,7 +50,10 @@ type CPU struct {
 	Debug           bool
 	DebugBreakpoint bool
 
-	peripherals []types.Component
+	peripherals []types.Peripheral
+	Cycles      uint
+
+	mode mode
 }
 
 // PopStack pops a 16-bit value from the stack.
@@ -51,7 +71,7 @@ func (c *CPU) PushStack(pc uint16) {
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripheral) *CPU {
 	c := &CPU{
 		PC: 0,
 		SP: 0,
@@ -63,13 +83,14 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service) *CPU {
 			E: 0x08,
 			F: 0x00,
 			H: 0xB0,
-			L: 0x7c,
+			L: 0x7C,
 		},
-		mmu:     mmu,
-		Speed:   1,
-		stopped: false,
-		Halted:  false,
-		irq:     irq,
+		mmu:         mmu,
+		Speed:       1,
+		stopped:     false,
+		Halted:      false,
+		irq:         irq,
+		peripherals: peripherals,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -170,152 +191,197 @@ func (c *CPU) registerName(reg *Register) string {
 	return ""
 }
 
-// Step executes the next instruction in the CPU and
-// returns the number of cycles it took to execute.
-func (c *CPU) Step() uint {
-	// advance peripherals
+// Step the CPU by one frame.
+func (c *CPU) Step() {
+	// TODO handle CGB HDMA
+	reqInt := false
 
-	var cycles uint
-	var cyclesCPU uint
+	// execute step based on mode
+	switch c.mode {
+	case ModeNormal:
+		// execute step normally
+		c.runInstruction(c.readInstruction())
 
-	if c.Halted {
-		cyclesCPU = 1
-	} else {
-		// fetch opcode
-		opcode := c.fetch()
-		var instruction Instructor
+		// check for interrupts, in normal mode this requires the IME to be enabled
+		reqInt = c.irq.IME && c.hasInterrupts()
+	case ModeHalt:
+	case ModeStop:
+		// in stop mode, the CPU ticks 4 times, but does not execute any instructions
+		c.ticks(4)
 
-		// if 16-bit instruction
-		if opcode == 0xCB {
-			opcode = c.fetch()
-			instruction = InstructionSetCB[opcode].Instruction()
-			if instruction.Name() == "" {
-				panic(fmt.Sprintf("instruction not found: 0xCB%02X", opcode))
-			}
-		} else {
-			instruction = InstructionSet[opcode]
+		// check for interrupts, in stop mode the IME is ignored
+		reqInt = c.hasInterrupts()
+	case ModeHaltBug:
+		// TODO implement halt bug
+		fmt.Println("waiting for halt bug")
+		panic("halt bug")
+	case ModeHaltDI:
+		c.ticks(4)
+
+		// check for interrupts
+		if c.hasInterrupts() {
+			c.mode = ModeNormal
 		}
-
-		if instruction == nil {
-			panic(fmt.Sprintf("instruction not found: 0x%02X", opcode))
-		}
-
-		// get operands
-		operands := make([]uint8, instruction.Length()-1)
-		for i := uint8(0); i < instruction.Length()-1; i++ {
-			operands[i] = c.fetch()
-		}
-		if instruction.Name() != "NOP" && c.PC > 0x0100 {
-			/*time.Sleep(100 * time.Millisecond)
-			if len(operands) == 1 {
-				c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[0])
-			} else if len(operands) == 2 {
-				c.mmu.Log.Debugf("cpu\t 0x%04X: %s 0x%02X%02X", c.PC-uint16(instruction.Length()), instruction.Name(), operands[1], operands[0])
-			} else {
-				c.mmu.Log.Debugf("cpu\t 0x%04X: %s", c.PC-uint16(instruction.Length()), instruction.Name())
-			}
-			c.mmu.Log.Debugf("reg\t A: %v, B: %v, C: %v, D: %v, E: %v, F: %v, H: %v, L: %v, SP: %v, PC: %v, opcode: 0x%02X", c.A, c.B, c.C, c.D, c.E, c.F, c.H, c.L, c.SP, c.PC, opcode)*/
-		}
-		instruction.Execute(c, operands)
-		cyclesCPU = uint(instruction.Cycles())
-
-		// handle debug
-		if c.Debug {
-			if instruction.Name() == "LD B, B" {
-				c.DebugBreakpoint = true
-			}
-		}
-	}
-	cycles = cyclesCPU
-	cycles += c.DoInterrupts()
-
-	return cycles
-}
-
-// DoInterrupts handles all the interrupts.
-func (c *CPU) DoInterrupts() uint {
-	if c.irq.Enabling {
+	case ModeEnableIME:
+		// Enabling IME, and set mode to normal
 		c.irq.IME = true
-		c.irq.Enabling = false
-		return 0
+		c.mode = ModeNormal
+
+		// run one instruction
+		c.runInstruction(c.readInstruction())
+
+		// check for interrupts
+		reqInt = c.irq.IME && c.hasInterrupts()
 	}
 
-	// if not halted and IME is disabled, return
-	if !c.Halted && !c.irq.IME {
-		return 0
+	// did we get an interrupt?
+	if reqInt {
+		c.executeInterrupt()
 	}
-	for i := uint8(0); i < 5; i++ {
-		if utils.Test(c.irq.Enable, i) && utils.Test(c.irq.Flag, i) {
-			cycles := 0
-			if c.Halted {
-				cycles += 1
-			}
-			if c.serviceInterrupt(i) {
-				cycles += 5
-			}
+}
 
-			return uint(cycles)
+func (c *CPU) hasInterrupts() bool {
+	return c.irq.Enable&c.irq.Flag&0x1F != 0
+}
+
+// readInstruction reads the next instruction from memory.
+func (c *CPU) readInstruction() uint8 {
+	c.ticks(4)
+	value := c.mmu.Read(c.PC)
+	c.PC++
+	return value
+}
+
+// readOperand reads the next operand from memory. The same as
+// readInstruction, but will allow future optimizations.
+func (c *CPU) readOperand() uint8 {
+	c.ticks(4)
+	value := c.mmu.Read(c.PC)
+	c.PC++
+	// fmt.Println("readOperand", value)
+	return value
+}
+
+func (c *CPU) skipOperand() {
+	c.ticks(4)
+	c.PC++
+}
+
+// readByte reads a byte from memory.
+func (c *CPU) readByte(addr uint16) uint8 {
+	c.ticks(4)
+	return c.mmu.Read(addr)
+}
+
+// writeByte writes the given value to the given address.
+func (c *CPU) writeByte(addr uint16, val uint8) {
+	c.ticks(4)
+	c.mmu.Write(addr, val)
+}
+
+func (c *CPU) runInstruction(opcode uint8) {
+	var instruction Instructor
+	// do we need to run a CB instruction?
+	if opcode == 0xCB {
+		// read the next instruction
+		cbIns, ok := InstructionSetCB[c.readInstruction()]
+		if !ok {
+			panic(fmt.Sprintf("invalid CB instruction: %x", opcode))
+		}
+
+		instruction = cbIns.Instruction()
+	} else {
+		// get the instruction
+		ins, ok := InstructionSet[opcode]
+		if !ok {
+			panic(fmt.Sprintf("invalid instruction: %x", opcode))
+		}
+		instruction = ins
+	}
+
+	// execute the instruction
+	instruction.Execute(c)
+
+	// check for debug
+	if c.Debug {
+		if instruction.Name() == "LD B, B" {
+			c.DebugBreakpoint = true
 		}
 	}
 
-	return 0
 }
 
-// serviceInterrupt handles the given interrupt.
-func (c *CPU) serviceInterrupt(interrupt uint8) bool {
-	// if halted but IME isn't enabled, just
-	// clear the halt flag and return
-	if c.Halted && !c.irq.IME {
-		c.Halted = false
-		return false
+func (c *CPU) executeInterrupt() {
+	// is IME enabled?
+	if c.irq.IME {
+		// save the high byte of the PC
+		c.SP--
+		c.writeByte(c.SP, uint8(c.PC>>8))
+
+		shouldInt := c.irq.Enable & c.irq.Flag
+		vector := uint16(0)
+
+		// check interrupt in order of priority
+		if utils.Test(shouldInt, interrupts.VBlankFlag) {
+			// VBlank interrupt requested
+			vector = interrupts.VBlank
+			// clear the interrupt flag
+			c.irq.Clear(interrupts.VBlankFlag)
+		} else if utils.Test(shouldInt, interrupts.LCDFlag) {
+			// LCDC interrupt requested
+			vector = interrupts.LCD
+			// clear the interrupt flag
+			c.irq.Clear(interrupts.LCDFlag)
+		} else if utils.Test(shouldInt, interrupts.TimerFlag) {
+			// Timer interrupt requested
+			vector = interrupts.Timer
+			// clear the interrupt flag
+			c.irq.Clear(interrupts.TimerFlag)
+		} else if utils.Test(shouldInt, interrupts.SerialFlag) {
+			// Serial interrupt requested
+			vector = interrupts.Serial
+			// clear the interrupt flag
+			c.irq.Clear(interrupts.SerialFlag)
+		} else if utils.Test(shouldInt, interrupts.JoypadFlag) {
+			// Joypad interrupt requested
+			vector = interrupts.Joypad
+			// clear the interrupt flag
+			c.irq.Clear(interrupts.JoypadFlag)
+		}
+
+		// save the low byte of the PC
+		c.SP--
+		c.writeByte(c.SP, uint8(c.PC&0xFF))
+
+		// jump to the interrupt vector and disable IME
+		c.PC = vector
+		c.irq.IME = false
+
+		// tick 12 times
+		c.ticks(12)
 	}
 
-	// clear the halted flag and disable IME
-	c.Halted = false
-	c.irq.IME = false
-
-	fmt.Printf("flag: %08b enable: %08b\n", c.irq.Flag, c.irq.Enable)
-
-	// clear the interrupt flag
-	c.irq.Flag = utils.Reset(c.irq.Flag, interrupt)
-
-	fmt.Printf("interrupt: %08b\n", interrupt)
-
-	fmt.Printf("flag: %08b enable: %08b\n", c.irq.Flag, c.irq.Enable)
-
-	// save the current execution address by pushing it to the stack
-	c.PushStack(c.PC)
-
-	// jump to the interrupt handler
-	switch interrupt {
-	case 0:
-		c.PC = 0x0040
-	case 1:
-		c.PC = 0x0048
-	case 2:
-		c.PC = 0x0050
-	case 3:
-		c.PC = 0x0058
-	case 4:
-		c.PC = 0x0060
-	default:
-		panic("illegal interrupt")
-	}
-
-	return true
+	// set the mode to normal
+	c.mode = ModeNormal
 }
 
-// fetch returns the next byte in memory and increments the PC.
-func (c *CPU) fetch() uint8 {
-	opcode := c.mmu.Read(c.PC)
-	c.PC++
-	return opcode
+// tick the various components of the CPU.
+func (c *CPU) tick() {
+	//c.dma.Tick()
+	for _, p := range c.peripherals {
+		p.Tick()
+	}
+}
+
+func (c *CPU) ticks(n uint) {
+	for i := uint(0); i < n; i++ {
+		c.tick()
+	}
 }
 
 // rst resets the CPU.
 func (c *CPU) rst(v uint8) {
-	c.push(uint8(c.PC >> 8))
-	c.push(uint8(c.PC & 0xFF))
+	c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
 	c.PC = uint16(v)
 }
 
@@ -333,12 +399,6 @@ func (c *CPU) shouldZeroFlag(value uint8) {
 	} else {
 		c.clearFlag(FlagZero)
 	}
-}
-
-// push pushes a value to the stack.
-func (c *CPU) push(value uint8) {
-	c.SP--
-	c.mmu.Write(c.SP, value)
 }
 
 // pop pops a value from the stack.

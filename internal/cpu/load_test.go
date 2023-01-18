@@ -7,7 +7,7 @@ func TestInstruction_Load(t *testing.T) {
 	testInstruction(t, "LD (BC), A", 0x02, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
 		cpu.BC.SetUint16(0x1234)
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 		if cpu.mmu.Read(0x1234) != 0x42 {
 			t.Errorf("Expected 0x42 to be written to 0x1234, got %d", cpu.mmu.Read(0x1234))
 		}
@@ -84,7 +84,7 @@ func TestInstruction_Load(t *testing.T) {
 		testInstruction(t, "LD "+regName+", (HL)", 0x46+uint8(i*8), func(t *testing.T, instruction Instructor) {
 			cpu.HL.SetUint16(0x1234)
 			cpu.mmu.Write(0x1234, 0x42)
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 			if *cpu.registerMap(regName) != 0x42 {
 				t.Errorf("Expected %s to be 0x42, got %d", regName, *cpu.registerMap(regName))
 			}
@@ -99,7 +99,7 @@ func TestInstruction_Load(t *testing.T) {
 		testInstruction(t, "LD (HL), "+regName, 0x70+uint8(i), func(t *testing.T, instruction Instructor) {
 			cpu.HL.SetUint16(0x1234)
 			*cpu.registerMap(regName) = 0x42
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 			if cpu.mmu.Read(0x1234) != 0x42 {
 				t.Errorf("Expected 0x42 to be written to 0x1234, got %d", cpu.mmu.Read(0x1234))
 			}
@@ -109,7 +109,7 @@ func TestInstruction_Load(t *testing.T) {
 	// 0xE0 - LDH (n), A
 	testInstruction(t, "LDH (n), A", 0xE0, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
-		instruction.Execute(cpu, []uint8{0x34})
+		instruction.Execute(cpu)
 		if cpu.mmu.Read(0xFF00+0x34) != 0x42 {
 			t.Errorf("Expected 0x42 to be written to 0xFF00+0x34, got %d", cpu.mmu.Read(0xFF00+0x34))
 		}
@@ -118,7 +118,7 @@ func TestInstruction_Load(t *testing.T) {
 	testInstruction(t, "LDH (C), A", 0xE2, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
 		cpu.C = 0x34
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 		if cpu.mmu.Read(0xFF00+0x34) != 0x42 {
 			t.Errorf("Expected 0x42 to be written to 0xFF00+0x34, got %d", cpu.mmu.Read(0xFF00+0x34))
 		}
@@ -126,7 +126,7 @@ func TestInstruction_Load(t *testing.T) {
 	// 0xEA - LD (nn), A
 	testInstruction(t, "LD (nn), A", 0xEA, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x42
-		instruction.Execute(cpu, []uint8{0x34, 0x12})
+		instruction.Execute(cpu)
 		if cpu.mmu.Read(0x1234) != 0x42 {
 			t.Errorf("Expected 0x42 to be written to 0x1234, got %d", cpu.mmu.Read(0x1234))
 		}
@@ -134,7 +134,7 @@ func TestInstruction_Load(t *testing.T) {
 	// 0xF0 - LDH A, (n)
 	testInstruction(t, "LDH A, (n)", 0xF0, func(t *testing.T, instruction Instructor) {
 		cpu.mmu.Write(0xFF00+0x34, 0x42)
-		instruction.Execute(cpu, []uint8{0x34})
+		instruction.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("Expected A to be 0x42, got %d", cpu.A)
 		}
@@ -143,7 +143,7 @@ func TestInstruction_Load(t *testing.T) {
 	testInstruction(t, "LD A, (C)", 0xF2, func(t *testing.T, instruction Instructor) {
 		cpu.C = 0x42
 		cpu.mmu.Write(0xFF00+0x42, 0x42)
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("Expected A to be 0x42, got %d", cpu.A)
 		}
@@ -151,7 +151,7 @@ func TestInstruction_Load(t *testing.T) {
 	// 0xFA - LD A, (nn)
 	testInstruction(t, "LD A, (nn)", 0xFA, func(t *testing.T, instruction Instructor) {
 		cpu.mmu.Write(0x1234, 0x42)
-		instruction.Execute(cpu, []uint8{0x34, 0x12})
+		instruction.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("Expected A to be 0x42, got %d", cpu.A)
 		}
@@ -163,7 +163,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 	testInstruction(t, "LD BC,nn", 0x01, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
-			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
+			instruction.Execute(cpu)
 			if cpu.BC.Uint16() != i {
 				t.Errorf("Expected BC to be %d, got %d", i, cpu.BC.Uint16())
 			}
@@ -172,7 +172,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 	// 0x08 - LD (nn), SP - Load SP into address pointed to by 16-bit immediate value
 	testInstruction(t, "LD (nn), SP", 0x08, func(t *testing.T, instruction Instructor) {
 		cpu.SP = 0x1234
-		instruction.Execute(cpu, []uint8{0x42, 0x42}) // SP 0x1234 loaded into 0x4242
+		instruction.Execute(cpu) // SP 0x1234 loaded into 0x4242
 
 		if cpu.mmu.Read(0x4242) != 0x34 {
 			t.Errorf("expected 0x34, got 0x%02X", cpu.mmu.Read(0x4242))
@@ -185,7 +185,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 	testInstruction(t, "LD DE,nn", 0x11, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
-			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
+			instruction.Execute(cpu)
 			if cpu.DE.Uint16() != i {
 				t.Errorf("Expected DE to be %d, got %d", i, cpu.DE.Uint16())
 			}
@@ -195,7 +195,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 	testInstruction(t, "LD HL,nn", 0x21, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
-			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
+			instruction.Execute(cpu)
 			if cpu.HL.Uint16() != i {
 				t.Errorf("Expected HL to be %d, got %d", i, cpu.HL.Uint16())
 			}
@@ -205,7 +205,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 	testInstruction(t, "LD SP,nn", 0x31, func(t *testing.T, instruction Instructor) {
 		// Test all possible 16-bit values
 		for i := uint16(0); i < 0xFFFF; i++ {
-			instruction.Execute(cpu, []uint8{uint8(i), uint8(i >> 8)})
+			instruction.Execute(cpu)
 			if cpu.SP != i {
 				t.Errorf("Expected SP to be %d, got %d", i, cpu.SP)
 			}
@@ -218,7 +218,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		cpu.mmu.Write(0xFFFE, 0x34)
 		cpu.mmu.Write(0xFFFF, 0x12)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.BC.Uint16() != 0x1234 {
 			t.Errorf("expected BC to be 0x1234, got 0x%04X", cpu.BC.Uint16())
@@ -229,7 +229,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		instr := InstructionSet[0xC5]
 		cpu.BC.SetUint16(0x1234)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.mmu.Read(0xFFFE) != 0x34 {
 			t.Errorf("expected memory at 0xFFFE to be 0x34, got 0x%02X", cpu.mmu.Read(0xFFFE))
@@ -245,7 +245,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		cpu.mmu.Write(0xFFFE, 0x34)
 		cpu.mmu.Write(0xFFFF, 0x12)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.DE.Uint16() != 0x1234 {
 			t.Errorf("expected DE to be 0x1234, got 0x%04X", cpu.DE.Uint16())
@@ -256,7 +256,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		instr := InstructionSet[0xD5]
 		cpu.DE.SetUint16(0x1234)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.mmu.Read(0xFFFE) != 0x34 {
 			t.Errorf("expected memory at 0xFFFE to be 0x34, got 0x%02X", cpu.mmu.Read(0xFFFE))
@@ -272,7 +272,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		cpu.mmu.Write(0xFFFE, 0x34)
 		cpu.mmu.Write(0xFFFF, 0x12)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.HL.Uint16() != 0x1234 {
 			t.Errorf("expected HL to be 0x1234, got 0x%04X", cpu.HL.Uint16())
@@ -283,7 +283,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		instr := InstructionSet[0xE5]
 		cpu.HL.SetUint16(0x1234)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.mmu.Read(0xFFFE) != 0x34 {
 			t.Errorf("expected memory at 0xFFFE to be 0x34, got 0x%02X", cpu.mmu.Read(0xFFFE))
@@ -299,10 +299,10 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		cpu.mmu.Write(0xFFFE, 0x34)
 		cpu.mmu.Write(0xFFFF, 0x12)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
-		if cpu.AF.Uint16() != 0x1234 {
-			t.Errorf("expected AF to be 0x1234, got 0x%04X", cpu.AF.Uint16())
+		if cpu.AF.Uint16() != 0x1230 { // 0x1230 because the lower nibble of the F register is always 0
+			t.Errorf("expected AF to be 0x1230, got 0x%04X", cpu.AF.Uint16())
 		}
 
 		// ensure all flags are set correctly
@@ -313,7 +313,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		instr := InstructionSet[0xF5]
 		cpu.AF.SetUint16(0x1234)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.mmu.Read(0xFFFE) != 0x34 {
 			t.Errorf("expected memory at 0xFFFE to be 0x34, got 0x%02X", cpu.mmu.Read(0xFFFE))
@@ -329,7 +329,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		cpu.mmu.Write(0x1234, 0x34)
 		cpu.mmu.Write(0x1235, 0x12)
 
-		instr.Execute(cpu, []uint8{0x01})
+		instr.Execute(cpu)
 
 		if cpu.HL.Uint16() != 0x1235 {
 			t.Errorf("expected HL to be 0x1235, got 0x%04X", cpu.HL.Uint16())
@@ -340,7 +340,7 @@ func TestInstruction_16BitLoad(t *testing.T) {
 		instr := InstructionSet[0xF9]
 		cpu.HL.SetUint16(0x1234)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.SP != 0x1234 {
 			t.Errorf("expected SP to be 0x1234, got 0x%04X", cpu.SP)
@@ -352,7 +352,7 @@ func testLoadRegisterToRegisterInstruction(a, b string) func(*testing.T, Instruc
 	return func(t *testing.T, instruction Instructor) {
 		for i := uint8(0); i < 0xFF; i++ {
 			*cpu.registerMap(a) = i
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 			if *cpu.registerMap(b) != i {
 				t.Errorf("Expected %s to be %d, got %d", b, i, *cpu.registerMap(b))
 			}
@@ -363,7 +363,7 @@ func testLoadRegisterToRegisterInstruction(a, b string) func(*testing.T, Instruc
 func testLoadRegisterNInstruction(regName string) func(*testing.T, Instructor) {
 	return func(t *testing.T, instruction Instructor) {
 		for i := uint8(0); i < 0xFF; i++ {
-			instruction.Execute(cpu, []uint8{i})
+			instruction.Execute(cpu)
 			if *cpu.registerMap(regName) != i {
 				t.Errorf("Expected %s to be %d, got %d", regName, i, *cpu.registerMap(regName))
 			}

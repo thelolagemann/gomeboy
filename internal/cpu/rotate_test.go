@@ -9,7 +9,7 @@ func TestInstruction_Rotate(t *testing.T) {
 	testInstruction(t, "RLCA", 0x07, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x80
 		cpu.setFlag(FlagCarry)
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		if cpu.A != 0x01 {
 			t.Errorf("Expected A to be 0x01, got 0x%02X", cpu.A)
@@ -26,7 +26,7 @@ func TestInstruction_Rotate(t *testing.T) {
 	testInstruction(t, "RRCA", 0x0F, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0x01
 		cpu.setFlag(FlagCarry)
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		if cpu.A != 0x80 {
 			t.Errorf("Expected A to be 0x80, got 0x%02X", cpu.A)
@@ -46,7 +46,7 @@ func TestInstruction_Rotate(t *testing.T) {
 		}
 		cpu.A = 0b10101010
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		// ensure A was rotated
 		if cpu.A != 0b01010100 {
@@ -67,7 +67,7 @@ func TestInstruction_Rotate(t *testing.T) {
 		t.Run("Through Carry", func(t *testing.T) {
 			cpu.setFlag(FlagCarry)
 			cpu.A = 0b01000000
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure A was rotated
 			if cpu.A != 0b10000001 {
@@ -89,7 +89,7 @@ func TestInstruction_Rotate(t *testing.T) {
 	testInstruction(t, "RRA", 0x1F, func(t *testing.T, instruction Instructor) {
 		cpu.A = 0b10101010
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		// ensure A was rotated
 		if cpu.A != 0b01010101 {
@@ -109,7 +109,7 @@ func TestInstruction_Rotate(t *testing.T) {
 		// test no carry
 		t.Run("No Carry", func(t *testing.T) {
 			cpu.A = 0b00000001
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure A was rotated
 			if cpu.A != 0b10000000 {
@@ -139,7 +139,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 		testInstructionCB(t, "RLC "+regName, 0x00+byte(i), func(t *testing.T, instruction Instructor) {
 			*cpu.registerMap(regName) = 0x80
 
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure register was rotated
 			if *cpu.registerMap(regName) != 0x01 {
@@ -159,7 +159,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test no carry
 			t.Run("No Carry", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x40
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x80 {
@@ -180,7 +180,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test zero
 			t.Run("Zero", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x00
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x00 {
@@ -208,7 +208,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 		testInstructionCB(t, "RRC "+regName, 0x08+byte(i), func(t *testing.T, instruction Instructor) {
 			*cpu.registerMap(regName) = 0x01
 
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure register was rotated
 			if *cpu.registerMap(regName) != 0x80 {
@@ -228,7 +228,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test no carry
 			t.Run("No Carry", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x80
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x40 {
@@ -249,7 +249,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test zero
 			t.Run("Zero", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x00
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x00 {
@@ -278,7 +278,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			cpu.setFlag(FlagCarry)
 			*cpu.registerMap(regName) = 0x80
 
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure register was rotated
 			if *cpu.registerMap(regName) != 0x01 {
@@ -299,7 +299,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			t.Run("No Carry", func(t *testing.T) {
 				cpu.setFlag(FlagCarry)
 				*cpu.registerMap(regName) = 0x01
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x02 {
@@ -320,7 +320,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test zero
 			t.Run("Zero", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x00
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x00 {
@@ -350,7 +350,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			cpu.setFlag(FlagCarry)
 			*cpu.registerMap(regName) = 0x01
 
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure register was rotated
 			if *cpu.registerMap(regName) != 0x80 {
@@ -370,7 +370,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test no carry
 			t.Run("No Carry", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x80
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x40 {
@@ -391,7 +391,7 @@ func TestInstruction_16Bit_Rotate(t *testing.T) {
 			// test zero
 			t.Run("Zero", func(t *testing.T) {
 				*cpu.registerMap(regName) = 0x00
-				instruction.Execute(cpu, nil)
+				instruction.Execute(cpu)
 
 				// ensure register was rotated
 				if *cpu.registerMap(regName) != 0x00 {

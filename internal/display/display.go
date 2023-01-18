@@ -17,7 +17,7 @@ import (
 )
 
 // PixelScale is the multiplier for the pixel size.
-var PixelScale float64 = 1
+var PixelScale float64 = 8
 
 const (
 	ScreenWidth  = 574
@@ -81,7 +81,7 @@ func NewDisplay(title string, md5sum string) *Display {
 		Title: "GomeBoy | " + title,
 		Bounds: pixel.R(
 			0, 0,
-			float64(ScreenWidth), float64(ScreenHeight)),
+			float64(ppu.ScreenWidth*PixelScale), float64(ppu.ScreenHeight*PixelScale)),
 		VSync:                  true,
 		TransparentFramebuffer: true,
 		Resizable:              true,
@@ -225,8 +225,21 @@ func (d *Display) Render(frame [160][144][3]uint8) {
 
 	// draw frame from 142, 120 to 443, 396 ( so 301x276 = 301/160 = 1.88, 276/144 = 1.92) TODO fix dimensions so they are a multiple of 160x144
 	sprite := pixel.NewSprite(d.picture, pixel.R(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
-	sprite.Draw(d.window, pixel.IM.Scaled(pixel.ZV, 1.92).Moved(pixel.ZV.Add(pixel.V(0, 221))))
+	sprite.Draw(d.window, pixel.IM)
 
+	// get background colour
+	// rgb := palette.GetColour(3)
+	// bg := color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 255}
+	// d.window.Clear(bg)
+
+	// sprite := pixel.NewSprite(pixel.Picture(d.picture), pixel.R(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
+	// sprite.Draw(d.window, pixel.IM)
+	d.updateCamera()
+	d.window.Update()
+
+}
+
+func (d *Display) drawSkin() {
 	// draw background
 	d.background.Draw(d.window, pixel.IM)
 
@@ -286,23 +299,13 @@ func (d *Display) Render(frame [160][144][3]uint8) {
 		}
 
 	}
-
-	// get background colour
-	// rgb := palette.GetColour(3)
-	// bg := color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 255}
-	// d.window.Clear(bg)
-
-	// sprite := pixel.NewSprite(pixel.Picture(d.picture), pixel.R(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
-	// sprite.Draw(d.window, pixel.IM)
-	// d.updateCamera()
-	d.window.Update()
 	d.debounce.update()
 }
 
 // updateCamera updates the camera position.
 func (d *Display) updateCamera() {
-	xScale := d.window.Bounds().W() / ScreenWidth
-	yScale := d.window.Bounds().H() / ScreenHeight
+	xScale := d.window.Bounds().W() / ppu.ScreenWidth
+	yScale := d.window.Bounds().H() / ppu.ScreenHeight
 	scale := math.Min(yScale, xScale)
 
 	shift := d.window.Bounds().Size().Scaled(0.5).Sub(pixel.ZV)

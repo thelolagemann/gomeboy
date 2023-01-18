@@ -98,6 +98,9 @@ type PPU struct {
 	vBlankIntThrow     bool
 	cleared            bool
 	dmaRegister        uint8
+	offClock           uint32
+	refreshScreen      bool
+	dma                *DMA
 
 	currentFramePalette palette.Colour
 
@@ -123,6 +126,7 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 		irq:  irq,
 		oam:  ram.NewRAM(160),
 		vRAM: ram.NewRAM(8192),
+		dma:  NewDMA(mmu),
 	}
 
 	// initialize sprites
@@ -132,60 +136,71 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 	return p
 }
 
+func (p *PPU) PrepareFrame() {
+	p.PreparedFrame = p.screenData
+	p.screenData = [ScreenWidth][ScreenHeight][3]uint8{}
+}
+
 func (p *PPU) Read(address uint16) uint8 {
 	// read from VRAM
 	if address >= 0x8000 && address <= 0x9FFF {
+		// is vram locked?
+		if !p.vramUnlocked() {
+			return 0xFF
+		}
 		return p.vRAM.Read(address - 0x8000)
+
 	}
+
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		return p.oam.Read(address - 0xFE00)
+		address -= 0xFE00
+
+		// is oam locked?
+		if !p.oamUnlocked() {
+			return 0xFF
+		}
+
+		return p.oam.Read(address)
 	}
+
+	// read from registers
 	switch address {
 	case lcd.ControlRegister:
-		return p.Controller.Read(address)
+		return p.Controller.Read(lcd.ControlRegister)
 	case lcd.StatusRegister:
-		return 0xFF
-	case background.ScrollYRegister, background.ScrollXRegister, background.PaletteRegister:
-		return p.Background.Read(address)
+		return p.Status.Read(lcd.StatusRegister) | 0b10000000 // bit 7 is always set
+	case background.ScrollYRegister:
+		return p.Background.ScrollY
+	case background.ScrollXRegister:
+		return p.Background.ScrollX
 	case CurrentScanlineRegister:
 		return p.CurrentScanline
 	case LYCompareRegister:
 		return p.LYCompare
+	case DMARegister:
+		return p.dmaRegister
+	case background.PaletteRegister:
+		return p.Background.Palette.ToByte()
 	case ObjectPalette0Register:
 		return p.SpritePalettes[0].ToByte()
 	case ObjectPalette1Register:
 		return p.SpritePalettes[1].ToByte()
-	case WindowXRegister:
-		return p.WindowX
 	case WindowYRegister:
 		return p.WindowY
-	case DMARegister:
-		return p.dmaRegister
-	default:
-		panic(fmt.Sprintf("ppu: illegal read from address %04X", address))
+	case WindowXRegister:
+		return p.WindowX
 	}
+
+	panic(fmt.Sprintf("PPU: Read from invalid address: %X", address))
 }
 
-// doHDMATransfer performs a DMA transfer from the given address to the PPU's OAM.
-func (p *PPU) doHDMATransfer(value uint8) {
-	srcAddress := uint16(value) << 8 // src address is value * 100 (shift left 8 bits)
+func (p *PPU) vramUnlocked() bool {
+	return p.Mode != lcd.VRAM
+}
 
-	// handle if the source address is in the OAM range
-	if srcAddress >= 0xFE00 {
-		// OAM doesn't actually read from >= 0xFE00, but is instead
-		// offset by 0x2000 (8192) bytes, so that it is reading
-		// from 0xDE00 - 0xDFFF. This is because in the hardware
-		// the OAM because it disconnects from the memory bus
-		// to allow parallel write / read operations.
-		srcAddress -= 0x2000
-	}
-
-	for i := 0; i < 0xA0; i++ {
-		toAddress := 0xFE00 + uint16(i)
-		p.Write(toAddress, p.bus.Read(srcAddress+uint16(i)))
-	}
-	p.HasDMA = true
+func (p *PPU) oamUnlocked() bool {
+	return p.Mode != lcd.OAM && p.Mode != lcd.VRAM
 }
 
 func (p *PPU) Write(address uint16, value uint8) {
@@ -206,9 +221,34 @@ func (p *PPU) Write(address uint16, value uint8) {
 
 	switch address {
 	case lcd.ControlRegister:
+		wasOn := p.Enabled
 		p.Controller.Write(address, value)
+
+		// if the screen was turned off, clear the screen
+		if wasOn && !p.Enabled {
+			// the screen should not be turned off unless in vblank
+			if p.Mode != lcd.VBlank {
+				panic("PPU: Screen was turned off while not in VBlank")
+			}
+
+			// enter hblank
+			p.SetMode(lcd.HBlank)
+
+			// reset the scanline and off clock
+			p.CurrentScanline = 0
+			p.offClock = 0
+		} else if !wasOn && p.Enabled {
+
+			p.checkLYC()
+			p.checkStatInterrupts(false)
+			// if the screen was turned on, reset the clock
+			p.currentCycle = 0
+		}
 	case lcd.StatusRegister:
 		p.Status.Write(address, value)
+		if p.Enabled {
+			p.checkStatInterrupts(false)
+		}
 	case background.ScrollXRegister, background.ScrollYRegister, background.PaletteRegister:
 		p.Background.Write(address, value)
 	case CurrentScanlineRegister:
@@ -216,6 +256,12 @@ func (p *PPU) Write(address uint16, value uint8) {
 		p.CurrentScanline = 0
 	case LYCompareRegister:
 		p.LYCompare = value
+
+		// check if the LYC interrupt should be triggered
+		if p.Enabled {
+			p.checkLYC()
+			p.checkStatInterrupts(false)
+		}
 	case ObjectPalette0Register:
 		p.SpritePalettes[0] = palette.ByteToPalette(value)
 	case ObjectPalette1Register:
@@ -225,7 +271,6 @@ func (p *PPU) Write(address uint16, value uint8) {
 	case WindowYRegister:
 		p.WindowY = value
 	case DMARegister:
-		p.doHDMATransfer(value)
 		p.dmaRegister = value
 	default:
 		panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
@@ -249,119 +294,157 @@ func (p *PPU) UpdateTile(index uint16, value uint8) {
 	p.tileData[0][tileID] = NewTile(p.rawTileData[0][tileID])
 }
 
-// Step advances the PPU by the given number of cycles. This is
-// to keep the PPU in sync with the CPU.
-func (p *PPU) Step(cycles uint16) {
+// checkLYC checks if the LYC interrupt should be triggered.
+func (p *PPU) checkLYC() {
+	p.Coincidence = p.CurrentScanline == p.LYCompare
+}
+
+// checkStatInterrupts checks if the STAT interrupt should be triggered.
+func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
+	reqInt := p.Coincidence && p.CoincidenceInterrupt ||
+		p.Mode == lcd.OAM && p.OAMInterrupt ||
+		p.Mode == lcd.VBlank && p.VBlankInterrupt ||
+		p.Mode == lcd.HBlank && p.HBlankInterrupt ||
+		vblankTrigger && p.OAMInterrupt // OAM interrupt can be triggered during vblank
+
+	if reqInt {
+		panic("stat interrupt requested")
+		// if not stat interrupt requested, request it
+		if !p.statInterruptDelay {
+			p.irq.Request(interrupts.LCDFlag)
+			p.statInterruptDelay = true
+		}
+	} else {
+		p.statInterruptDelay = false
+	}
+}
+
+func (p *PPU) HasFrame() bool {
+	return p.refreshScreen
+}
+
+// Tick the PPU by one cycle. This will update the PPU's state and
+// render the current scanline if necessary.
+func (p *PPU) Tick() {
 	if !p.Enabled {
-		// reset values if the LCD is disabled
-		p.CurrentScanline = 0
+		p.offClock++
+
+		if p.offClock >= 70224 {
+			p.offClock = 0
+			p.refreshScreen = true
+		}
+
+		// reset values
 		p.currentCycle = 0
+		p.CurrentScanline = 0
 		p.WindowYInternal = 0
 
-		// LCD goes into HBlank mode when disabled
+		// set mode to hblank
 		p.SetMode(lcd.HBlank)
+		return
 	}
 
 	// update the current cycle
-	p.currentCycle += int16(cycles)
+	p.currentCycle++
+	// fmt.Println(p.currentCycle, p.Mode, p.CurrentScanline, p.Status.Read(lcd.StatusRegister))
 
 	// step logic
 	switch p.Status.Mode {
 	case lcd.HBlank:
-		// HBlank (85 to 208 dots) TODO : adjust timing
+		// TODO handle CGB mode
 		if p.currentCycle >= 204 {
+			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
+			//fmt.Println("ppu tick: hblank", p.CurrentScanline, p.currentCycle)
+			// reset cycle and increment scanline
 			p.currentCycle = 0
-			p.stepScanline()
+			p.CurrentScanline++
 
-			// check if we've reached the end of the screen (144 lines)
+			// check LYC
+			p.checkLYC()
+
+			// check if we've reached the end of the visible screen
+			// and need to enter VBlank
 			if p.CurrentScanline == 144 {
-				// set VBlank and request an interrupt
+				// enter VBBlank mode and trigger VBlank interrupt
 				p.SetMode(lcd.VBlank)
 				p.irq.Request(interrupts.VBlankFlag)
-
-				// render the frame
-				p.PreparedFrame = p.screenData
-
-				// reset values
-				p.screenData = [ScreenWidth][ScreenHeight][3]uint8{}
+				p.checkStatInterrupts(true)
 				p.WindowYInternal = 0
 
-				// the LCD never receives the first frame after being enabled,
-				// so we need to render a blank frame
-				// https://github.com/pinobatch/little-things-gb/tree/master/firstwhite
-				if !p.Cleared() {
-					p.renderBlank()
-				}
-
-				// update the palette (to avoid mid-frame palette changes)
-				palette.UpdatePalette()
+				// fmt.Println("PPU: VBlank triggered")
+				// flag that the screen needs to be refreshed
+				p.refreshScreen = true
 			} else {
+				// enter OAM mode
 				p.SetMode(lcd.OAM)
+				p.checkStatInterrupts(false)
 			}
 		}
 	case lcd.VBlank:
-		// VBlank (4560 dots, 10 lines) (144 to 153 lines)
-		if p.currentCycle >= 456 {
+		if p.currentCycle == 456 {
+			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			p.currentCycle = 0
-			p.stepScanline()
+			p.CurrentScanline++
 
-			// check if we've reached the end of the VBlank period (10 lines)
+			// check LYC
+			p.checkLYC()
+			p.checkStatInterrupts(false)
+
 			if p.CurrentScanline > 153 {
-				// reset scanline to 0, and set to HBlank
-				p.CurrentScanline = 0
+				// reset scanline and enter OAM mode
 				p.SetMode(lcd.OAM)
+				p.CurrentScanline = 0
+
+				// check LYC
+				p.checkLYC()
+				p.checkStatInterrupts(false)
 			}
 		}
 	case lcd.OAM:
-		// OAM (80 dots)
-		if p.currentCycle >= 80 {
+		if p.currentCycle == 80 {
+			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			p.currentCycle = 0
 			p.SetMode(lcd.VRAM)
 		}
 	case lcd.VRAM:
-		// 172 cycles VRAM
-		if p.currentCycle >= 172 {
+		if p.currentCycle == 172 {
+			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			p.currentCycle = 0
 			p.SetMode(lcd.HBlank)
+			p.checkStatInterrupts(false)
 
-			// if background enabled, render the background
 			if p.BackgroundEnabled {
 				p.renderBackground()
+
+				if p.WindowEnabled {
+					p.renderWindow()
+				}
 			} else {
-				// otherwise, render a blank line
 				p.renderBlankLine()
 			}
 
-			// if background and window enabled, render the window (as window piggybacks
-			// on the background rendering, so if the background is disabled, the window
-			// will be disabled too)
-			if p.BackgroundEnabled && p.WindowEnabled {
-				p.renderWindow()
-			}
-
-			// if sprites enabled, render the sprites
 			if p.SpriteEnabled {
 				p.renderSprites()
 			}
 		}
 	}
-
-	// should we request an interrupt?
-	lyInt := p.LYCompare == p.CurrentScanline && p.CoincidenceInterrupt
-	mode0Int := p.HBlankInterrupt && p.Status.Mode == lcd.HBlank
-	mode1Int := p.VBlankInterrupt && p.Status.Mode == lcd.VBlank
-	mode2Int := p.OAMInterrupt && p.Status.Mode == lcd.OAM
-
-	if p.detectRisingEdge(lyInt || mode0Int || mode1Int || mode2Int) {
-		p.irq.Request(interrupts.LCDFlag)
-	}
 }
 
-func (p *PPU) stepScanline() {
-	p.CurrentScanline++
+func (p *PPU) hblankCycles() int16 {
+	switch p.ScrollX & 0x07 {
+	case 0x00:
+		return 204
+	case 0x01, 0x02, 0x03, 0x04:
+		return 200
+	case 0x05, 0x06, 0x07:
+		return 196
+	}
+
+	return 0
 }
 
 func (p *PPU) renderBlank() {
+	fmt.Println("rendering blank")
 	for x := 0; x < ScreenWidth; x++ {
 		for y := 0; y < ScreenHeight; y++ {
 			p.screenData[x][y] = p.Palette.GetColour(0)
@@ -378,6 +461,7 @@ func (p *PPU) renderBlankLine() {
 }
 
 func (p *PPU) renderWindow() {
+	//fmt.Println("rendering window")
 	var xPos, yPos uint8
 
 	// do nothing if window is out of bounds
@@ -414,6 +498,7 @@ func (p *PPU) renderWindow() {
 }
 
 func (p *PPU) renderBackground() {
+	//fmt.Println("rendering background")
 	var xPos, yPos uint8
 
 	yPos = p.CurrentScanline + p.ScrollY
@@ -431,12 +516,6 @@ func (p *PPU) renderBackground() {
 		color := p.tileData[0][tileID][yPixelPos][xPixelPos]
 		p.screenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
 	}
-}
-
-func (p *PPU) detectRisingEdge(signal bool) bool {
-	result := signal && !p.statInterruptDelay
-	p.statInterruptDelay = signal
-	return result
 }
 
 // calculateTileID calculates the tile ID for the current scanline
@@ -530,4 +609,8 @@ func (p *PPU) renderSprites() {
 			spriteXPerScreen[pixelPos] = sprite.X
 		}
 	}
+}
+
+func (p *PPU) ClearRefresh() {
+	p.refreshScreen = false
 }

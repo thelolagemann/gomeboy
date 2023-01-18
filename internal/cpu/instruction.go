@@ -5,22 +5,13 @@ import (
 )
 
 type Instruction struct {
-	name   string
-	length uint8
-	cycles uint8
-	fn     interface{}
+	name string
+	fn   func(*CPU)
 }
 
 // Execute executes the instruction
-func (i Instruction) Execute(cpu *CPU, operands []byte) {
-	switch fn := i.fn.(type) {
-	case func(*CPU, []byte):
-		fn(cpu, operands)
-	case func(*CPU):
-		fn(cpu)
-	default:
-		panic(fmt.Sprintf("invalid instruction function type %T", fn))
-	}
+func (i Instruction) Execute(cpu *CPU) {
+	i.fn(cpu)
 }
 
 // Name returns the name of the instruction
@@ -28,64 +19,28 @@ func (i Instruction) Name() string {
 	return i.name
 }
 
-// Length returns the length of the instruction
-func (i Instruction) Length() uint8 {
-	return i.length
-}
-
-// Cycles returns the number of cycles the instruction takes
-func (i Instruction) Cycles() uint8 {
-	return i.cycles
-}
-
 // DefineInstruction is similar to NewInstruction, but it defines the instruction in
 // the InstructionSet, with the provided opcode
-func DefineInstruction(opcode uint8, name string, fn interface{}, opts ...InstructionOpt) {
+func DefineInstruction(opcode uint8, name string, fn func(*CPU)) {
 	instruction := Instruction{
-		name:   name,
-		length: 1,
-		cycles: 1,
-		fn:     fn,
-	}
-
-	for _, opt := range opts {
-		opt(&instruction)
+		name: name,
+		fn:   fn,
 	}
 
 	InstructionSet[opcode] = instruction
 }
 
-type InstructionOpt func(*Instruction)
-
-// Cycles specifies the number of cycles the instruction takes
-func Cycles(cycles uint8) InstructionOpt {
-	return func(fi *Instruction) {
-		fi.cycles = cycles
-	}
-}
-
-// Length specifies the length of the instruction
-func Length(length uint8) InstructionOpt {
-	return func(fi *Instruction) {
-		fi.length = length
-	}
-}
-
 // Instructor is an interface that can be implemented by an instruction
 type Instructor interface {
-	Execute(cpu *CPU, operands []byte)
+	Execute(cpu *CPU)
 
 	// Name returns the name of the instruction
 	Name() string
-	// Length returns the length of the instruction
-	Length() uint8
-	// Cycles returns the number of cycles the instruction takes
-	Cycles() uint8
 }
 
 func init() {
 	DefineInstruction(0x00, "NOP", func(c *CPU) {})
-	DefineInstruction(0x10, "STOP", func(c *CPU) { c.Halted = true }, Length(2))
+	DefineInstruction(0x10, "STOP", func(c *CPU) { c.mode = ModeStop })
 	DefineInstruction(0x27, "DAA", func(cpu *CPU) {
 		if !cpu.isFlagSet(FlagSubtract) {
 			if cpu.isFlagSet(FlagCarry) || cpu.A > 0x99 {
@@ -126,9 +81,19 @@ func init() {
 		cpu.clearFlag(FlagSubtract)
 		cpu.clearFlag(FlagHalfCarry)
 	})
-	DefineInstruction(0x76, "HALT", func(c *CPU) { c.Halted = true })
+	DefineInstruction(0x76, "HALT", func(c *CPU) {
+		if c.irq.IME {
+			c.mode = ModeHalt
+		} else {
+			if c.irq.Flag&c.irq.Enable != 0 {
+				c.mode = ModeHaltBug
+			} else {
+				c.mode = ModeHaltDI
+			}
+		}
+	})
 	DefineInstruction(0xF3, "DI", func(c *CPU) { c.irq.IME = false })
-	DefineInstruction(0xFB, "EI", func(c *CPU) { c.irq.Enabling = true })
+	DefineInstruction(0xFB, "EI", func(c *CPU) { c.mode = ModeEnableIME })
 
 	for _, opcode := range disallowedOpcodes {
 		DefineInstruction(opcode, "disallowed", disallowedOpcode)

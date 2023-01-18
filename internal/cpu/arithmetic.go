@@ -38,6 +38,7 @@ func (c *CPU) increment(value uint8) uint8 {
 //	C - Not affected.
 func (c *CPU) incrementNN(register *RegisterPair) {
 	register.SetUint16(register.Uint16() + 1)
+	c.ticks(4)
 }
 
 // decrement the given value and set the flags accordingly.
@@ -75,7 +76,11 @@ func (c *CPU) decrement(value uint8) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) decrementNN(register *RegisterPair) {
-	register.SetUint16(register.Uint16() - 1)
+	value := uint16(*register.High)<<8 | uint16(*register.Low)
+	value--
+	*register.High = uint8(value >> 8)
+	*register.Low = uint8(value & 0xFF)
+	c.ticks(4)
 }
 
 // addHLRR adds the given RegisterPair to the HL RegisterPair.
@@ -91,6 +96,7 @@ func (c *CPU) decrementNN(register *RegisterPair) {
 //	C - Set if carry from bit 15.
 func (c *CPU) addHL(register *RegisterPair) {
 	c.HL.SetUint16(c.addUint16(c.HL.Uint16(), register.Uint16()))
+	c.ticks(4)
 }
 
 // add is a helper function for adding two bytes together and
@@ -220,8 +226,8 @@ func (c *CPU) sub(a, b uint8, shouldCarry bool) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) pushNN(h, l Register) {
-	c.push(h)
-	c.push(l)
+	c.ticks(4)
+	c.push(h, l)
 }
 
 // popNN pops the two registers off the stack.
@@ -236,51 +242,65 @@ func (c *CPU) pushNN(h, l Register) {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) popNN(h, l *Register) {
-	*l = c.pop()
-	*h = c.pop()
+	*l = c.readByte(c.SP)
+	c.SP++
+	*h = c.readByte(c.SP)
+	c.SP++
+}
+
+func (c *CPU) addSPSigned() uint16 {
+	result := c.addUint16Signed(c.SP, int8(c.readByte(c.PC)))
+
+	c.ticks(4)
+	return result
 }
 
 func init() {
-	DefineInstruction(0x03, "INC BC", func(c *CPU) { c.incrementNN(c.BC) }, Cycles(2))
+	DefineInstruction(0x03, "INC BC", func(c *CPU) { c.incrementNN(c.BC) })
 	DefineInstruction(0x04, "INC B", func(c *CPU) { c.B = c.increment(c.B) })
 	DefineInstruction(0x05, "DEC B", func(c *CPU) { c.B = c.decrement(c.B) })
-	DefineInstruction(0x09, "ADD HL, BC", func(c *CPU) { c.addHL(c.BC) }, Cycles(2))
-	DefineInstruction(0x0B, "DEC BC", func(c *CPU) { c.decrementNN(c.BC) }, Cycles(2))
+	DefineInstruction(0x09, "ADD HL, BC", func(c *CPU) { c.addHL(c.BC) })
+	DefineInstruction(0x0B, "DEC BC", func(c *CPU) { c.decrementNN(c.BC) })
 	DefineInstruction(0x0C, "INC C", func(c *CPU) { c.C = c.increment(c.C) })
 	DefineInstruction(0x0D, "DEC C", func(c *CPU) { c.C = c.decrement(c.C) })
-	DefineInstruction(0x13, "INC DE", func(c *CPU) { c.incrementNN(c.DE) }, Cycles(2))
+	DefineInstruction(0x13, "INC DE", func(c *CPU) { c.incrementNN(c.DE) })
 	DefineInstruction(0x14, "INC D", func(c *CPU) { c.D = c.increment(c.D) })
 	DefineInstruction(0x15, "DEC D", func(c *CPU) { c.D = c.decrement(c.D) })
-	DefineInstruction(0x19, "ADD HL, DE", func(c *CPU) { c.addHL(c.DE) }, Cycles(2))
-	DefineInstruction(0x1B, "DEC DE", func(c *CPU) { c.decrementNN(c.DE) }, Cycles(2))
+	DefineInstruction(0x19, "ADD HL, DE", func(c *CPU) { c.addHL(c.DE) })
+	DefineInstruction(0x1B, "DEC DE", func(c *CPU) { c.decrementNN(c.DE) })
 	DefineInstruction(0x1C, "INC E", func(c *CPU) { c.E = c.increment(c.E) })
 	DefineInstruction(0x1D, "DEC E", func(c *CPU) { c.E = c.decrement(c.E) })
-	DefineInstruction(0x23, "INC HL", func(c *CPU) { c.incrementNN(c.HL) }, Cycles(2))
+	DefineInstruction(0x23, "INC HL", func(c *CPU) { c.incrementNN(c.HL) })
 	DefineInstruction(0x24, "INC H", func(c *CPU) { c.H = c.increment(c.H) })
 	DefineInstruction(0x25, "DEC H", func(c *CPU) { c.H = c.decrement(c.H) })
-	DefineInstruction(0x29, "ADD HL, HL", func(c *CPU) { c.addHL(c.HL) }, Cycles(2))
-	DefineInstruction(0x2B, "DEC HL", func(c *CPU) { c.decrementNN(c.HL) }, Cycles(2))
+	DefineInstruction(0x29, "ADD HL, HL", func(c *CPU) { c.addHL(c.HL) })
+	DefineInstruction(0x2B, "DEC HL", func(c *CPU) { c.decrementNN(c.HL) })
 	DefineInstruction(0x2C, "INC L", func(c *CPU) { c.L = c.increment(c.L) })
 	DefineInstruction(0x2D, "DEC L", func(c *CPU) { c.L = c.decrement(c.L) })
-	DefineInstruction(0x33, "INC SP", func(c *CPU) { c.SP++ }, Cycles(2))
-	DefineInstruction(0x34, "INC (HL)", func(c *CPU) { c.mmu.Write(c.HL.Uint16(), c.increment(c.mmu.Read(c.HL.Uint16()))) }, Cycles(3))
-	DefineInstruction(0x35, "DEC (HL)", func(c *CPU) { c.mmu.Write(c.HL.Uint16(), c.decrement(c.mmu.Read(c.HL.Uint16()))) }, Cycles(3))
-	DefineInstruction(0x39, "ADD HL, SP", func(c *CPU) { c.HL.SetUint16(c.addUint16(c.HL.Uint16(), c.SP)) }, Cycles(2))
-	DefineInstruction(0x3B, "DEC SP", func(c *CPU) { c.SP-- }, Cycles(2))
+	DefineInstruction(0x33, "INC SP", func(c *CPU) { c.SP++; c.ticks(4) })
+	DefineInstruction(0x34, "INC (HL)", func(c *CPU) {
+		c.writeByte(c.HL.Uint16(), c.increment(c.readByte(c.HL.Uint16())))
+	})
+	DefineInstruction(0x35, "DEC (HL)", func(c *CPU) {
+		c.writeByte(c.HL.Uint16(), c.decrement(c.readByte(c.HL.Uint16())))
+	})
+	DefineInstruction(0x39, "ADD HL, SP", func(c *CPU) { c.HL.SetUint16(c.addUint16(c.HL.Uint16(), c.SP)); c.ticks(4) })
+	DefineInstruction(0x3B, "DEC SP", func(c *CPU) { c.SP--; c.ticks(4) })
 	DefineInstruction(0x3C, "INC A", func(c *CPU) { c.A = c.increment(c.A) })
 	DefineInstruction(0x3D, "DEC A", func(c *CPU) { c.A = c.decrement(c.A) })
-	DefineInstruction(0xC1, "POP BC", func(c *CPU) { c.popNN(&c.B, &c.C) }, Cycles(3))
-	DefineInstruction(0xC5, "PUSH BC", func(c *CPU) { c.pushNN(c.B, c.C) }, Cycles(4))
-	DefineInstruction(0xD1, "POP DE", func(c *CPU) { c.popNN(&c.D, &c.E) }, Cycles(3))
-	DefineInstruction(0xD5, "PUSH DE", func(c *CPU) { c.pushNN(c.D, c.E) }, Cycles(4))
-	DefineInstruction(0xE1, "POP HL", func(c *CPU) { c.popNN(&c.H, &c.L) }, Cycles(3))
-	DefineInstruction(0xE5, "PUSH HL", func(c *CPU) { c.pushNN(c.H, c.L) }, Cycles(4))
+	DefineInstruction(0xC1, "POP BC", func(c *CPU) { c.popNN(&c.B, &c.C) })
+	DefineInstruction(0xC5, "PUSH BC", func(c *CPU) { c.pushNN(c.B, c.C) })
+	DefineInstruction(0xD1, "POP DE", func(c *CPU) { c.popNN(&c.D, &c.E) })
+	DefineInstruction(0xD5, "PUSH DE", func(c *CPU) { c.pushNN(c.D, c.E) })
+	DefineInstruction(0xE1, "POP HL", func(c *CPU) { c.popNN(&c.H, &c.L) })
+	DefineInstruction(0xE5, "PUSH HL", func(c *CPU) { c.pushNN(c.H, c.L) })
 	DefineInstruction(0xF1, "POP AF", func(c *CPU) {
-		c.F = c.pop() & 0xF0 // the lower 4 bits of F are always 0
-		c.A = c.pop()
-	}, Cycles(3))
-	DefineInstruction(0xF5, "PUSH AF", func(c *CPU) { c.pushNN(c.A, c.F) }, Cycles(4))
-	DefineInstruction(0xE8, "ADD SP, r8", func(c *CPU, operands []byte) {
-		c.SP = c.addUint16Signed(c.SP, int8(operands[0]))
-	}, Cycles(4), Length(2))
+		c.popNN(&c.A, &c.F)
+		c.F &= 0xF0
+	})
+	DefineInstruction(0xF5, "PUSH AF", func(c *CPU) { c.pushNN(c.A, c.F) })
+	DefineInstruction(0xE8, "ADD SP, r8", func(c *CPU) {
+		c.SP = c.addSPSigned()
+		c.ticks(4)
+	})
 }

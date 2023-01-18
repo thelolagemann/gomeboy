@@ -12,7 +12,9 @@ func TestInstruction_Calls(t *testing.T) {
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 
-		instruction.Execute(cpu, []byte{0x42, 0x42}) // 0x1234 (PC) written to address 0xFFFE (SP), PC set to 0x4242
+		cpu.mmu.Write(0x1235, 0x42)
+		cpu.mmu.Write(0x1236, 0x42)
+		instruction.Execute(cpu) // 0x1234 (PC) written to address 0xFFFE (SP), PC set to 0x4242
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x4242 {
@@ -45,7 +47,8 @@ func TestInstruction_Jumps(t *testing.T) {
 	testInstruction(t, "JR n", 0x18, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 
-		instr.Execute(cpu, []byte{0x03})
+		cpu.mmu.Write(0x0001, 0x03)
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 3 {
@@ -55,7 +58,8 @@ func TestInstruction_Jumps(t *testing.T) {
 		// as the instruction takes a signed byte, ensure that negative values jump backwards
 		cpu.PC = 0x0500
 
-		instr.Execute(cpu, []byte{0xFF})
+		cpu.mmu.Write(0x0501, 0xFF)
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x04FF {
 			t.Errorf("expected PC to be 0x04FF, got 0x%04X", cpu.PC)
@@ -66,7 +70,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagZero)
 
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -75,7 +79,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is set
 		cpu.setFlag(FlagZero)
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -86,7 +90,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagZero)
 
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -95,7 +99,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is not set
 		cpu.clearFlag(FlagZero)
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -106,7 +110,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagCarry)
 
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -115,7 +119,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is set
 		cpu.setFlag(FlagCarry)
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -126,7 +130,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagCarry)
 
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -135,7 +139,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is not set
 		cpu.clearFlag(FlagCarry)
-		instr.Execute(cpu, []byte{0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0003 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -146,7 +150,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagZero)
 
-		instr.Execute(cpu, []uint8{0x00, 0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -155,7 +159,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is set
 		cpu.setFlag(FlagZero)
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -165,7 +169,7 @@ func TestInstruction_Jumps(t *testing.T) {
 	testInstruction(t, "JP nn", 0xC3, func(t *testing.T, instr Instructor) {
 		cpu.PC = 0x0000
 
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -177,7 +181,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagZero)
 
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -186,7 +190,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if zero flag is not set
 		cpu.clearFlag(FlagZero)
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -197,7 +201,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.clearFlag(FlagCarry)
 
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -206,7 +210,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is set
 		cpu.setFlag(FlagCarry)
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -217,7 +221,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.setFlag(FlagCarry)
 
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0300 {
@@ -226,7 +230,7 @@ func TestInstruction_Jumps(t *testing.T) {
 
 		// ensure that PC was not jumped if carry flag is not set
 		cpu.clearFlag(FlagCarry)
-		instr.Execute(cpu, []byte{0x00, 0x03})
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x0300 {
 			t.Errorf("expected PC to be 0x0003, got 0x%04X", cpu.PC)
@@ -237,7 +241,7 @@ func TestInstruction_Jumps(t *testing.T) {
 		cpu.PC = 0x0000
 		cpu.HL.SetUint16(0x0003)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0003 {
@@ -278,7 +282,7 @@ func TestInstruction_Returns(t *testing.T) {
 		cpu.mmu.Write(0xFFFE, 0x42)
 		cpu.mmu.Write(0xFFFF, 0x42)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x4242 {
 			t.Errorf("expected PC to be 0x4242, got 0x%04X", cpu.PC)
@@ -300,7 +304,7 @@ func TestInstruction_Returns(t *testing.T) {
 		cpu.mmu.Write(0xFFFE, 0x42)
 		cpu.mmu.Write(0xFFFF, 0x42)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.PC != 0x4242 {
 			t.Errorf("expected PC to be 0x4242, got 0x%04X", cpu.PC)
@@ -327,7 +331,7 @@ func callFlagConditionalTest(flag Flag, condition bool) func(*testing.T, Instruc
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 
-		instruction.Execute(cpu, []byte{0x42, 0x42}) // 0x1234 (PC) written to address 0xFFFE (SP), PC set to 0x4242
+		instruction.Execute(cpu) // 0x1234 (PC) written to address 0xFFFE (SP), PC set to 0x4242
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x4242 {
@@ -360,7 +364,7 @@ func callFlagConditionalTest(flag Flag, condition bool) func(*testing.T, Instruc
 			cpu.PC = 0x1234
 			cpu.SP = 0xFFFE
 
-			instruction.Execute(cpu, []byte{0x42, 0x42}) // 0x1234 (PC) written to address 0xFFFE (SP), PC set to 0x4242
+			instruction.Execute(cpu) // 0x1234 (PC) written to address 0xFFFE (SP), PC set to 0x4242
 
 			// ensure that PC was not jumped
 			if cpu.PC != 0x1234 {
@@ -389,7 +393,7 @@ func returnFlagConditional(flag Flag, condition bool) func(*testing.T, Instructo
 		cpu.mmu.Write(0xFFFC, 0x42)
 		cpu.mmu.Write(0xFFFD, 0x42)
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x4242 {
@@ -415,7 +419,7 @@ func returnFlagConditional(flag Flag, condition bool) func(*testing.T, Instructo
 			cpu.mmu.Write(0xFFFC, 0x42)
 			cpu.mmu.Write(0xFFFD, 0x42)
 
-			instruction.Execute(cpu, nil)
+			instruction.Execute(cpu)
 
 			// ensure that PC was not jumped
 			if cpu.PC != 0x1234 {
@@ -435,7 +439,7 @@ func resetTestInstruction(n uint8) func(*testing.T, Instructor) {
 		cpu.PC = 0x1234
 		cpu.SP = 0xFFFE
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		// ensure that PC was jumped
 		if cpu.PC != 0x0000+uint16(n) {

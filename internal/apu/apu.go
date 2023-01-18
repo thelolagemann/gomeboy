@@ -3,7 +3,6 @@ package apu
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2/audio"
-	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"math"
 )
 
@@ -16,7 +15,7 @@ const (
 	perSample = 1 / float64(sampleRate)
 
 	// cpuTicksPerSample is the number of CPU ticks per sample.
-	cpuTicksPerSample = float64(cpu.ClockSpeed) / float64(sampleRate)
+	cpuTicksPerSample = float64(4194304) / float64(sampleRate)
 )
 
 var (
@@ -106,12 +105,12 @@ func NewAPU() *APU {
 
 // Step advances the APU by the given number of CPU ticks and
 // speed given.
-func (a *APU) Step(ticks int, speed int) {
+func (a *APU) Tick() {
 	if !a.playing {
 		return
 	}
 
-	a.tickCounter += float64(ticks) / float64(speed)
+	a.tickCounter++
 	if a.tickCounter < cpuTicksPerSample {
 		return
 	}

@@ -13,156 +13,162 @@ const (
 	// DividerRegister is the address of the timer divider register.
 	// It is incremented at a rate specified by the TimerControlRegister.
 	DividerRegister = 0xFF04
-	// CounterRegister is the address of the timer counter register.
-	// It is incremented at a rate specified by the TimerControlRegister.
-	CounterRegister = 0xFF05
-	// ModuloRegister is the address of the timer modulo register.
-	// When the TimerCounterRegister overflows, it is reset to the value
-	// of this register and an interrupt is requested.
-	ModuloRegister = 0xFF06
-	// ControlRegister is the address of the timer control register.
-	// It specifies the timer frequency.
-	ControlRegister = 0xFF07
 )
 
-// Controller is the controller for the timer. It has four registers:
-//
-//   - DividerRegister: The divider register. It is incremented at a rate of 16384Hz.
-//   - CounterRegister: The counter register. It is incremented at a rate specified by the control register.
-//   - ModuloRegister: The modulo register. When the counter overflows, it is reset to the value of this register.
-//   - ControlRegister: The control register. It specifies the timer frequency.
+// Controller is a timer controller. It is used to generate
+// interrupts at a specific frequency. The frequency can be
+// configured using the registers.TAC register.
 type Controller struct {
-	divider uint16 // the divider register
+	divider uint16
 
-	counter uint8 // the counter register (TIMA)
-	modulo  uint8 // the modulo register (TMA)
-	control uint8 // the control register (TAC)
+	tima uint8
+	tma  uint8
+	tac  uint8
 
-	counterCarry     bool
-	releaseOverflow  bool
-	fallingEdgeDelay bool
+	enabled    bool
+	currentBit uint16
+	lastBit    bool
 
-	overflowing bool // true if the timer overflowed during the last cycle
+	overflow           bool
+	ticksSinceOverflow uint8
 
-	irq *interrupts.Service // the interrupt controller
+	irq *interrupts.Service
 }
 
-// NewController returns a new controller.
+// NewController returns a new timer controller.
 func NewController(irq *interrupts.Service) *Controller {
 	return &Controller{
 		divider: 0,
-		counter: 0,
-		modulo:  0,
-		control: 0,
-		irq:     irq,
+		tima:    0,
+		tma:     0,
+		tac:     0,
+
+		irq:        irq,
+		currentBit: 1 << bits[0],
 	}
 }
 
-// Read returns the value of the register at the specified address.
-func (c *Controller) Read(address uint16) uint8 {
-	switch address {
+// Tick ticks the timer controller.
+func (c *Controller) Tick() {
+	// increment divider register
+	c.divider++
+
+	bit := (c.divider&c.currentBit) != 0 && c.enabled
+
+	// detect a falling edge
+	if c.lastBit && !bit {
+		// increment timer
+		c.tima++
+
+		// check for overflow
+		if c.tima == 0 {
+			c.overflow = true
+			c.ticksSinceOverflow = 0
+		}
+	}
+
+	// update last bit
+	c.lastBit = bit
+
+	// check for overflow
+	if c.overflow {
+		c.ticksSinceOverflow++
+
+		// handle ticks since overflow
+		if c.ticksSinceOverflow == 4 {
+			c.irq.Request(interrupts.TimerFlag)
+		} else if c.ticksSinceOverflow == 5 {
+			c.tima = c.tma
+		} else if c.ticksSinceOverflow == 6 {
+			c.overflow = false
+			c.ticksSinceOverflow = 0
+		}
+	}
+}
+
+func (c *Controller) multiplexer() uint16 {
+	switch c.tac & 0x03 {
+	case 0:
+		return 1024
+	case 1:
+		return 16
+	case 2:
+		return 64
+	case 3:
+		return 256
+	}
+
+	panic("invalid multiplexer value")
+}
+
+// Read reads a byte from the timer controller.
+func (c *Controller) Read(addr uint16) uint8 {
+	switch addr {
 	case DividerRegister:
 		return uint8(c.divider >> 8)
-	case CounterRegister:
-		return c.counter
-	case ModuloRegister:
-		return c.modulo
-	case ControlRegister:
-		return 0xFF
+	case 0xFF05:
+		return c.tima
+	case 0xFF06:
+		return c.tma
+	case 0xFF07:
+		return c.tac | 0xF8
 	}
-
-	panic(fmt.Sprintf("timer: illegal read from address 0x%04X", address))
+	panic(fmt.Sprintf("timer: illegal read from %x", addr))
 }
 
-// Write writes the value to the register at the specified address.
-func (c *Controller) Write(address uint16, value uint8) {
-	switch address {
+// Write writes a byte to the timer controller.
+func (c *Controller) Write(addr uint16, val uint8) {
+	switch addr {
 	case DividerRegister:
-		// writing to the divider register resets it
 		c.divider = 0
-		c.Step(0)
-	case CounterRegister:
-		if c.releaseOverflow {
-			return
+	case 0xFF05:
+		// writes to TIMA are ignored if written the same tick it is
+		// reloading
+		if c.ticksSinceOverflow != 5 {
+			c.tima = val
+			c.overflow = false
+			c.ticksSinceOverflow = 0
 		}
-		c.counter = value
-		c.counterCarry = false
-		c.overflowing = false
-		c.releaseOverflow = false
-	case ModuloRegister:
-		if c.releaseOverflow {
-			c.counter = value
+	case 0xFF06:
+		c.tma = val
+		// if you write to TMA the same tick that TIMA is reloading,
+		// TIMA will be set to the new value of TMA
+		if c.ticksSinceOverflow == 5 {
+			c.tima = val
 		}
-		c.modulo = value
-	case ControlRegister:
-		// will this write disable the timer?
-		c.control = value
+	case 0xFF07:
+		wasEnabled := c.enabled
+		oldBit := c.currentBit
+
+		c.tac = val & 0b111
+		c.currentBit = 1 << bits[c.tac&0b11]
+		c.enabled = (c.tac & 0x4) == 0x4
+
+		c.timaGlitch(wasEnabled, oldBit)
 	default:
-		panic(fmt.Sprintf("timer: illegal write to address 0x%04X", address))
+		panic(fmt.Sprintf("timer: illegal write to %x", addr))
 	}
 }
 
-// Step steps the timer by the specified number of cycles.
-func (c *Controller) Step(cycles uint8) {
-	for i := uint8(0); i < (cycles); i++ {
-		c.divider += 4
-		// determine signal
-		signal := c.divider&c.getMultiplexerMask() == c.getMultiplexerMask() && c.isEnabled()
+// timaGlitch handles the glitch that occurs when the timer is enabled
+// or disabled.
+func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
+	if !wasEnabled {
+		return
+	}
 
-		// if need to release overflow, do so
-		if c.releaseOverflow {
-			// TIME: 8
-			c.overflowing = false
-			c.releaseOverflow = false
-		}
+	if c.divider&oldBit != 0 {
+		if !c.enabled || !(c.divider&c.currentBit != 0) {
+			c.tima++
 
-		// after brief delay, TIMA will execute as normal
-		if c.overflowing {
-			// TIME: 4
-			c.counter = c.modulo
-			c.counterCarry = false
-			c.releaseOverflow = true
-			c.irq.Request(interrupts.TimerFlag)
-		}
-
-		// check for falling edge
-		if c.detectFallingEdge(signal) {
-			c.counter++
-
-			// 1 cycle TIMA has the value 0
-			if c.counter == 0 && c.counterCarry {
-				// TIME: 0
-				c.overflowing = true
-			} else if c.counter == 0xff {
-				// about to overflow
-				c.counterCarry = true
+			if c.tima == 0 {
+				c.tima = c.tma
+				c.irq.Request(interrupts.TimerFlag)
 			}
+
+			c.lastBit = false
 		}
 	}
 }
 
-func (c *Controller) detectFallingEdge(signal bool) bool {
-	result := !signal && c.fallingEdgeDelay
-	c.fallingEdgeDelay = signal
-	return result
-}
-
-// isEnabled returns true if the timer is enabled.
-func (c *Controller) isEnabled() bool {
-	return c.control&0x4 == 0x4
-}
-
-// getMultiplexerMask returns the multiplexer mask.
-func (c *Controller) getMultiplexerMask() uint16 {
-	switch c.control & 0x3 {
-	case 0:
-		return 0x200
-	case 3:
-		return 0x80
-	case 2:
-		return 0x20
-	case 1:
-		return 0x8
-	}
-	panic("timer: invalid multiplexer mask")
-}
+var bits = [4]uint8{9, 3, 5, 7}

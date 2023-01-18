@@ -13,7 +13,7 @@ func TestInstruction_Shift(t *testing.T) {
 			*cpu.registerMap(regName) = 0x80
 
 			// execute instruction
-			instr.Execute(cpu, nil)
+			instr.Execute(cpu)
 
 			// check that register was shifted left into carry
 			if *cpu.registerMap(regName) != 0x00 {
@@ -31,7 +31,7 @@ func TestInstruction_Shift(t *testing.T) {
 				*cpu.registerMap(regName) = 0x40
 
 				// execute instruction
-				instr.Execute(cpu, nil)
+				instr.Execute(cpu)
 
 				// check that register was shifted left
 				if *cpu.registerMap(regName) != 0x80 {
@@ -56,7 +56,7 @@ func TestInstruction_Shift(t *testing.T) {
 			*cpu.registerMap(regName) = 0x81
 
 			// execute instruction
-			inst.Execute(cpu, nil)
+			inst.Execute(cpu)
 
 			// check that register was shifted right into carry and MSB was preserved
 			if *cpu.registerMap(regName) != 0xC0 {
@@ -74,7 +74,7 @@ func TestInstruction_Shift(t *testing.T) {
 				*cpu.registerMap(regName) = 0x40
 
 				// execute instruction
-				instr.Execute(cpu, nil)
+				instr.Execute(cpu)
 
 				// check that register was shifted right
 				if *cpu.registerMap(regName) != 0x20 {
@@ -99,7 +99,7 @@ func TestInstruction_Shift(t *testing.T) {
 			*cpu.registerMap(regName) = 0x81
 
 			// execute instruction
-			inst.Execute(cpu, nil)
+			inst.Execute(cpu)
 
 			// check that register was shifted right into carry
 			if *cpu.registerMap(regName) != 0x40 {
@@ -117,7 +117,7 @@ func TestInstruction_Shift(t *testing.T) {
 				*cpu.registerMap(regName) = 0x40
 
 				// execute instruction
-				instr.Execute(cpu, nil)
+				instr.Execute(cpu)
 
 				// check that register was shifted right
 				if *cpu.registerMap(regName) != 0x20 {

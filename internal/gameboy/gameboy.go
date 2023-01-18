@@ -26,7 +26,7 @@ const (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
 	// CyclesPerFrame is the number of clock cycles per frame.
-	CyclesPerFrame = ClockSpeed / 60
+	CyclesPerFrame = 70224 // 4194304 / 60
 )
 
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
@@ -80,7 +80,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus.AttachVideo(video)
 
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus, interrupt),
+		CPU: cpu.NewCPU(memBus, interrupt, timerCtl, video, sound),
 		MMU: memBus,
 		ppu: video,
 
@@ -100,33 +100,44 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 
 // Start starts the Game Boy emulation. It will run until the game is closed.
 func (g *GameBoy) Start(mon *display.Display) {
-	t := time.NewTicker(time.Second / 60)
 	fmt.Println("Starting emulation")
 	// setup fps counter
 	frames := 0
 	start := time.Now()
 	g.APU.Play()
-	defer t.Stop()
 	for !mon.IsClosed() {
-		select {
-		case <-t.C:
-			frames++
+		frames++
 
-			inputs := mon.PollKeys()
-			g.ProcessInputs(inputs)
+		inputs := mon.PollKeys()
+		g.ProcessInputs(inputs)
 
-			g.Update(uint(float32(ClockSpeed) / 60.0 * g.CPU.Speed))
-			mon.Render(g.ppu.PreparedFrame)
+		mon.Render(g.Frame())
 
-			if time.Since(start) > time.Second {
-				title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), frames)
-				mon.SetTitle(title)
+		if time.Since(start) > time.Second {
+			title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), frames)
+			mon.SetTitle(title)
 
-				frames = 0
-				start = time.Now()
-			}
+			frames = 0
+			start = time.Now()
 		}
+
 	}
+}
+
+// Frame will step the emulation until the PPU has finished
+// rendering the current frame. It will then prepare the frame
+// for display, and return it.
+func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
+	g.ppu.ClearRefresh()
+	// step until the next frame
+	for !g.ppu.HasFrame() {
+		g.CPU.Step()
+	}
+
+	// prepare the next frame
+	g.ppu.PrepareFrame()
+
+	return g.ppu.PreparedFrame
 }
 
 func (g *GameBoy) keyHandlers() map[uint8]func() {
@@ -160,24 +171,4 @@ func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 			g.Joypad.Release(key)
 		}
 	}
-}
-
-// Update updates all the components of the Game Boy by the given number of cycles.
-func (g *GameBoy) Update(cyclesPerFrame uint) {
-	// TODO handle stopped
-	if g.paused {
-		return
-	}
-	// TODO handle io
-
-	cycles := uint(0)
-	for cycles <= cyclesPerFrame {
-		cyclesCPU := g.CPU.Step()
-		cycles += cyclesCPU
-		g.ppu.Step(uint16(cyclesCPU))
-		g.Timer.Step(uint8(cyclesCPU))
-		g.APU.Step(int(cyclesCPU), 1)
-	}
-
-	// TODO handle save
 }

@@ -37,7 +37,7 @@ func andRegisterTest(regName string) func(*testing.T, Instructor) {
 		cpu.A = rand1
 		*cpu.registerMap(regName) = rand2
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		if cpu.A != rand1&rand2 {
 			t.Errorf("Expected A to be %d, got %d", rand1&rand2, cpu.A)
@@ -69,7 +69,7 @@ func xorRegisterTest(regName string) func(*testing.T, Instructor) {
 		cpu.A = rand1
 		*cpu.registerMap(regName) = rand2
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		if cpu.A != rand1^rand2 {
 			t.Errorf("Expected A to be %d, got %d", rand1^rand2, cpu.A)
@@ -101,7 +101,7 @@ func orRegisterTest(regName string) func(*testing.T, Instructor) {
 		cpu.A = rand1
 		*cpu.registerMap(regName) = rand2
 
-		instruction.Execute(cpu, nil)
+		instruction.Execute(cpu)
 
 		if cpu.A != rand1|rand2 {
 			t.Errorf("Expected A to be %d, got %d", rand1|rand2, cpu.A)

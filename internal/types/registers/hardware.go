@@ -20,8 +20,8 @@ type HardwareAddress = uint16
 
 const (
 	// P1 is the address of the P1 hardware register. The P1
-	// hardware register is used to read the state of the
-	// directional keys and the buttons.
+	// hardware register is used to select the input keys to
+	// be read by the CPU, and to read the state of the joypad.
 	P1 HardwareAddress = 0xFF00
 	// SB is the address of the SB hardware register. The SB
 	// hardware register is used to transfer data between the
@@ -31,17 +31,23 @@ const (
 	// hardware register is used to control the serial port.
 	SC HardwareAddress = 0xFF02
 	// DIV is the address of the DIV hardware register. The DIV
-	// hardware register is used to read the divider register.
+	// hardware register is incremented at a rate of 16384Hz. Internally
+	// it is a 16-bit register, but only the lower 8 bits may be read.
 	DIV HardwareAddress = 0xFF04
-	// TIMA is the address of the TIMA hardware register. The
-	// TIMA hardware register is used to read the timer counter.
+	// TIMA is the address of the TIMA hardware register. The TIMA
+	// hardware register is incremented at a rate specified by the TAC
+	// hardware register. When TIMA overflows, it is reset to the value
+	// specified by the TMA hardware register, and a timer interrupt is
+	// requested. There are some obscure quirks with TIMA, which are
+	// not currently emulated.
 	TIMA HardwareAddress = 0xFF05
 	// TMA is the address of the TMA hardware register. The TMA
-	// hardware register is used to read the timer modulo.
+	// hardware register is loaded into TIMA when it overflows.
 	TMA HardwareAddress = 0xFF06
 	// TAC is the address of the TAC hardware register. The TAC
-	// hardware register is used to read the timer control.
+	// hardware register is used to control the timer.
 	TAC HardwareAddress = 0xFF07
+	//
 )
 
 type HardwareOpt func(*Hardware)
@@ -121,4 +127,20 @@ func (h *Hardware) Write(address uint16, value uint8) {
 	}
 
 	panic(fmt.Sprintf("hardware: no write function for address 0x%04X", address))
+}
+
+func (h *Hardware) Increment() {
+	h.value++
+}
+
+func (h *Hardware) Reset() {
+	h.value = 0
+}
+
+func (h *Hardware) Set(value uint8) {
+	h.value = value
+}
+
+func (h *Hardware) Value() uint8 {
+	return h.value
 }

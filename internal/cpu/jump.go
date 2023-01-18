@@ -1,23 +1,27 @@
 package cpu
 
 import (
-	"encoding/binary"
 	"fmt"
 )
 
 // pushStack pushes a 16 bit value onto the stack.
-func (c *CPU) pushStack(value uint16) {
-	c.mmu.Write(c.SP-1, uint8(uint16(value&0xFF00)>>8))
-	c.mmu.Write(c.SP-2, uint8(value&0xFF))
-	c.SP -= 2
+func (c *CPU) pushStack(high, low uint8) {
+	c.push(high, low)
+}
+
+func (c *CPU) push(high, low uint8) {
+	c.SP--
+	c.writeByte(c.SP, high)
+	c.SP--
+	c.writeByte(c.SP, low)
 }
 
 // popStack pops a 16 bit value off the stack.
-func (c *CPU) popStack() uint16 {
-	lower := uint16(c.mmu.Read(c.SP))
-	upper := uint16(c.mmu.Read(c.SP+1)) << 8
-	c.SP += 2
-	return lower | upper
+func (c *CPU) popStack(high *uint8, low *uint8) {
+	*low = c.readByte(c.SP)
+	c.SP++
+	*high = c.readByte(c.SP)
+	c.SP++
 }
 
 // call pushes the address of the next instruction onto the stack and jumps to
@@ -25,9 +29,10 @@ func (c *CPU) popStack() uint16 {
 //
 //	CALL nn
 //	nn = 16-bit immediate value
-func (c *CPU) call(address uint16) {
-	c.pushStack(c.PC)
-	c.PC = address
+func (c *CPU) call() {
+	PC := c.PC + 2
+	c.jumpAbsolute()
+	c.pushStack(uint8(PC>>8), uint8(PC&0xFF))
 }
 
 // callConditional pushes the address of the next instruction onto the stack and
@@ -36,9 +41,12 @@ func (c *CPU) call(address uint16) {
 //	CALL cc, nn
 //	cc = NZ, Z, NC, C
 //	nn = 16-bit immediate value
-func (c *CPU) callConditional(condition bool, address uint16) {
+func (c *CPU) callConditional(condition bool) {
 	if condition {
-		c.call(address)
+		c.call()
+	} else {
+		c.skipOperand()
+		c.skipOperand()
 	}
 }
 
@@ -46,10 +54,11 @@ func (c *CPU) callConditional(condition bool, address uint16) {
 //
 //	JR e
 //	e = 8-bit signed immediate value
-func (c *CPU) jumpRelative(offset uint8) {
-	v := int8(offset)
-	addr := int32(c.PC) + int32(v)
-	c.jumpAbsolute(uint16(addr))
+func (c *CPU) jumpRelative() {
+	value := int8(c.readOperand())
+	c.PC = uint16(int16(c.PC) + int16(value))
+
+	c.ticks(4)
 }
 
 // jumpRelativeConditional jumps to the address relative to the current PC if
@@ -58,9 +67,11 @@ func (c *CPU) jumpRelative(offset uint8) {
 //	JR cc, e
 //	cc = NZ, Z, NC, C
 //	e = 8-bit signed immediate value
-func (c *CPU) jumpRelativeConditional(condition bool, offset uint8) {
+func (c *CPU) jumpRelativeConditional(condition bool) {
 	if condition {
-		c.jumpRelative(offset)
+		c.jumpRelative()
+	} else {
+		c.skipOperand()
 	}
 }
 
@@ -68,8 +79,12 @@ func (c *CPU) jumpRelativeConditional(condition bool, offset uint8) {
 //
 //	JP nn
 //	nn = 16-bit immediate value
-func (c *CPU) jumpAbsolute(address uint16) {
-	c.PC = address
+func (c *CPU) jumpAbsolute() {
+	low := c.readOperand()
+	high := c.readOperand()
+
+	c.PC = uint16(high)<<8 | uint16(low)
+	c.ticks(4)
 }
 
 // jumpAbsoluteConditional jumps to the given address if the given condition is
@@ -78,9 +93,12 @@ func (c *CPU) jumpAbsolute(address uint16) {
 //	JP cc, nn
 //	cc = NZ, Z, NC, C
 //	nn = 16-bit immediate value
-func (c *CPU) jumpAbsoluteConditional(condition bool, address uint16) {
+func (c *CPU) jumpAbsoluteConditional(condition bool) {
 	if condition {
-		c.jumpAbsolute(address)
+		c.jumpAbsolute()
+	} else {
+		c.skipOperand()
+		c.skipOperand()
 	}
 }
 
@@ -88,7 +106,10 @@ func (c *CPU) jumpAbsoluteConditional(condition bool, address uint16) {
 //
 //	RET
 func (c *CPU) ret() {
-	c.PC = c.popStack()
+	var high, low uint8 = 0, 0
+	c.popStack(&high, &low)
+	c.PC = uint16(high)<<8 | uint16(low)
+	c.ticks(4)
 }
 
 // retConditional pops the top two bytes off the stack and jumps to that
@@ -107,70 +128,73 @@ func (c *CPU) retConditional(condition bool) {
 //
 //	RETI
 func (c *CPU) retInterrupt() {
+	c.irq.IME = true
 	c.ret()
-	c.irq.Enabling = true
 }
 
 func init() {
 	// 0x18 - JR n // TODO variable cycles
-	DefineInstruction(0x18, "JR n", func(c *CPU, operands []byte) { c.jumpRelative(operands[0]) }, Length(2), Cycles(3))
-	DefineInstruction(0x20, "JR NZ, n", func(c *CPU, operands []byte) {
-		c.jumpRelativeConditional(!c.isFlagSet(FlagZero), operands[0])
-	}, Length(2), Cycles(2))
-	DefineInstruction(0x28, "JR Z, n", func(c *CPU, operands []byte) {
-		c.jumpRelativeConditional(c.isFlagSet(FlagZero), operands[0])
-	}, Length(2), Cycles(2))
-	DefineInstruction(0x30, "JR NC, n", func(c *CPU, operands []byte) {
-		c.jumpRelativeConditional(!c.isFlagSet(FlagCarry), operands[0])
-	}, Length(2), Cycles(2))
-	DefineInstruction(0x38, "JR C, n", func(c *CPU, operands []byte) {
-		c.jumpRelativeConditional(c.isFlagSet(FlagCarry), operands[0])
-	}, Length(2), Cycles(2))
-	DefineInstruction(0xC0, "RET NZ", func(c *CPU, operands []byte) { c.retConditional(!c.isFlagSet(FlagZero)) }, Cycles(2))
-	DefineInstruction(0xC2, "JP NZ, nn", func(c *CPU, operands []byte) {
-		c.jumpAbsoluteConditional(!c.isFlagSet(FlagZero), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xC3, "JP nn", func(c *CPU, operands []byte) {
-		c.jumpAbsolute(binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(4))
-	DefineInstruction(0xC4, "CALL NZ, nn", func(c *CPU, operands []byte) {
-		c.callConditional(!c.isFlagSet(FlagZero), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xC8, "RET Z", func(c *CPU, operands []byte) { c.retConditional(c.isFlagSet(FlagZero)) }, Cycles(2))
-	DefineInstruction(0xC9, "RET", func(c *CPU, operands []byte) { c.ret() }, Cycles(4))
-	DefineInstruction(0xCA, "JP Z, nn", func(c *CPU, operands []byte) {
-		c.jumpAbsoluteConditional(c.isFlagSet(FlagZero), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xCC, "CALL Z, nn", func(c *CPU, operands []byte) {
-		c.callConditional(c.isFlagSet(FlagZero), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xCD, "CALL nn", func(c *CPU, operands []byte) {
-		c.call(binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(6))
-	DefineInstruction(0xD0, "RET NC", func(c *CPU, operands []byte) { c.retConditional(!c.isFlagSet(FlagCarry)) }, Cycles(2))
-	DefineInstruction(0xD2, "JP NC, nn", func(c *CPU, operands []byte) {
-		c.jumpAbsoluteConditional(!c.isFlagSet(FlagCarry), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xD4, "CALL NC, nn", func(c *CPU, operands []byte) {
-		c.callConditional(!c.isFlagSet(FlagCarry), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xD8, "RET C", func(c *CPU, operands []byte) { c.retConditional(c.isFlagSet(FlagCarry)) }, Cycles(2))
-	DefineInstruction(0xD9, "RETI", func(c *CPU, operands []byte) { c.retInterrupt() }, Cycles(4))
-	DefineInstruction(0xDA, "JP C, nn", func(c *CPU, operands []byte) {
-		c.jumpAbsoluteConditional(c.isFlagSet(FlagCarry), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xDC, "CALL C, nn", func(c *CPU, operands []byte) {
-		c.callConditional(c.isFlagSet(FlagCarry), binary.LittleEndian.Uint16(operands))
-	}, Length(3), Cycles(3))
-	DefineInstruction(0xe9, "JP (HL)", func(c *CPU, operands []byte) { c.jumpAbsolute(c.HL.Uint16()) }, Cycles(1))
+	DefineInstruction(0x18, "JR n", func(c *CPU) { c.jumpRelative() })
+	DefineInstruction(0x20, "JR NZ, n", func(c *CPU) {
+		c.jumpRelativeConditional(!c.isFlagSet(FlagZero))
+	})
+	DefineInstruction(0x28, "JR Z, n", func(c *CPU) {
+		c.jumpRelativeConditional(c.isFlagSet(FlagZero))
+	})
+	DefineInstruction(0x30, "JR NC, n", func(c *CPU) {
+		c.jumpRelativeConditional(!c.isFlagSet(FlagCarry))
+	})
+	DefineInstruction(0x38, "JR C, n", func(c *CPU) {
+		c.jumpRelativeConditional(c.isFlagSet(FlagCarry))
+	})
+	DefineInstruction(0xC0, "RET NZ", func(c *CPU) { c.ticks(4); c.retConditional(!c.isFlagSet(FlagZero)) })
+	DefineInstruction(0xC2, "JP NZ, nn", func(c *CPU) {
+		c.jumpAbsoluteConditional(!c.isFlagSet(FlagZero))
+	})
+	DefineInstruction(0xC3, "JP nn", func(c *CPU) {
+		c.jumpAbsolute()
+	})
+	DefineInstruction(0xC4, "CALL NZ, nn", func(c *CPU) {
+		c.callConditional(!c.isFlagSet(FlagZero))
+	})
+	DefineInstruction(0xC8, "RET Z", func(c *CPU) { c.retConditional(c.isFlagSet(FlagZero)) })
+	DefineInstruction(0xC9, "RET", func(c *CPU) { c.ret() })
+	DefineInstruction(0xCA, "JP Z, nn", func(c *CPU) {
+		c.jumpAbsoluteConditional(c.isFlagSet(FlagZero))
+	})
+	DefineInstruction(0xCC, "CALL Z, nn", func(c *CPU) {
+		c.callConditional(c.isFlagSet(FlagZero))
+	})
+	DefineInstruction(0xCD, "CALL nn", func(c *CPU) {
+		c.call()
+	})
+	DefineInstruction(0xD0, "RET NC", func(c *CPU) { c.retConditional(!c.isFlagSet(FlagCarry)) })
+	DefineInstruction(0xD2, "JP NC, nn", func(c *CPU) {
+		c.jumpAbsoluteConditional(!c.isFlagSet(FlagCarry))
+	})
+	DefineInstruction(0xD4, "CALL NC, nn", func(c *CPU) {
+		c.callConditional(!c.isFlagSet(FlagCarry))
+	})
+	DefineInstruction(0xD8, "RET C", func(c *CPU) { c.retConditional(c.isFlagSet(FlagCarry)) })
+	DefineInstruction(0xD9, "RETI", func(c *CPU) { c.retInterrupt() })
+	DefineInstruction(0xDA, "JP C, nn", func(c *CPU) {
+		c.jumpAbsoluteConditional(c.isFlagSet(FlagCarry))
+	})
+	DefineInstruction(0xDC, "CALL C, nn", func(c *CPU) {
+		c.callConditional(c.isFlagSet(FlagCarry))
+	})
+	DefineInstruction(0xe9, "JP HL", func(c *CPU) {
+		c.PC = c.HL.Uint16()
+	})
 }
 
 // generateRSTInstructions generates the 8 RST instructions.
 func (c *CPU) generateRSTInstructions() {
 	for i := uint8(0); i < 8; i++ {
 		address := uint16(i * 8)
-		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU, operands []byte) {
-			c.call(address)
-		}, Cycles(4))
+		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU) {
+			c.pushStack(uint8(c.PC>>8), uint8(c.PC&0xFF))
+			c.PC = address
+		})
 	}
 }

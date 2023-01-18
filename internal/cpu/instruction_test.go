@@ -16,76 +16,13 @@ var (
 	cpu *CPU
 )
 
-func TestInstruction_Timing(t *testing.T) {
-	timings := []uint8{
-		1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
-		0, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
-		2, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1,
-		2, 3, 2, 2, 3, 3, 3, 1, 2, 2, 2, 2, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		2, 2, 2, 2, 2, 2, 0, 2, 1, 1, 1, 1, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-		2, 3, 3, 4, 3, 4, 2, 4, 2, 4, 3, 0, 3, 6, 2, 4,
-		2, 3, 3, 0, 3, 4, 2, 4, 2, 4, 3, 0, 3, 0, 2, 4,
-		3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
-		3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4,
-	}
-	for i, timing := range timings {
-		if timing == 0 {
-			continue
-		}
-
-		testInstruction(t, InstructionSet[uint8(i)].Name(), uint8(i), func(t *testing.T, i Instructor) {
-			if i.Cycles() != timing {
-				t.Errorf("expected %d cycles, got %d", timing, i.Cycles())
-			}
-		})
-	}
-
-	cbTiming := []uint8{
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
-		2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
-		2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
-		2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-		2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
-	}
-
-	for i, timing := range cbTiming {
-		if timing == 0 {
-			continue
-		}
-
-		testInstructionCB(t, InstructionSetCB[uint8(i)].Instruction().Name(), uint8(i), func(t *testing.T, i Instructor) {
-			if i.Cycles() != timing {
-				t.Errorf("expected %d cycles, got %d", timing, i.Cycles())
-			}
-		})
-	}
-}
-
 func TestLoadInstructions(t *testing.T) {
 	// 0x02 - LD (BC), A - Load A into (BC)
 	testInstruction(t, "LD (BC), A", 0x02, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 
 		cpu.BC.SetUint16(0x1234)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.mmu.Read(cpu.BC.Uint16()) != 0x42 {
 			t.Errorf("expected 0x42 at 0x1234, got 0x%02X", cpu.mmu.Read(0x1234))
 		}
@@ -94,7 +31,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD A, (BC)", 0x0A, func(t *testing.T, instr Instructor) {
 		cpu.BC.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.BC.Uint16(), 0x42)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("expected 0x42 in A, got 0x%02X", cpu.A)
 		}
@@ -103,7 +40,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD (DE), A", 0x12, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.DE.SetUint16(0x1234)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.mmu.Read(cpu.DE.Uint16()) != 0x42 {
 			t.Errorf("expected 0x42 at 0x1234, got 0x%02X", cpu.mmu.Read(0x1234))
 		}
@@ -112,7 +49,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD A, (DE)", 0x1A, func(t *testing.T, instr Instructor) {
 		cpu.DE.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.DE.Uint16(), 0x42)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("expected 0x42 in A, got 0x%02X", cpu.A)
 		}
@@ -122,7 +59,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD (HL+), A", 0x22, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.mmu.Read(cpu.HL.Uint16()-1) != 0x42 {
 			t.Errorf("expected 0x42 at 0x1234, got 0x%02X", cpu.mmu.Read(cpu.HL.Uint16()-1))
 		}
@@ -134,7 +71,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD A, (HL+)", 0x2A, func(t *testing.T, instr Instructor) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("expected 0x42 in A, got 0x%02X", cpu.A)
 		}
@@ -146,7 +83,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD (HL-), A", 0x32, func(t *testing.T, instr Instructor) {
 		cpu.A = 0x42
 		cpu.HL.SetUint16(0x1234)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.mmu.Read(cpu.HL.Uint16()+1) != 0x42 {
 			t.Errorf("expected 0x42 at 0x1234, got 0x%02X", cpu.mmu.Read(cpu.HL.Uint16()+1))
 		}
@@ -158,7 +95,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD (HL), n", 0x36, func(t *testing.T, instr Instructor) {
 		for i := 0; i < 0xFF; i++ {
 			cpu.HL.SetUint16(0x1234)
-			instr.Execute(cpu, []uint8{uint8(i)})
+			instr.Execute(cpu) // TODO write to mmu
 			if cpu.mmu.Read(cpu.HL.Uint16()) != uint8(i) {
 				t.Errorf("expected 0x%02X at 0x1234, got 0x%02X", i, cpu.mmu.Read(0x1234))
 			}
@@ -168,7 +105,7 @@ func TestLoadInstructions(t *testing.T) {
 	testInstruction(t, "LD A, (HL-)", 0x3A, func(t *testing.T, instr Instructor) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 		if cpu.A != 0x42 {
 			t.Errorf("expected 0x42 in A, got 0x%02X", cpu.A)
 		}
@@ -185,7 +122,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.HL.SetUint16(0x1234)
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x84 {
 			t.Errorf("expected A to be 0x84, got 0x%02X", cpu.A)
@@ -200,7 +137,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x0F
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -210,7 +147,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0xFF
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -219,7 +156,7 @@ func TestArithmetic1(t *testing.T) {
 		// test carry
 		cpu.A = 0xFF
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
@@ -233,7 +170,7 @@ func TestArithmetic1(t *testing.T) {
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x42)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x85 {
 			t.Errorf("expected A to be 0x85, got 0x%02X", cpu.A)
@@ -247,7 +184,7 @@ func TestArithmetic1(t *testing.T) {
 		// test half carry
 		cpu.A = 0x0F
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -258,7 +195,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0xFE
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Error("expected zero flag to be set", cpu.A)
@@ -267,7 +204,7 @@ func TestArithmetic1(t *testing.T) {
 		// test carry
 		cpu.A = 0xFF
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
@@ -280,7 +217,7 @@ func TestArithmetic1(t *testing.T) {
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x10)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x32 {
 			t.Errorf("expected A to be 0x32, got 0x%02X", cpu.A)
@@ -295,7 +232,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x01
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x0F)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -305,7 +242,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x01
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -315,7 +252,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x00
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
@@ -330,7 +267,7 @@ func TestArithmetic1(t *testing.T) {
 
 		cpu.setFlag(FlagCarry)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x31 {
 			t.Errorf("expected A to be 0x31, got 0x%02X", cpu.A)
@@ -345,7 +282,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x01
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x0F)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagHalfCarry) {
 			t.Errorf("expected half carry flag to be set")
@@ -355,7 +292,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x02
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -365,7 +302,7 @@ func TestArithmetic1(t *testing.T) {
 		cpu.A = 0x00
 		cpu.mmu.Write(cpu.HL.Uint16(), 0x01)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagCarry) {
 			t.Errorf("expected carry flag to be set")
@@ -381,7 +318,7 @@ func TestLogic(t *testing.T) {
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b11010101)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x80 {
 			t.Errorf("expected A to be 0x80, got 0x%02X", cpu.A)
@@ -396,7 +333,7 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0b01010101
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b10101010)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -409,7 +346,7 @@ func TestLogic(t *testing.T) {
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b11010101)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0x7F {
 			t.Errorf("expected A to be 0x7F, got 0x%02X", cpu.A)
@@ -424,7 +361,7 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0
 		cpu.mmu.Write(cpu.HL.Uint16(), 0)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -434,7 +371,7 @@ func TestLogic(t *testing.T) {
 	testInstruction(t, "XOR A", 0xAF, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0 {
 			t.Errorf("expected A to be 0, got 0x%02X", cpu.A)
@@ -448,7 +385,7 @@ func TestLogic(t *testing.T) {
 		// test zero
 		cpu.A = 0
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -461,7 +398,7 @@ func TestLogic(t *testing.T) {
 
 		cpu.mmu.Write(cpu.HL.Uint16(), 0b11010101)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0b11111111 {
 			t.Errorf("expected A to be 0xFF, got 0x%02X", cpu.A)
@@ -476,7 +413,7 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0
 		cpu.mmu.Write(cpu.HL.Uint16(), 0)
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -486,7 +423,7 @@ func TestLogic(t *testing.T) {
 	testInstruction(t, "OR A", 0xB7, func(t *testing.T, instr Instructor) {
 		cpu.A = 0b10101010
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if cpu.A != 0b10101010 {
 			t.Errorf("expected A to be 0xAA, got 0x%02X", cpu.A)
@@ -500,7 +437,7 @@ func TestLogic(t *testing.T) {
 		// test zero
 		cpu.A = 0
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 		if !cpu.isFlagSet(FlagZero) {
 			t.Errorf("expected zero flag to be set")
@@ -511,7 +448,7 @@ func TestLogic(t *testing.T) {
 		cpu.A = 0b10101010
 		cpu.B = 0b11010101
 
-		instr.Execute(cpu, nil)
+		instr.Execute(cpu)
 
 	})
 }
@@ -530,7 +467,7 @@ func testInstruction(t *testing.T, name string, opcode uint8, f func(*testing.T,
 
 	video := ppu.New(memBus, irq)
 	memBus.AttachVideo(video)
-	cpu = NewCPU(memBus, irq)
+	cpu = NewCPU(memBus, irq, tCtl, video)
 
 	t.Run(name, func(t *testing.T) {
 		f(t, InstructionSet[opcode])
