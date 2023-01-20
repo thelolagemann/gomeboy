@@ -76,12 +76,20 @@ func (b *buttonDebouncer) remove(button joypad.Button) {
 	delete(b.framesActive, button)
 }
 
+var (
+	uDotSize    float32 = 1.0
+	uDotSpacing float32 = 1.0
+
+	uWindowWidth  float32 = 0.0
+	uWindowHeight float32 = 0.0
+)
+
 func NewDisplay(title string, md5sum string) *Display {
 	cfg := pixelgl.WindowConfig{
 		Title: "GomeBoy | " + title,
 		Bounds: pixel.R(
 			0, 0,
-			float64(ppu.ScreenWidth*PixelScale), float64(ppu.ScreenHeight*PixelScale)),
+			float64(ppu.ScreenWidth), float64(ppu.ScreenHeight)),
 		VSync:                  true,
 		TransparentFramebuffer: true,
 		Resizable:              true,
@@ -154,8 +162,19 @@ func NewDisplay(title string, md5sum string) *Display {
 
 	// update camera and return newly created display
 	d.updateCamera()
+	//win.Canvas().SetUniform("uDotSize", &uDotSize)
+	//win.Canvas().SetUniform("uDotSpacing", &uDotSpacing)
+	//win.Canvas().SetUniform("uWindowWidth", &uWindowWidth)
+	//win.Canvas().SetUniform("uWindowHeight", &uWindowHeight)
 
 	return d
+}
+
+func (d *Display) ApplyShader(shader string, uniforms map[string]interface{}) {
+	for name, value := range uniforms {
+		d.window.Canvas().SetUniform(name, value)
+	}
+	d.window.Canvas().SetFragmentShader(shader)
 }
 
 // RenderBootAnimation renders the boot animation.
@@ -211,6 +230,10 @@ func (d *Display) RenderBootAnimation() {
 
 // Render renders the given frame to the display.
 func (d *Display) Render(frame [160][144][3]uint8) {
+	// set height and width of the window
+	uWindowWidth = float32(d.window.Bounds().W())
+	uWindowHeight = float32(d.window.Bounds().H())
+
 	for y := 0; y < ppu.ScreenHeight; y++ {
 		for x := 0; x < ppu.ScreenWidth; x++ {
 			r := frame[x][y][0]

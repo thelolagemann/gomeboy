@@ -18,15 +18,16 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"time"
-
-	io2 "io"
 )
 
 const (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
-	// CyclesPerFrame is the number of clock cycles per frame.
-	CyclesPerFrame = 70224 // 4194304 / 60
+	// FrameRate is the frame rate of the emulator.
+	FrameRate = 144
+	// FrameTime is the time it should take to render a frame.
+	FrameTime     = time.Second / FrameRate
+	TicksPerFrame = ClockSpeed / FrameRate
 )
 
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
@@ -42,14 +43,15 @@ type GameBoy struct {
 	Timer      *timer.Controller
 	Serial     *io.Serial
 
-	LastSave time.Time
-
 	log.Logger
 
 	currentCycle uint
-	w            io2.Writer
 
-	paused bool
+	paused        bool
+	frames        int
+	ticks         uint16
+	previousFrame [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8
+	frameQueue    bool
 }
 
 type GameBoyOpt func(gb *GameBoy)
@@ -80,7 +82,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus.AttachVideo(video)
 
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus, interrupt, timerCtl, video, sound),
+		CPU: cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, video.DMA),
 		MMU: memBus,
 		ppu: video,
 
@@ -102,42 +104,91 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 func (g *GameBoy) Start(mon *display.Display) {
 	fmt.Println("Starting emulation")
 	// setup fps counter
-	frames := 0
+	g.frames = 0
 	start := time.Now()
 	g.APU.Play()
-	for !mon.IsClosed() {
-		frames++
 
-		inputs := mon.PollKeys()
-		g.ProcessInputs(inputs)
+	// create a ticker to update the display
+	ticker := time.NewTicker(FrameTime)
 
-		mon.Render(g.Frame())
+	// main loop
+	for {
+		select {
+		case <-ticker.C:
+			// update fps counter
+			g.frames++
+			if !g.paused {
+				// render frame
 
-		if time.Since(start) > time.Second {
-			title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), frames)
-			mon.SetTitle(title)
+				g.ProcessInputs(mon.PollKeys())
+				mon.Render(g.Frame())
+			}
+			if time.Since(start) > time.Second {
+				title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), g.frames)
+				mon.SetTitle(title)
 
-			frames = 0
-			start = time.Now()
+				g.frames = 0
+				start = time.Now()
+			}
 		}
-
 	}
+
 }
 
 // Frame will step the emulation until the PPU has finished
 // rendering the current frame. It will then prepare the frame
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
-	g.ppu.ClearRefresh()
-	// step until the next frame
-	for !g.ppu.HasFrame() {
-		g.CPU.Step()
+	// was the last frame rendered? (by the PPU)
+	if g.frameQueue {
+		// if so, tick until the next frame is ready
+		for !g.ppu.HasFrame() {
+			g.CPU.Step()
+		}
+
+		// prepare the frame for display
+		g.ppu.PrepareFrame()
+		g.ppu.ClearRefresh()
+
+		// return the frame and reset the frame queue
+		g.frameQueue = false
+		g.previousFrame = g.ppu.PreparedFrame
+		return g.previousFrame
 	}
 
-	// prepare the next frame
-	g.ppu.PrepareFrame()
+	ticks := uint32(0)
+	// step until the next frame or until tick threshold is reached
+	for ticks <= TicksPerFrame {
+		ticks += uint32(g.CPU.Step())
+	}
 
-	return g.ppu.PreparedFrame
+	// did the PPU render a frame?
+	if g.ppu.HasFrame() {
+		g.ppu.PrepareFrame()
+		g.ppu.ClearRefresh()
+		g.previousFrame = g.ppu.PreparedFrame
+		return g.ppu.PreparedFrame
+	} else {
+		// if not, create a smoothed frame from the last frame
+		// and the current frame (which is not yet finished)
+		var smoothedFrame [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8
+		for x := uint8(0); x < ppu.ScreenWidth; x++ {
+			for y := uint8(0); y < ppu.ScreenHeight; y++ {
+				// is the pixel on the current frame black?
+
+				// interpolate the current frame
+				for c := 0; c < 3; c++ {
+					// smooth by averaging the current and previous frame
+					smoothedFrame[x][y][c] = uint8((uint16(g.previousFrame[x][y][c]) + uint16(g.ppu.PreparedFrame[x][y][c])) / 2)
+				}
+
+			}
+		}
+		// flag that the frame is not finished
+		g.frameQueue = true
+		return smoothedFrame
+	}
+
 }
 
 func (g *GameBoy) keyHandlers() map[uint8]func() {
