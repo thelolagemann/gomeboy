@@ -68,7 +68,7 @@ func New(irq *interrupts.Service) *State {
 // Read reads the joypad state.
 func (s *State) Read(address uint16) uint8 {
 	// read value from the register
-	value := s.Register.Read(address)
+	value := s.Register.Read()
 	// P14 and P15 are set to 1 by default, so if they are set to 0,
 	// we are reading the state of the buttons.
 	if !utils.Test(value, 4) {
@@ -87,7 +87,7 @@ func (s *State) Read(address uint16) uint8 {
 // are always set to 1.
 func (s *State) Write(address uint16, value byte) {
 	// write bits 4 and 5 to the register
-	s.Register.Write(address, 0b1100_0000|value)
+	s.Register.Write(0b1100_0000 | value)
 }
 
 // Press presses a button.
