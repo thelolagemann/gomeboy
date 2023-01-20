@@ -47,7 +47,22 @@ const (
 	// TAC is the address of the TAC hardware register. The TAC
 	// hardware register is used to control the timer.
 	TAC HardwareAddress = 0xFF07
+	// IF is the address of the IF hardware register. The IF
+	// hardware register is used to request interrupts. Writing a 1
+	// to a bit in IF requests an interrupt, and writing a 0 clears
+	// the request.
 	//
+	//  Bit 0: V-Blank Interrupt Request (INT 40h)  (1=Request)
+	//  Bit 1: LCD STAT Interrupt Request (INT 48h) (1=Request)
+	//  Bit 2: Timer Interrupt Request (INT 50h)    (1=Request)
+	//  Bit 3: Serial Interrupt Request (INT 58h)   (1=Request)
+	//  Bit 4: Joypad Interrupt Request (INT 60h)   (1=Request)
+	IF HardwareAddress = 0xFF0F
+	// IE is the address of the IE hardware register. The IE
+	// hardware register is used to enable interrupts. Writing a 1
+	// to a bit in IE enables the corresponding interrupt, and writing
+	// a 0 disables the interrupt.
+	IE HardwareAddress = 0xFFFF
 )
 
 type HardwareOpt func(*Hardware)
@@ -91,7 +106,7 @@ func IsReadableWritable() HardwareOpt {
 func IsReadableMasked(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		h.read = func(address uint16) uint8 {
-			return h.value & mask
+			return h.value | mask
 		}
 	}
 }
@@ -99,34 +114,33 @@ func IsReadableMasked(mask uint8) HardwareOpt {
 func IsWritableMasked(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		h.write = func(address uint16, value uint8) {
-			h.value = value & mask
+			h.value = value | mask
 		}
 	}
 }
 
-func (h *Hardware) Read(address uint16) uint8 {
-	if address != h.address {
-		panic(fmt.Sprintf("hardware: illegal read address 0x%04X", address))
+func Mask(mask uint8) HardwareOpt {
+	return func(h *Hardware) {
+		IsReadableMasked(mask)(h)
+		IsWritableMasked(mask)(h)
 	}
-
-	if h.read != nil {
-		return h.read(address)
-	}
-
-	panic(fmt.Sprintf("hardware: no read function for address 0x%04X", address))
 }
 
-func (h *Hardware) Write(address uint16, value uint8) {
-	if address != h.address {
-		panic(fmt.Sprintf("hardware: illegal write address 0x%04X", address))
+func (h *Hardware) Read() uint8 {
+	if h.read != nil {
+		return h.read(h.address)
 	}
 
+	panic(fmt.Sprintf("hardware: no read function for address 0x%04X", h.address))
+}
+
+func (h *Hardware) Write(value uint8) {
 	if h.write != nil {
-		h.write(address, value)
+		h.write(h.address, value)
 		return
 	}
 
-	panic(fmt.Sprintf("hardware: no write function for address 0x%04X", address))
+	panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
 }
 
 func (h *Hardware) Increment() {

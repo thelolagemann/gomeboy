@@ -47,8 +47,8 @@ func (d *DMA) Tick() {
 		offset := (d.timer - 5) >> 2
 		currentSource := d.source + uint16(offset)
 
-		// is OAM trying to read from itself? (> 0xFE00)
-		if currentSource > 0xFE00 {
+		// is OAM trying to read from itself? (>= 0xFE00)
+		if currentSource >= 0xFE00 {
 			// if so, make sure we don't read from the OAM
 			// and instead read from the source address
 			// minus 0x2000
@@ -63,4 +63,8 @@ func (d *DMA) Tick() {
 			d.timer = 0
 		}
 	}
+}
+
+func (d *DMA) IsTransferring() bool {
+	return d.timer > 4 || d.restarting
 }

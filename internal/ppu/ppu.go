@@ -90,21 +90,16 @@ type PPU struct {
 
 	currentCycle       int16
 	bus                mmu.IOBus
-	screenData         [ScreenWidth][ScreenHeight][3]uint8
+	ScreenData         [ScreenWidth][ScreenHeight][3]uint8
 	tileScanline       [ScreenWidth]uint8
 	screenCleared      bool
 	statInterruptDelay bool
-	lcdIntThrow        bool
-	vBlankIntThrow     bool
 	cleared            bool
-	dmaRegister        uint8
 	offClock           uint32
 	refreshScreen      bool
-	dma                *DMA
+	DMA                *DMA
 
 	currentFramePalette palette.Colour
-
-	HasDMA bool
 }
 
 func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
@@ -126,7 +121,7 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 		irq:  irq,
 		oam:  ram.NewRAM(160),
 		vRAM: ram.NewRAM(8192),
-		dma:  NewDMA(mmu),
+		DMA:  NewDMA(mmu),
 	}
 
 	// initialize sprites
@@ -137,31 +132,26 @@ func New(mmu mmu.IOBus, irq *interrupts.Service) *PPU {
 }
 
 func (p *PPU) PrepareFrame() {
-	p.PreparedFrame = p.screenData
-	p.screenData = [ScreenWidth][ScreenHeight][3]uint8{}
+	p.PreparedFrame = p.ScreenData
+	p.ScreenData = [ScreenWidth][ScreenHeight][3]uint8{}
 }
 
 func (p *PPU) Read(address uint16) uint8 {
 	// read from VRAM
 	if address >= 0x8000 && address <= 0x9FFF {
-		// is vram locked?
-		if !p.vramUnlocked() {
-			return 0xFF
+		if p.vramUnlocked() {
+			return p.vRAM.Read(address - 0x8000)
 		}
-		return p.vRAM.Read(address - 0x8000)
+		return 0xff
 
 	}
 
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		address -= 0xFE00
-
-		// is oam locked?
-		if !p.oamUnlocked() {
-			return 0xFF
+		if p.oamUnlocked() {
+			return p.oam.Read(address - 0xFE00)
 		}
-
-		return p.oam.Read(address)
+		return 0xff
 	}
 
 	// read from registers
@@ -179,7 +169,7 @@ func (p *PPU) Read(address uint16) uint8 {
 	case LYCompareRegister:
 		return p.LYCompare
 	case DMARegister:
-		return p.dmaRegister
+		return p.DMA.Read(DMARegister)
 	case background.PaletteRegister:
 		return p.Background.Palette.ToByte()
 	case ObjectPalette0Register:
@@ -271,7 +261,7 @@ func (p *PPU) Write(address uint16, value uint8) {
 	case WindowYRegister:
 		p.WindowY = value
 	case DMARegister:
-		p.dmaRegister = value
+		p.DMA.Write(address, value)
 	default:
 		panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
 	}
@@ -296,20 +286,24 @@ func (p *PPU) UpdateTile(index uint16, value uint8) {
 
 // checkLYC checks if the LYC interrupt should be triggered.
 func (p *PPU) checkLYC() {
-	p.Coincidence = p.CurrentScanline == p.LYCompare
+	if p.CurrentScanline == p.LYCompare {
+		p.Status.Coincidence = true
+	} else {
+		p.Status.Coincidence = false
+	}
 }
 
 // checkStatInterrupts checks if the STAT interrupt should be triggered.
 func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
-	reqInt := p.Coincidence && p.CoincidenceInterrupt ||
-		p.Mode == lcd.OAM && p.OAMInterrupt ||
-		p.Mode == lcd.VBlank && p.VBlankInterrupt ||
-		p.Mode == lcd.HBlank && p.HBlankInterrupt ||
-		vblankTrigger && p.OAMInterrupt // OAM interrupt can be triggered during vblank
+	lyInt := p.Coincidence && p.CoincidenceInterrupt
+	mode0Int := p.Mode == lcd.HBlank && p.HBlankInterrupt
+	mode1Int := p.Mode == lcd.VBlank && p.VBlankInterrupt
+	mode2Int := p.Mode == lcd.OAM && p.OAMInterrupt
+	vBlankInt := vblankTrigger && p.Mode == lcd.OAM // vblank interrupt is triggered at the end of OAM
 
-	// fmt.Printf("%08b\n", p.Status.Read(lcd.StatusRegister))
-	if reqInt {
-		panic("stat interrupt requested")
+	// fmt.Println("checking stat interrupts for mode", p.Mode)
+	//fmt.Println(p.CoincidenceInterrupt, "lyInt", lyInt, "mode0Int", mode0Int, "mode1Int", mode1Int, "mode2Int", mode2Int, "vBlankInt", vBlankInt)
+	if lyInt || mode0Int || mode1Int || mode2Int || vBlankInt {
 		// if not stat interrupt requested, request it
 		if !p.statInterruptDelay {
 			p.irq.Request(interrupts.LCDFlag)
@@ -332,16 +326,9 @@ func (p *PPU) Tick() {
 
 		if p.offClock >= 70224 {
 			p.offClock = 0
-			p.refreshScreen = true
+			//.p.refreshScreen = true
 		}
 
-		// reset values
-		p.currentCycle = 0
-		p.CurrentScanline = 0
-		p.WindowYInternal = 0
-
-		// set mode to hblank
-		p.SetMode(lcd.HBlank)
 		return
 	}
 
@@ -353,7 +340,7 @@ func (p *PPU) Tick() {
 	switch p.Status.Mode {
 	case lcd.HBlank:
 		// TODO handle CGB mode
-		if p.currentCycle >= 204 {
+		if p.currentCycle >= p.hblankCycles() {
 			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			//fmt.Println("ppu tick: hblank", p.CurrentScanline, p.currentCycle)
 			// reset cycle and increment scanline
@@ -368,13 +355,22 @@ func (p *PPU) Tick() {
 			if p.CurrentScanline == 144 {
 				// enter VBBlank mode and trigger VBlank interrupt
 				p.SetMode(lcd.VBlank)
-				p.irq.Request(interrupts.VBlankFlag)
 				p.checkStatInterrupts(true)
+
+				p.irq.Request(interrupts.VBlankFlag)
 				p.WindowYInternal = 0
 
 				// fmt.Println("PPU: VBlank triggered")
 				// flag that the screen needs to be refreshed
 				p.refreshScreen = true
+
+				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
+				if !p.Cleared() {
+					p.renderBlank()
+				}
+
+				// update palette
+				palette.UpdatePalette()
 			} else {
 				// enter OAM mode
 				p.SetMode(lcd.OAM)
@@ -445,19 +441,21 @@ func (p *PPU) hblankCycles() int16 {
 }
 
 func (p *PPU) renderBlank() {
-	fmt.Println("rendering blank")
 	for x := 0; x < ScreenWidth; x++ {
 		for y := 0; y < ScreenHeight; y++ {
-			p.screenData[x][y] = p.Palette.GetColour(0)
+			p.ScreenData[x][y] = p.Palette.GetColour(0)
 		}
 	}
-	p.PreparedFrame = p.screenData
 	p.Clear()
+}
+
+func (p *PPU) IsRendered(x, y uint8) bool {
+	return p.ScreenData[x][y] != p.Palette.GetColour(0)
 }
 
 func (p *PPU) renderBlankLine() {
 	for x := 0; x < ScreenWidth; x++ {
-		p.screenData[x][p.CurrentScanline] = p.Palette.GetColour(0)
+		p.ScreenData[x][p.CurrentScanline] = p.Palette.GetColour(0)
 	}
 }
 
@@ -493,7 +491,7 @@ func (p *PPU) renderWindow() {
 
 		// get the color of the pixel using the background palette
 		color := p.tileData[0][tileID][yPixelPos][xPixelPos]
-		p.screenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
+		p.ScreenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
 	}
 	p.WindowYInternal++
 }
@@ -515,7 +513,7 @@ func (p *PPU) renderBackground() {
 
 		// get the color of the pixel using the background palette
 		color := p.tileData[0][tileID][yPixelPos][xPixelPos]
-		p.screenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
+		p.ScreenData[i][p.CurrentScanline] = p.Palette.GetColour(uint8(color))
 	}
 }
 
@@ -593,7 +591,7 @@ func (p *PPU) renderSprites() {
 
 			// skip if the sprite doesn't have priority and the background is not transparent
 			if p.BackgroundEnabled {
-				if !sprite.Priority && p.screenData[pixelPos][p.CurrentScanline] != p.SpritePalettes[sprite.UseSecondPalette].GetColour(0) {
+				if !sprite.Priority && p.ScreenData[pixelPos][p.CurrentScanline] != p.SpritePalettes[sprite.UseSecondPalette].GetColour(0) {
 					continue
 				}
 			}
@@ -604,7 +602,7 @@ func (p *PPU) renderSprites() {
 			}
 
 			// draw the pixel
-			p.screenData[pixelPos][p.CurrentScanline] = p.SpritePalettes[sprite.UseSecondPalette].GetColour(uint8(color))
+			p.ScreenData[pixelPos][p.CurrentScanline] = p.SpritePalettes[sprite.UseSecondPalette].GetColour(uint8(color))
 
 			// mark the pixel as occupied
 			spriteXPerScreen[pixelPos] = sprite.X
@@ -614,4 +612,8 @@ func (p *PPU) renderSprites() {
 
 func (p *PPU) ClearRefresh() {
 	p.refreshScreen = false
+}
+
+func (p *PPU) Screen() [ScreenWidth][ScreenHeight][3]uint8 {
+	return p.ScreenData
 }

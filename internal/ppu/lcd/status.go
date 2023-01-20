@@ -1,6 +1,8 @@
 package lcd
 
-import "fmt"
+import (
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
+)
 
 const (
 	// StatusRegister is the address of the status register.
@@ -60,11 +62,10 @@ func (s *Status) Write(address uint16, value uint8) {
 	if address != StatusRegister {
 		panic("illegal write for LCDStatus")
 	}
-	s.CoincidenceInterrupt = value&0x40 != 0
-	s.OAMInterrupt = value&0x20 != 0
-	s.VBlankInterrupt = value&0x10 != 0
-	s.HBlankInterrupt = value&0x08 != 0
-	fmt.Printf("status: %08b", value)
+	s.CoincidenceInterrupt = utils.Test(value, 6)
+	s.OAMInterrupt = utils.Test(value, 5)
+	s.VBlankInterrupt = utils.Test(value, 4)
+	s.HBlankInterrupt = utils.Test(value, 3)
 }
 
 // Read returns the value of the status register.
@@ -74,21 +75,21 @@ func (s *Status) Read(address uint16) uint8 {
 	}
 	var value uint8
 	if s.CoincidenceInterrupt {
-		value |= 0x40
+		value |= 1 << 6
 	}
 	if s.OAMInterrupt {
-		value |= 0x20
+		value |= 1 << 5
 	}
 	if s.VBlankInterrupt {
-		value |= 0x10
+		value |= 1 << 4
 	}
 	if s.HBlankInterrupt {
-		value |= 0x08
+		value |= 1 << 3
 	}
 	if s.Coincidence {
-		value |= 0x04
+		value |= 1 << 2
 	}
 	// set the mode bits 1 and 0
 	value |= uint8(s.Mode) & 0x03
-	return value
+	return value | 0b10000000 // bit 7 is always set
 }
