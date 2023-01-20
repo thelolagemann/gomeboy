@@ -85,7 +85,7 @@ func init() {
 		if c.irq.IME {
 			c.mode = ModeHalt
 		} else {
-			if c.irq.Flag&c.irq.Enable != 0 {
+			if c.irq.Flag.Read()&c.irq.Enable.Read() != 0 {
 				c.mode = ModeHaltBug
 			} else {
 				c.mode = ModeHaltDI
@@ -108,114 +108,4 @@ var InstructionSet = map[uint8]Instructor{}
 
 func disallowedOpcode(cpu *CPU) {
 	panic(fmt.Sprintf("disallowed opcode %X", cpu.mmu.Read(cpu.PC)))
-}
-
-// FlagInstruction represents an instruction that
-// affects a flag in the CPU's flags register
-type FlagInstruction struct {
-	name   string
-	length uint8
-	cycles uint8
-
-	// Flags is an InstructionFlags value that represents
-	// the flags that are affected by the instruction
-	Flags InstructionFlags
-
-	// fn is the function that executes the instruction
-	fn func(cpu *CPU, operands []byte)
-
-	// fnResult is the function that executes the instruction
-	// and returns the result of the operation
-	fnResult func(cpu *CPU, operands []byte) uint8
-}
-
-func (fi FlagInstruction) Name() string {
-	return fi.name
-}
-
-func (fi FlagInstruction) Length() uint8 {
-	return fi.length
-}
-
-func (fi FlagInstruction) Cycles() uint8 {
-	return fi.cycles
-}
-
-// FlagInstructionOpt is a function that configures a FlagInstruction
-type FlagInstructionOpt func(*FlagInstruction)
-
-// SetFlags sets the flags that are set by the instruction
-func SetFlags(flags ...Flag) FlagInstructionOpt {
-	return func(fi *FlagInstruction) {
-		fi.Flags.Set = flags
-	}
-}
-
-// ClearFlags sets the flags that are cleared by the instruction
-func ClearFlags(flags ...Flag) FlagInstructionOpt {
-	return func(fi *FlagInstruction) {
-		fi.Flags.Reset = flags
-	}
-}
-
-// OperationFlags configures the flags that are affected by the instruction
-func OperationFlags(fn func(*CPU, []byte) uint8, flags ...Flag) FlagInstructionOpt {
-	return func(fi *FlagInstruction) {
-		fi.fnResult = fn
-		fi.Flags.Operation = flags
-	}
-}
-
-// NewFlagInstruction creates a new FlagInstruction
-func NewFlagInstruction(name string, length uint8, cycles uint8, fn func(*CPU, []byte), opts ...FlagInstructionOpt) FlagInstruction {
-	fi := FlagInstruction{
-		name:   name,
-		length: length,
-		cycles: cycles,
-		fn:     fn,
-	}
-	for _, opt := range opts {
-		opt(&fi)
-	}
-	return fi
-}
-
-// Execute executes the instruction
-func (fi FlagInstruction) Execute(cpu *CPU, operands []byte) {
-	// configure the flags
-	cpu.setFlags(fi.Flags.Set...)
-	cpu.clearFlags(fi.Flags.Reset...)
-
-	// determine if the instruction is a result instruction
-	if fi.fnResult != nil {
-		result := fi.fnResult(cpu, operands)
-
-		// loop through the flags that are affected by the operation
-		for _, flag := range fi.Flags.Operation {
-			switch flag {
-			case FlagZero:
-				if result == 0 {
-					cpu.setFlag(FlagZero)
-				} else {
-					cpu.clearFlag(FlagZero)
-				}
-			case FlagSubtract:
-				cpu.setFlag(FlagSubtract)
-			case FlagHalfCarry:
-				if (cpu.Registers.A&0x0F)+(operands[0]&0x0F) > 0x0F {
-					cpu.setFlag(FlagHalfCarry)
-				} else {
-					cpu.clearFlag(FlagHalfCarry)
-				}
-			case FlagCarry:
-				if (cpu.Registers.A&0xFF)+(operands[0]&0xFF) > 0xFF {
-					cpu.setFlag(FlagCarry)
-				} else {
-					cpu.clearFlag(FlagCarry)
-				}
-			}
-		}
-	} else {
-		fi.fn(cpu, operands)
-	}
 }

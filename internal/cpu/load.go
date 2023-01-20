@@ -124,9 +124,6 @@ func init() {
 	})
 	DefineInstruction(0xF0, "LDH A, (a8)", func(c *CPU) {
 		address := uint16(0xff00) + uint16(c.readOperand())
-		if c.PC > 0xC6D {
-			fmt.Printf("Reading from %04x\n", address)
-		}
 		c.loadMemoryToRegister(&c.A, address)
 	})
 	DefineInstruction(0xF2, "LD A, (C)", func(c *CPU) {
