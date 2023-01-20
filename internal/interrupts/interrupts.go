@@ -1,9 +1,13 @@
 package interrupts
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+)
 
-// Address is an address of an interrupt.
-type Address = uint16
+// Address is an address of an interrupt. When an interrupt occurs,
+// the CPU jumps to the specified interrupt address.
+type Address uint16
 
 const (
 	// VBlank is the VBL interrupt address.
@@ -18,72 +22,55 @@ const (
 	Joypad Address = 0x0060
 )
 
-// Flag is an interrupt flag.
-type Flag = uint8
+// Flag is an interrupt flag, which simply specifies what bit of the
+// interrupt registers is used to access the interrupt.
+type Flag uint8
 
 const (
+	// VBlankFlag is the VBL interrupt flag (bit 0).
 	VBlankFlag Flag = 0x00
-	LCDFlag    Flag = 0x01
-	TimerFlag  Flag = 0x02
+	// LCDFlag is the LCD interrupt flag (bit 1).
+	LCDFlag Flag = 0x01
+	// TimerFlag is the Timer interrupt flag (bit 2).
+	TimerFlag Flag = 0x02
+	// SerialFlag is the Serial interrupt flag (bit 3).
 	SerialFlag Flag = 0x03
+	// JoypadFlag is the Joypad interrupt flag (bit 4).
 	JoypadFlag Flag = 0x04
-)
-
-const (
-	// FlagRegister is the register for the interrupt flags. (R/W)
-	//
-	//  Bit 0: V-Blank  Interrupt Request (INT 40h)  (1=Request)
-	//  Bit 1: LCD STAT Interrupt Request (INT 48h)  (1=Request)
-	//  Bit 2: Timer    Interrupt Request (INT 50h)  (1=Request)
-	//  Bit 3: Serial   Interrupt Request (INT 58h)  (1=Request)
-	//  Bit 4: Joypad   Interrupt Request (INT 60h)  (1=Request)
-	FlagRegister uint16 = 0xFF0F
-	// EnableRegister is the register for the interrupt enable flags. (R/W)
-	EnableRegister uint16 = 0xFFFF
 )
 
 // Service represents the current state of the interrupts.
 type Service struct {
 	// Flag is the Interrupt FlagRegister. (0xFF0F)
-	Flag uint8
+	Flag *registers.Hardware
 	// Enable is the Interrupt EnableRegister. (0xFFFF)
-	Enable uint8
+	Enable *registers.Hardware
 
 	// IME is the Interrupt Master Enable flag.
 	IME bool
-
-	// Enabling represents whether the IME is being enabled.
-	// This is used to delay the enabling of the IME by one cycle.
-	Enabling bool
 }
 
 // NewService returns a new Service.
 func NewService() *Service {
 	return &Service{
-		Flag:     0,
-		Enable:   0,
-		IME:      false,
-		Enabling: false,
+		Flag:   registers.NewHardware(registers.IF, registers.Mask(0b11100000)),
+		Enable: registers.NewHardware(registers.IE, registers.IsReadableWritable()),
+		IME:    false,
 	}
 }
 
 // Request requests an interrupt.
 func (s *Service) Request(flag Flag) {
-	s.Flag |= 1 << flag
-}
-
-// Clear clears the interrupt flag at the given address.
-func (s *Service) Clear(flag Flag) {
-	s.Flag &^= 1 << flag
+	s.Flag.Write(s.Flag.Read() | 1<<flag)
 }
 
 // Read returns the value of the register at the given address.
 func (s *Service) Read(address uint16) uint8 {
 	switch address {
-	case FlagRegister:
-		return s.Flag&0b00011111 | 0b11100000
-	case EnableRegister:
-		return s.Enable
+	case registers.IF:
+		return s.Flag.Read()
+	case registers.IE:
+		return s.Enable.Read()
 	}
 	panic(fmt.Sprintf("interrupts\tillegal read from address %04X", address))
 }
@@ -91,11 +78,26 @@ func (s *Service) Read(address uint16) uint8 {
 // Write writes the given value to the register at the given address.
 func (s *Service) Write(address uint16, value uint8) {
 	switch address {
-	case FlagRegister:
-		s.Flag = value
-	case EnableRegister:
-		s.Enable = value
+	case registers.IF:
+		s.Flag.Write(value)
+	case registers.IE:
+		s.Enable.Write(value)
 	default:
 		panic(fmt.Sprintf("interrupts\tillegal write to address %04X", address))
 	}
+}
+
+// Vector returns the currently serviced interrupt vector,
+// or 0 if no interrupt is being serviced. This function
+// will also clear the interrupt flag.
+func (s *Service) Vector() Address {
+	for i := uint8(0); i < 5; i++ {
+		if s.Flag.Read()&(1<<i) != 0 && s.Enable.Read()&(1<<i) != 0 {
+			// clear the interrupt flag and return the vector
+			s.Flag.Write(s.Flag.Read() ^ 1<<i)
+			return Address(0x0040 + i*8)
+		}
+	}
+
+	return 0
 }

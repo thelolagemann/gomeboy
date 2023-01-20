@@ -5,7 +5,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 const (
@@ -51,9 +50,9 @@ type CPU struct {
 	DebugBreakpoint bool
 
 	peripherals []types.Peripheral
-	Cycles      uint
 
-	mode mode
+	currentTick uint16
+	mode        mode
 }
 
 // PopStack pops a 16-bit value from the stack.
@@ -191,8 +190,9 @@ func (c *CPU) registerName(reg *Register) string {
 	return ""
 }
 
-// Step the CPU by one frame.
-func (c *CPU) Step() {
+// Step the CPU by one frame and returns the
+// number of ticks that have been executed.
+func (c *CPU) Step() uint16 {
 	// TODO handle CGB HDMA
 	reqInt := false
 
@@ -204,8 +204,7 @@ func (c *CPU) Step() {
 
 		// check for interrupts, in normal mode this requires the IME to be enabled
 		reqInt = c.irq.IME && c.hasInterrupts()
-	case ModeHalt:
-	case ModeStop:
+	case ModeHalt, ModeStop:
 		// in stop mode, the CPU ticks 4 times, but does not execute any instructions
 		c.ticks(4)
 
@@ -238,10 +237,13 @@ func (c *CPU) Step() {
 	if reqInt {
 		c.executeInterrupt()
 	}
+	ticks := c.currentTick
+	c.currentTick = 0
+	return ticks
 }
 
 func (c *CPU) hasInterrupts() bool {
-	return c.irq.Enable&c.irq.Flag&0x1F != 0
+	return c.irq.Enable.Read()&c.irq.Flag.Read()&0x1F != 0
 }
 
 // readInstruction reads the next instruction from memory.
@@ -308,7 +310,6 @@ func (c *CPU) runInstruction(opcode uint8) {
 			c.DebugBreakpoint = true
 		}
 	}
-
 }
 
 func (c *CPU) executeInterrupt() {
@@ -318,43 +319,14 @@ func (c *CPU) executeInterrupt() {
 		c.SP--
 		c.writeByte(c.SP, uint8(c.PC>>8))
 
-		shouldInt := c.irq.Enable & c.irq.Flag
-		vector := uint16(0)
-
-		// check interrupt in order of priority
-		if utils.Test(shouldInt, interrupts.VBlankFlag) {
-			// VBlank interrupt requested
-			vector = interrupts.VBlank
-			// clear the interrupt flag
-			c.irq.Clear(interrupts.VBlankFlag)
-		} else if utils.Test(shouldInt, interrupts.LCDFlag) {
-			// LCDC interrupt requested
-			vector = interrupts.LCD
-			// clear the interrupt flag
-			c.irq.Clear(interrupts.LCDFlag)
-		} else if utils.Test(shouldInt, interrupts.TimerFlag) {
-			// Timer interrupt requested
-			vector = interrupts.Timer
-			// clear the interrupt flag
-			c.irq.Clear(interrupts.TimerFlag)
-		} else if utils.Test(shouldInt, interrupts.SerialFlag) {
-			// Serial interrupt requested
-			vector = interrupts.Serial
-			// clear the interrupt flag
-			c.irq.Clear(interrupts.SerialFlag)
-		} else if utils.Test(shouldInt, interrupts.JoypadFlag) {
-			// Joypad interrupt requested
-			vector = interrupts.Joypad
-			// clear the interrupt flag
-			c.irq.Clear(interrupts.JoypadFlag)
-		}
+		vector := c.irq.Vector()
 
 		// save the low byte of the PC
 		c.SP--
 		c.writeByte(c.SP, uint8(c.PC&0xFF))
 
 		// jump to the interrupt vector and disable IME
-		c.PC = vector
+		c.PC = uint16(vector)
 		c.irq.IME = false
 
 		// tick 12 times
@@ -371,6 +343,7 @@ func (c *CPU) tick() {
 	for _, p := range c.peripherals {
 		p.Tick()
 	}
+	c.currentTick++
 }
 
 func (c *CPU) ticks(n uint) {
