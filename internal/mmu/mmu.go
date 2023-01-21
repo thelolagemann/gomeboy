@@ -99,7 +99,7 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 	// load boot depending on cartridge type
 	if cart.Header().Hardware() == "CGB" {
 		// TODO load cgb boot
-		m.bios = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBiosChecksum)
+		m.bios = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootRomChecksum)
 	} else {
 		// load dmg boot
 		m.bios = boot.NewBootROM(boot.DMGBootRom[:], boot.DMGBootRomChecksum)
