@@ -61,7 +61,7 @@ func New(irq *interrupts.Service) *State {
 	return &State{
 		State:    0b1111_1111,
 		irq:      irq,
-		Register: registers.NewHardware(registers.P1, registers.IsReadableWritable()),
+		Register: registers.NewHardware(registers.P1, registers.Mask(0b1100_0000)),
 	}
 }
 

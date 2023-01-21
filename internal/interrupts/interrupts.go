@@ -11,15 +11,15 @@ type Address uint16
 
 const (
 	// VBlank is the VBL interrupt address.
-	VBlank Address = 0x0040
+	VBlank Address = 0x40
 	// LCD is the LCD interrupt address.
-	LCD Address = 0x0048
+	LCD Address = 0x48
 	// Timer is the Timer interrupt address.
-	Timer Address = 0x0050
+	Timer Address = 0x50
 	// Serial is the Serial interrupt address.
-	Serial Address = 0x0058
+	Serial Address = 0x58
 	// Joypad is the Joypad interrupt address.
-	Joypad Address = 0x0060
+	Joypad Address = 0x60
 )
 
 // Flag is an interrupt flag, which simply specifies what bit of the
