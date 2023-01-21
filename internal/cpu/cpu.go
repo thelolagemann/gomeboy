@@ -286,7 +286,7 @@ func (c *CPU) runInstruction(opcode uint8) {
 	// do we need to run a CB instruction?
 	if opcode == 0xCB {
 		// read the next instruction
-		cbIns, ok := InstructionSetCB[c.readInstruction()]
+		cbIns, ok := InstructionSetCB[c.readOperand()]
 		if !ok {
 			panic(fmt.Sprintf("invalid CB instruction: %x", opcode))
 		}

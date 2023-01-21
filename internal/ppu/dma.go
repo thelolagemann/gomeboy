@@ -44,8 +44,8 @@ func (d *DMA) Tick() {
 	if d.timer > 4 {
 		d.restarting = false
 
-		offset := (d.timer - 5) >> 2
-		currentSource := d.source + uint16(offset)
+		offset := (d.timer - 4) >> 2
+		currentSource := d.source + offset
 
 		// is OAM trying to read from itself? (>= 0xFE00)
 		if currentSource >= 0xFE00 {
@@ -63,6 +63,12 @@ func (d *DMA) Tick() {
 			d.timer = 0
 		}
 	}
+}
+
+// HasDoubleSpeed returns true as the DMA controller responds to
+// double speed mode.
+func (d *DMA) HasDoubleSpeed() bool {
+	return true
 }
 
 func (d *DMA) IsTransferring() bool {

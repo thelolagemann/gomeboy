@@ -98,6 +98,7 @@ type PPU struct {
 	offClock           uint32
 	refreshScreen      bool
 	DMA                *DMA
+	delayedTick        bool
 
 	currentFramePalette palette.Colour
 }
@@ -148,7 +149,7 @@ func (p *PPU) Read(address uint16) uint8 {
 
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		if p.oamUnlocked() {
+		if p.oamUnlocked() && !p.DMA.IsTransferring() {
 			return p.oam.Read(address - 0xFE00)
 		}
 		return 0xff
@@ -196,9 +197,11 @@ func (p *PPU) oamUnlocked() bool {
 func (p *PPU) Write(address uint16, value uint8) {
 	// write to VRAM
 	if address >= 0x8000 && address <= 0x9FFF {
+
 		p.vRAM.Write(address-0x8000, value)
 		// update tile data
 		p.UpdateTile(address-0x8000, value)
+
 		return
 	}
 	// write to OAM
@@ -206,6 +209,7 @@ func (p *PPU) Write(address uint16, value uint8) {
 		p.oam.Write(address-0xFE00, value)
 		// update sprite data
 		p.UpdateSprite(address-0xFE00, value)
+
 		return
 	}
 
@@ -224,15 +228,15 @@ func (p *PPU) Write(address uint16, value uint8) {
 			// enter hblank
 			p.SetMode(lcd.HBlank)
 
-			// reset the scanline and off clock
+			// reset the scanline
 			p.CurrentScanline = 0
-			p.offClock = 0
 		} else if !wasOn && p.Enabled {
-
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 			// if the screen was turned on, reset the clock
-			p.currentCycle = 0
+			p.SetMode(lcd.HBlank)
+			p.currentCycle = 4
+			p.delayedTick = true
 		}
 	case lcd.StatusRegister:
 		p.Status.Write(address, value)
@@ -318,31 +322,37 @@ func (p *PPU) HasFrame() bool {
 	return p.refreshScreen
 }
 
+// HasDoubleSpeed returns false as the PPU does not respond to double speed.
+func (p *PPU) HasDoubleSpeed() bool {
+	return false
+}
+
 // Tick the PPU by one cycle. This will update the PPU's state and
 // render the current scanline if necessary.
 func (p *PPU) Tick() {
 	if !p.Enabled {
-		p.offClock++
-
-		if p.offClock >= 70224 {
-			p.offClock = 0
-			//.p.refreshScreen = true
-		}
-
+		p.Mode = lcd.HBlank
 		return
 	}
 
 	// update the current cycle
 	p.currentCycle++
-	// fmt.Println(p.currentCycle, p.Mode, p.CurrentScanline, p.Status.Read(lcd.StatusRegister))
 
 	// step logic
 	switch p.Status.Mode {
 	case lcd.HBlank:
-		// TODO handle CGB mode
-		if p.currentCycle >= p.hblankCycles() {
-			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
-			//fmt.Println("ppu tick: hblank", p.CurrentScanline, p.currentCycle)
+		// are we handling the line 0 M-cycle delay?
+		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/ppu/lcdon_timing-GS.s#L24
+		if p.delayedTick && p.currentCycle == 80 {
+			p.delayedTick = false
+			p.currentCycle = 0
+
+			// go to mode 3
+			p.SetMode(lcd.VRAM)
+			return
+		}
+
+		if p.currentCycle == p.hblankCycles() {
 			// reset cycle and increment scanline
 			p.currentCycle = 0
 			p.CurrentScanline++
@@ -358,9 +368,7 @@ func (p *PPU) Tick() {
 				p.checkStatInterrupts(true)
 
 				p.irq.Request(interrupts.VBlankFlag)
-				p.WindowYInternal = 0
 
-				// fmt.Println("PPU: VBlank triggered")
 				// flag that the screen needs to be refreshed
 				p.refreshScreen = true
 
@@ -379,6 +387,8 @@ func (p *PPU) Tick() {
 		}
 	case lcd.VBlank:
 		if p.currentCycle == 456 {
+			fmt.Printf("cycle: %d, mode: %d, scanline: %d, lyc: %v\n", p.currentCycle, p.Mode, p.CurrentScanline, p.Coincidence)
+
 			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			p.currentCycle = 0
 			p.CurrentScanline++
@@ -387,10 +397,11 @@ func (p *PPU) Tick() {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 
-			if p.CurrentScanline > 153 {
+			if p.CurrentScanline >= 153 {
 				// reset scanline and enter OAM mode
 				p.SetMode(lcd.OAM)
 				p.CurrentScanline = 0
+				p.WindowYInternal = 0
 
 				// check LYC
 				p.checkLYC()

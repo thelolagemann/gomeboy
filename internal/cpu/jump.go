@@ -83,8 +83,8 @@ func (c *CPU) jumpAbsolute() {
 	low := c.readOperand()
 	high := c.readOperand()
 
-	c.PC = uint16(high)<<8 | uint16(low)
 	c.ticks(4)
+	c.PC = uint16(high)<<8 | uint16(low)
 }
 
 // jumpAbsoluteConditional jumps to the given address if the given condition is
@@ -194,9 +194,9 @@ func (c *CPU) generateRSTInstructions() {
 	for i := uint8(0); i < 8; i++ {
 		address := uint16(i * 8)
 		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU) {
+			c.ticks(4)
 			c.pushStack(uint8(c.PC>>8), uint8(c.PC&0xFF))
 			c.PC = address
-			c.ticks(4)
 		})
 	}
 }
