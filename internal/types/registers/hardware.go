@@ -65,8 +65,12 @@ const (
 	IE HardwareAddress = 0xFFFF
 )
 
+// HardwareOpt is a function that configures a hardware register,
+// such as making it readable, writable, or both.
 type HardwareOpt func(*Hardware)
 
+// NewHardware creates a new hardware register with the given
+// address and options.
 func NewHardware(address HardwareAddress, opts ...HardwareOpt) *Hardware {
 	h := &Hardware{
 		address: address,
@@ -77,9 +81,14 @@ func NewHardware(address HardwareAddress, opts ...HardwareOpt) *Hardware {
 		opt(h)
 	}
 
+	// TODO - add default read/write functions for registers that are not readable/writable
+	// TODO - add global map of hardware registers for easy lookup
+	// TODO - redirect MMU read/write to hardware registers if address is in range of hardware registers
+
 	return h
 }
 
+// IsReadable allows the hardware register to be read.
 func IsReadable() HardwareOpt {
 	return func(h *Hardware) {
 		h.read = func(address uint16) uint8 {
@@ -88,6 +97,7 @@ func IsReadable() HardwareOpt {
 	}
 }
 
+// IsWritable allows the hardware register to be written to.
 func IsWritable() HardwareOpt {
 	return func(h *Hardware) {
 		h.write = func(address uint16, value uint8) {
@@ -96,6 +106,9 @@ func IsWritable() HardwareOpt {
 	}
 }
 
+// IsReadableWritable allows the hardware register to be read
+// and written to. This is the default behaviour for most
+// hardware registers.
 func IsReadableWritable() HardwareOpt {
 	return func(h *Hardware) {
 		IsReadable()(h)
@@ -103,6 +116,10 @@ func IsReadableWritable() HardwareOpt {
 	}
 }
 
+// IsReadableMasked allows the hardware register to be read, but
+// with a mask applied to the value. In the Game Boy all unused
+// bits in a hardware register are set to 1, so this is used to
+// emulate that behaviour.
 func IsReadableMasked(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		h.read = func(address uint16) uint8 {
@@ -111,6 +128,10 @@ func IsReadableMasked(mask uint8) HardwareOpt {
 	}
 }
 
+// IsWritableMasked allows the hardware register to be written to,
+// but with a mask applied to the value being written. In the Game
+// Boy all unused bits in a hardware register are set to 1, so this
+// is used to emulate that behaviour.
 func IsWritableMasked(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		h.write = func(address uint16, value uint8) {
@@ -119,6 +140,10 @@ func IsWritableMasked(mask uint8) HardwareOpt {
 	}
 }
 
+// Mask is simply a helper function to call IsReadableMasked and
+// IsWritableMasked with the same mask. This is useful for hardware
+// registers that are both readable and writable, but have unused
+// bits that are set to 1.
 func Mask(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		IsReadableMasked(mask)(h)

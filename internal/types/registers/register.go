@@ -6,7 +6,7 @@ package registers
 // upper 4 bits are used. The lower 4 bits are always 0. The
 // CPU also has 4 register pairs: AF, BC, DE, and HL, which are
 // used to access the upper and lower registers as a 16-bit value.
-// These register pairs are defined in the CPURegisterPair type.
+// These register pairs are defined in the CPUPair type.
 type CPU = uint8
 
 // CPUPair represents a register pair of the Game Boy,
