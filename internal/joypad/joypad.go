@@ -61,7 +61,7 @@ func New(irq *interrupts.Service) *State {
 	return &State{
 		State:    0b1111_1111,
 		irq:      irq,
-		Register: registers.NewHardware(registers.P1, registers.IsReadable(), registers.IsWritableMasked(0b1111_0000)),
+		Register: registers.NewHardware(registers.P1, registers.IsReadableWritable()),
 	}
 }
 
@@ -87,7 +87,7 @@ func (s *State) Read(address uint16) uint8 {
 // are always set to 1.
 func (s *State) Write(address uint16, value byte) {
 	// write bits 4 and 5 to the register
-	s.Register.Write(0b1100_0000 | value)
+	s.Register.Write(value)
 }
 
 // Press presses a button.
