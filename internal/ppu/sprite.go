@@ -3,8 +3,7 @@ package ppu
 // Sprite is the 8x8 default sprite.
 type Sprite struct {
 	*SpriteAttributes
-	tileID          int
-	CurrentTileLine int
+	tileID int
 }
 
 func NewSprite() Sprite {

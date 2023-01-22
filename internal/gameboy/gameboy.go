@@ -17,6 +17,8 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"image/png"
+	"os"
 	"time"
 )
 
@@ -203,6 +205,19 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			} else {
 				g.APU.Play()
 			}
+		},
+		10: func() {
+			img := g.ppu.DumpTiledata()
+
+			f, err := os.Create("tilemap.png")
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
+			if err := png.Encode(f, img); err != nil {
+				panic(err)
+			}
+
 		},
 	}
 }

@@ -40,7 +40,22 @@ type Instructor interface {
 
 func init() {
 	DefineInstruction(0x00, "NOP", func(c *CPU) {})
-	DefineInstruction(0x10, "STOP", func(c *CPU) { c.mode = ModeStop })
+	DefineInstruction(0x10, "STOP", func(c *CPU) {
+		if c.mmu.Cart.Header().Hardware() == "CGB" {
+			if c.mmu.Key()&0b0000_0001 == 1 {
+				c.doubleSpeed = !c.doubleSpeed
+
+				if c.mmu.Key()&0b1000_0000 == 1 {
+					c.mmu.SetKey(0)
+				} else {
+					c.mmu.SetKey(0b1000_0000)
+				}
+			}
+
+		} else {
+			c.mode = ModeStop
+		}
+	})
 	DefineInstruction(0x27, "DAA", func(cpu *CPU) {
 		if !cpu.isFlagSet(FlagSubtract) {
 			if cpu.isFlagSet(FlagCarry) || cpu.A > 0x99 {

@@ -41,6 +41,8 @@ type CPU struct {
 	// Speed is the current speed of the CPU.
 	Speed float32
 
+	doubleSpeed bool
+
 	mmu     *mmu.MMU
 	stopped bool
 	Halted  bool
@@ -193,7 +195,15 @@ func (c *CPU) registerName(reg *Register) string {
 // Step the CPU by one frame and returns the
 // number of ticks that have been executed.
 func (c *CPU) Step() uint16 {
-	// TODO handle CGB HDMA
+	// reset tick counter
+	c.currentTick = 0
+
+	// should we tick HDMA?
+	if c.mmu.HDMA.IsCopying() {
+		c.mmu.HDMA.Tick()
+		return 4
+	}
+
 	reqInt := false
 
 	// execute step based on mode
@@ -237,9 +247,34 @@ func (c *CPU) Step() uint16 {
 	if reqInt {
 		c.executeInterrupt()
 	}
-	ticks := c.currentTick
-	c.currentTick = 0
-	return ticks
+
+	return c.currentTick
+}
+
+// tickDoubleSpeed ticks the CPU components twice as
+// fast, if they respond to the double speed flag.
+func (c *CPU) tickDoubleSpeed() {
+	for _, p := range c.peripherals {
+		if p.HasDoubleSpeed() {
+			p.Tick()
+		}
+	}
+}
+
+func (c *CPU) hdmaTick4() {
+	if c.doubleSpeed {
+		c.tick()
+		c.tickDoubleSpeed()
+		c.tick()
+		c.tickDoubleSpeed()
+
+		c.mmu.HDMA.Tick()
+	} else {
+		c.ticks(4)
+
+		c.mmu.HDMA.Tick()
+		c.mmu.HDMA.Tick()
+	}
 }
 
 func (c *CPU) hasInterrupts() bool {
@@ -347,8 +382,19 @@ func (c *CPU) tick() {
 }
 
 func (c *CPU) ticks(n uint) {
-	for i := uint(0); i < n; i++ {
-		c.tick()
+	if c.doubleSpeed {
+		// double tick every other tick
+		for i := uint(0); i < n; i++ {
+			if i%2 == 0 {
+				c.tick()
+			} else {
+				c.tickDoubleSpeed()
+			}
+		}
+	} else {
+		for i := uint(0); i < n; i++ {
+			c.tick()
+		}
 	}
 }
 

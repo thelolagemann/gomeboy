@@ -38,8 +38,12 @@ type MMU struct {
 
 	// (0xA000-0xBFFF) - external RAM TODO implement RAM bank switching
 
-	// (0xC000-0xDFFF) - internal RAM
+	// (0xC000-0xCFFF) - internal RAM bank 0 fixed
 	iRAM ram.RAM
+
+	// (0xD000-0xDFFF) - internal switchable RAM bank 1 - 7
+	wRAM     [7]ram.RAM
+	wRAMBank uint8
 
 	// (0xE000-0xFDFF) - echo of 8kB internal RAM
 	eRAM ram.RAM
@@ -67,6 +71,10 @@ type MMU struct {
 	mockBank ram.RAM
 
 	Log log.Logger
+
+	HDMA *HDMA
+
+	key uint8
 }
 
 // NewMMU returns a new MMU.
@@ -85,6 +93,15 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 		Cart:         cart,
 		iRAM:         ram.NewRAM(0x2000),
 		eRAM:         ram.NewRAM(0x1E00),
+		wRAM: [7]ram.RAM{
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
+		},
 
 		zRAM: ram.NewRAM(0x7F),
 
@@ -95,6 +112,8 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 		Sound:      sound,
 		Log:        l,
 	}
+
+	m.HDMA = NewHDMA(m)
 
 	// load boot depending on cartridge type
 	if cart.Header().Hardware() == "CGB" {
@@ -108,9 +127,21 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 	return m
 }
 
+func (m *MMU) Key() uint8 {
+	return m.key
+}
+
+func (m *MMU) SetKey(key uint8) {
+	m.key = key
+}
+
 // AttachVideo attaches the video component to the MMU.
 func (m *MMU) AttachVideo(video IOBus) {
 	m.Video = video
+}
+
+func (m *MMU) IsGBC() bool {
+	return m.Cart.Header().Hardware() == "CGB"
 }
 
 // EnableMock enables the mock bank.
@@ -141,9 +172,16 @@ func (m *MMU) Read(address uint16) uint8 {
 	// External RAM (0xA000-0xBFFF)
 	case address <= 0xBFFF:
 		return m.Cart.Read(address)
-	// Working RAM (0xC000-0xDFFF)
-	case address <= 0xDFFF:
+	// Working RAM (0xC000-0xCFFF)
+	case address <= 0xCFFF:
 		return m.iRAM.Read(address - 0xC000)
+	// Working RAM (0xD000-0xDFFF) (switchable bank 1-7)
+	case address <= 0xDFFF:
+		if m.IsGBC() {
+			return m.wRAM[m.wRAMBank].Read(address - 0xD000)
+		} else {
+			return m.iRAM.Read(address - 0xD000)
+		}
 	// Working RAM shadow (0xE000-0xFDFF)
 	case address <= 0xFDFF:
 		return m.iRAM.Read(address - 0xE000)
@@ -179,6 +217,20 @@ func (m *MMU) Read(address uint16) uint8 {
 	// GPU (0xFF40-0xFF4B)
 	case address >= 0xFF40 && address <= 0xFF4B:
 		return m.Video.Read(address)
+	case address == 0xFF4C, address == 0xFF4E, address == 0xFF50:
+		return 0xFF
+	case address == 0xFF4D:
+		if m.IsGBC() {
+			return m.key | 0x7e
+		} else {
+			return 0xFF
+		}
+		// HDMA (0xFF51-0xFF55)
+	case address >= 0xFF51 && address <= 0xFF55:
+		return m.HDMA.Read(address)
+	// GPU CGB (0xFF4F-0xFF70)
+	case address == 0xFF4F || address >= 0xFF68 && address <= 0xFF6B:
+		return m.Video.Read(address)
 
 	// Unusable memory (0xFF4C-0xFF7F)
 	case address <= 0xFF7F:
@@ -186,7 +238,7 @@ func (m *MMU) Read(address uint16) uint8 {
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address <= 0xFFFE:
 		return m.zRAM.Read(address - 0xFF80)
-		// InterruptAddress enable register (0xFFFF)
+	// InterruptAddress enable register (0xFFFF)
 	case address == 0xFFFF:
 		return m.Interrupts.Read(address)
 	}
@@ -217,8 +269,15 @@ func (m *MMU) Write(address uint16, value uint8) {
 	case address <= 0xBFFF:
 		m.Cart.Write(address, value)
 	// Working RAM (0xC000-0xDFFF)
-	case address <= 0xDFFF:
+	case address <= 0xCFFF:
 		m.iRAM.Write(address-0xC000, value)
+	// Working RAM (0xD000-0xDFFF) (switchable bank 1-7)
+	case address <= 0xDFFF:
+		if m.IsGBC() {
+			m.wRAM[m.wRAMBank].Write(address-0xD000, value)
+		} else {
+			m.iRAM.Write(address-0xD000, value)
+		}
 	// Working RAM shadow (0xE000-0xFDFF)
 	case address <= 0xFDFF:
 		m.iRAM.Write(address-0xE000, value)
@@ -244,9 +303,24 @@ func (m *MMU) Write(address uint16, value uint8) {
 			m.Sound.Write(address, value)
 		case 0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF46, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B:
 			m.Video.Write(address, value)
-
+		case 0xFF4F, 0xFF68, 0xFF69, 0xFF6A, 0xFF6B:
+			m.Video.Write(address, value)
 		case 0xFF50:
 			m.biosFinished = true
+		case 0xFF4D:
+			if m.IsGBC() {
+				m.key = value
+			}
+		case 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55:
+			m.HDMA.Write(address, value)
+		case 0xFF70:
+			if m.IsGBC() {
+				m.wRAMBank = value & 0b111 // first 3 bits
+				if m.wRAMBank != 0 {
+					m.wRAMBank-- // 0 is bank 1
+				}
+			}
+
 		}
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address <= 0xFFFE:

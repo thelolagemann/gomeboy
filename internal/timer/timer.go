@@ -48,6 +48,12 @@ func NewController(irq *interrupts.Service) *Controller {
 	}
 }
 
+// HasDoubleSpeed returns true as the timer controller responds to
+// double speed mode.
+func (c *Controller) HasDoubleSpeed() bool {
+	return true
+}
+
 // Tick ticks the timer controller.
 func (c *Controller) Tick() {
 	// increment divider register

@@ -353,7 +353,7 @@ var keyMap = map[pixelgl.Button]Input{
 
 	pixelgl.KeyC:           CyclePalette,
 	pixelgl.KeyP:           Pause,
-	pixelgl.KeyLeftControl: Speedup,
+	pixelgl.KeyLeftControl: DumpTilemap,
 }
 
 type Inputs struct {
@@ -366,7 +366,7 @@ const (
 	// CyclePalette changes the palette
 	CyclePalette Input = iota + 8
 	Pause
-	Speedup
+	DumpTilemap
 )
 
 // PollKeys polls the keys and returns the pressed and released keys.
