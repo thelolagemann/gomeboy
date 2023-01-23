@@ -58,6 +58,62 @@ const (
 	//  Bit 3: Serial Interrupt Request (INT 58h)   (1=Request)
 	//  Bit 4: Joypad Interrupt Request (INT 60h)   (1=Request)
 	IF HardwareAddress = 0xFF0F
+	// SCY is the address of the SCY hardware register. The SCY
+	// hardware register is used to control the vertical scroll
+	// position of the background.
+	SCY HardwareAddress = 0xFF42
+	// SCX is the address of the SCX hardware register. The SCX
+	// hardware register is used to control the horizontal scroll
+	// position of the background.
+	SCX HardwareAddress = 0xFF43
+	// LY is the address of the LY hardware register. The LY
+	// hardware register is the current scanline being rendered.
+	// The range of values for LY is 0-153. Writing any value to
+	// LY resets it to 0.
+	LY HardwareAddress = 0xFF44
+	// LYC is the address of the LYC hardware register. This register
+	// is compared to LY. When they are the same, the coincidence flag
+	// in the STAT hardware register is set, and a STAT interrupt is
+	// requested if the coincidence interrupt flag is set.
+	LYC HardwareAddress = 0xFF45
+	// DMA is the address of the DMA hardware register. Writing a value
+	// to DMA transfers 160 bytes of data from ROM or RAM to OAM.
+	DMA HardwareAddress = 0xFF46
+	// BGP is the address of the BGP hardware register. The BGP
+	// hardware register is used to set the shade of grey to use for
+	// the background palette. BGP is only used in DMG mode.
+	//
+	// The palette is set as follows:
+	//  Bit 7-6 - Shade for Color Number 3
+	//  Bit 5-4 - Shade for Color Number 2
+	//  Bit 3-2 - Shade for Color Number 1
+	//  Bit 1-0 - Shade for Color Number 0
+	BGP HardwareAddress = 0xFF47
+	// OBP0 is the address of the OBP0 hardware register. The OBP0
+	// hardware register is used to set the shade of grey to use for
+	// sprite palette 0. OBP0 is only used in DMG mode.
+	//
+	// The palette is set as follows:
+	//  Bit 7-6 - Shade for Color Number 3
+	//  Bit 5-4 - Shade for Color Number 2
+	//  Bit 3-2 - Shade for Color Number 1
+	//  Bit 1-0 - Ignored (always transparent)
+	OBP0 HardwareAddress = 0xFF48
+	// OBP1 is the address of the OBP1 hardware register. The OBP1
+	// hardware register is used to set the shade of grey to use for
+	// sprite palette 1. OBP1 is only used in DMG mode.
+	//
+	// The palette is set as follows:
+	//  Bit 7-6 - Shade for Color Number 3
+	//  Bit 5-4 - Shade for Color Number 2
+	//  Bit 3-2 - Shade for Color Number 1
+	//  Bit 1-0 - Ignored (always transparent)
+	OBP1 HardwareAddress = 0xFF49
+	// WY is the address of the WY hardware register. The WY
+	// hardware register is used to set the Y position of the window.
+	// The window is displayed when WY <= LY < WY + 144.
+	WY HardwareAddress = 0xFF4A
+
 	// IE is the address of the IE hardware register. The IE
 	// hardware register is used to enable interrupts. Writing a 1
 	// to a bit in IE enables the corresponding interrupt, and writing
@@ -136,6 +192,16 @@ func IsWritableMasked(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		h.write = func(address uint16, value uint8) {
 			h.value = value | mask
+		}
+	}
+}
+
+// WithWriteFunc allows the hardware register to be written to
+// with a custom function.
+func WithWriteFunc(write func(h *Hardware, address uint16, value uint8)) HardwareOpt {
+	return func(h *Hardware) {
+		h.write = func(address uint16, value uint8) {
+			write(h, address, value)
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"image"
 )
 
@@ -20,40 +21,6 @@ const (
 )
 
 const (
-	// CurrentScanlineRegister is the address of the Current Scanline Register.
-	// This register contains the current scanline being drawn and is read-only. It
-	// can hold values from 0 to 153. With values from 144 to 153, the PPU is in
-	// V-Blank.
-	CurrentScanlineRegister = 0xFF44
-	// LYCompareRegister is the address of the LY Compare Register. This register
-	// contains the value that the Current Scanline Register is compared to. When
-	// the two registers are equal, the LYC=LY Coincidence flag in the LCD Status
-	// Register is set, and a STAT interrupt is requested.
-	LYCompareRegister = 0xFF45
-	// DMARegister is the address of the DMA Register. This register contains the
-	// address of the ROM or RAM to copy to the PPU's OAM. The address is divided by 100
-	// and the first 160 bytes are copied to the PPU's OAM.
-	DMARegister = 0xFF46
-	// ObjectPalette0Register is the address of the Object Palette 0 Register.
-	// This register contains the color palette for sprite 0, and is only used in DMG
-	// mode. They work exactly the same as the Background Palette Register, except
-	// that the lower two bits are ignored (color index 0 is transparent).
-	//
-	//  Bit 7-6 - Color for Shade 3
-	//  Bit 5-4 - Color for Shade 2
-	//  Bit 3-2 - Color for Shade 1
-	//  Bit 1-0 - Not used
-	ObjectPalette0Register = 0xFF48
-	// ObjectPalette1Register is the address of the Object Palette 1 Register.
-	// This register contains the color palette for sprite 1, and is only used in DMG
-	// mode. They work exactly the same as the Background Palette Register, except
-	// that the lower two bits are ignored (color index 0 is transparent).
-	//
-	//  Bit 7-6 - Color for Shade 3
-	//  Bit 5-4 - Color for Shade 2
-	//  Bit 3-2 - Color for Shade 1
-	//  Bit 1-0 - Not used
-	ObjectPalette1Register = 0xFF49
 	// WindowYRegister is the address of the Window Y Register. This register
 	// contains the Y position of the window. The window is displayed when the
 	// Window Display Enable bit in the LCD Control Register is set to 1, and the
@@ -70,8 +37,8 @@ type PPU struct {
 	*background.Background
 	*lcd.Controller
 	*lcd.Status
-	CurrentScanline uint8
-	LYCompare       uint8
+	CurrentScanline *registers.Hardware
+	LYCompare       *registers.Hardware
 	SpritePalettes  [2]palette.Palette
 	WindowX         uint8
 	WindowY         uint8
@@ -83,9 +50,9 @@ type PPU struct {
 	colourPalette       *palette.CGBPalette
 	colourSpritePalette *palette.CGBPalette
 
-	tileData    [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
-	rawTileData [2][384][16]uint8
-	sprites     [40]Sprite
+	tileData [2][384]*Tile  // 384 tiles, 8x8 pixels each (double in CGB mode)
+	tileMaps [2][2]*TileMap // 32x32 tiles, 8x8 pixels each (double in CGB mode)
+	sprites  [40]Sprite
 
 	irq *interrupts.Service
 
@@ -107,20 +74,29 @@ type PPU struct {
 
 	// new cgb stuff
 
-	tileAttributes [0x800]*TileAttributes // 32x32 tile attributes
+	tileAttributes [1536]*TileAttributes // 32x32 tile attributes
 }
 
 func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	p := &PPU{
-		Background:      background.NewBackground(),
-		Controller:      lcd.NewController(),
-		Status:          lcd.NewStatus(),
-		CurrentScanline: 0,
-		LYCompare:       0,
-		SpritePalettes:  [2]palette.Palette{},
-		WindowX:         0,
-		WindowY:         0,
-		currentCycle:    0,
+		Background: background.NewBackground(),
+		Controller: lcd.NewController(),
+		Status:     lcd.NewStatus(),
+		CurrentScanline: registers.NewHardware(
+			registers.LY,
+			registers.IsReadable(),
+			registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
+				// writing to LY resets it to 0
+				h.Set(0)
+			})),
+		LYCompare: registers.NewHardware(
+			registers.LYC,
+			registers.IsReadable(),
+			registers.IsWritable()),
+		SpritePalettes: [2]palette.Palette{},
+		WindowX:        0,
+		WindowY:        0,
+		currentCycle:   0,
 
 		sprites:  [40]Sprite{},
 		tileData: [2][384]*Tile{},
@@ -136,7 +112,7 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 		DMA:                 NewDMA(mmu),
 		colourPalette:       palette.NewCGBPallette(),
 		colourSpritePalette: palette.NewCGBPallette(),
-		tileAttributes:      [0x800]*TileAttributes{},
+		tileAttributes:      [1536]*TileAttributes{},
 	}
 
 	// initialize sprites
@@ -150,8 +126,10 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	}
 
 	// initialize tile data
-	for i := 0; i < 768; i++ {
-		p.tileData[i/384][i%384] = &Tile{}
+	for i := 0; i < 2; i++ {
+		for j := 0; j < len(p.tileData[0]); j++ {
+			p.tileData[i][j] = &Tile{}
+		}
 	}
 	return p
 }
@@ -165,14 +143,7 @@ func (p *PPU) Read(address uint16) uint8 {
 	// read from VRAM
 	if address >= 0x8000 && address <= 0x9FFF {
 		// are we reading from the tile data?
-		if address >= 0x8000 && address <= 0x97FF {
-			return p.vRAM[p.vRAMBank].Read(address - 0x8000)
-		}
-		// are we reading from the tile attributes?
-		if address >= 0x9800 && address <= 0x9FFF {
-			return p.tileAttributes[address-0x9800].Read(address)
-		}
-		return 0xff
+		return p.vRAM[p.vRAMBank].Read(address - 0x8000)
 	}
 
 	// read from OAM
@@ -189,21 +160,21 @@ func (p *PPU) Read(address uint16) uint8 {
 		return p.Controller.Read(lcd.ControlRegister)
 	case lcd.StatusRegister:
 		return p.Status.Read(lcd.StatusRegister) // bit 7 is always set
-	case background.ScrollYRegister:
+	case registers.SCY:
 		return p.Background.ScrollY
-	case background.ScrollXRegister:
+	case registers.SCX:
 		return p.Background.ScrollX
-	case CurrentScanlineRegister:
-		return p.CurrentScanline
-	case LYCompareRegister:
-		return p.LYCompare
-	case DMARegister:
-		return p.DMA.Read(DMARegister)
-	case background.PaletteRegister:
+	case registers.LY:
+		return p.CurrentScanline.Value()
+	case registers.LYC:
+		return p.LYCompare.Read()
+	case registers.DMA:
+		return p.DMA.Read(registers.DMA)
+	case registers.BGP:
 		return p.Background.Palette.ToByte()
-	case ObjectPalette0Register:
+	case registers.OBP0:
 		return p.SpritePalettes[0].ToByte()
-	case ObjectPalette1Register:
+	case registers.OBP1:
 		return p.SpritePalettes[1].ToByte()
 	case WindowYRegister:
 		return p.WindowY
@@ -254,6 +225,112 @@ func (p *PPU) oamUnlocked() bool {
 	return p.Mode != lcd.OAM && p.Mode != lcd.VRAM
 }
 
+func (p *PPU) DumpTileMap() image.Image {
+	// 2 tilemaps per bank (0x1800 bytes) (32x32 tiles)
+	// 1 byte per tile (0-255)
+	fmt.Println("Dumping tilemaps")
+
+	var img *image.RGBA
+	if p.bus.IsGBC() {
+		img = image.NewRGBA(image.Rect(0, 0, 512, 512))
+	} else {
+		img = image.NewRGBA(image.Rect(0, 0, 256, 256))
+	}
+
+	// draw tilemap (0x9800 - 0x9BFF)
+	for x := 0; x < 32; x++ {
+		for y := 0; y < 32; y++ {
+			// get tile number
+			tileNumber := int(p.vRAM[0].Read(uint16(0x1800 + (y*32 + x))))
+
+			// is it a signed tile number?
+			if p.Controller.UsingSignedTileData() {
+				if tileNumber < 128 {
+					tileNumber += 256
+				}
+			}
+
+			// get tile
+			tile := p.tileData[0][tileNumber]
+			tile.Draw(img, x*8, y*8)
+
+			// get attributes
+			attributes := p.tileAttributes[y*32+x]
+			attributes.Draw(img, x*8, y*8)
+		}
+	}
+
+	// draw tilemap (0x9C00 - 0x9FFF)
+	for x := 0; x < 32; x++ {
+		for y := 0; y < 32; y++ {
+			// get tile number
+			tileNumber := int(p.vRAM[0].Read(uint16(0x1C00 + (y*32 + x))))
+
+			// is it a signed tile number?
+			if p.Controller.UsingSignedTileData() {
+				if tileNumber < 128 {
+					tileNumber += 256
+				}
+			}
+
+			// get tile
+			tile := p.tileData[0][tileNumber]
+			tile.Draw(img, x*8, y*8+256)
+		}
+	}
+
+	if p.bus.IsGBC() {
+		// draw tilemap (0x9800 - 0x9BFF) (bank 1)
+		for x := 0; x < 32; x++ {
+			for y := 0; y < 32; y++ {
+				// get tile number
+				tileNumber := int(p.vRAM[0].Read(uint16(0x1800 + (y*32 + x))))
+
+				// is it a signed tile number?
+				if p.Controller.UsingSignedTileData() {
+					if tileNumber < 128 {
+						tileNumber += 256
+					}
+				}
+
+				// get tile
+				tile := p.tileData[1][tileNumber]
+				tile.Draw(img, x*8+256, y*8)
+			}
+		}
+
+		// draw tilemap (0x9C00 - 0x9FFF) (bank 1)
+		for x := 0; x < 32; x++ {
+			for y := 0; y < 32; y++ {
+				// get tile number
+				tileNumber := int(p.vRAM[0].Read(uint16(0x1C00 + (y*32 + x))))
+
+				// is it a signed tile number?
+				if p.Controller.UsingSignedTileData() {
+					if tileNumber < 128 {
+						tileNumber += 256
+					}
+				}
+
+				// get tile
+				tile := p.tileData[1][tileNumber]
+				tile.Draw(img, x*8+256, y*8+256)
+			}
+		}
+	}
+
+	return img
+}
+
+func (p *PPU) dumpTilemap(img *image.RGBA, offset uint16, x, y int) {
+	for i := 0; i < 32; i++ {
+		for j := 0; j < 32; j++ {
+			tileID := p.vRAM[0].Read(uint16(i*32+j) + offset)
+			p.tileData[p.vRAMBank][tileID].Draw(img, i*8+x, j*8+y)
+		}
+	}
+}
+
 func (p *PPU) DumpTiledata() image.Image {
 	// 3 tilesets of 128 tiles each = 384 tiles total (CGB doubles everything)
 	// 1 tile = 8x8 pixels
@@ -294,10 +371,33 @@ func (p *PPU) colorPaletteUnlocked() bool {
 }
 
 func (p *PPU) WriteVRAM(address uint16, value uint8) {
-	if p.vramUnlocked() {
-		if address <= 0x17FF { // tile data
-			// p.tileData[p.vRAMBank][address] = value
+	// is the VRAM currently locked?
+	if !p.vramUnlocked() {
+		return
+	}
 
+	if p.bus.IsGBC() {
+		// write to the current VRAM bank
+		p.vRAM[p.vRAMBank].Write(address-0x8000, value)
+
+		// are we writing to the tile data?
+		if address >= 0x8000 && address <= 0x97FF {
+			p.UpdateTile(address)
+			// update the tile data
+		} else if address >= 0x9800 && address <= 0x9FFF {
+			// which VRAM bank are we writing to?
+			if p.vRAMBank == 0 {
+				// update the tiles
+				p.UpdateTile(address - 0x1800)
+			} else if address >= 0x9800 && address <= 0x9DFF {
+				// update the tile attributes
+				p.UpdateTileAttributes(address-0x9800, value)
+			}
+		}
+	} else {
+		p.vRAM[0].Write(address-0x8000, value)
+		if address >= 0x8000 && address <= 0x97FF {
+			p.UpdateTile(address)
 		}
 	}
 }
@@ -305,21 +405,7 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 func (p *PPU) Write(address uint16, value uint8) {
 	// write to VRAM
 	if address >= 0x8000 && address <= 0x9FFF {
-		// write the raw data to the VRAM bank currently selected (0+ is CGB only)
-		p.vRAM[p.vRAMBank].Write(address-0x8000, value)
-
-		// are we writing to the tile data?
-		if address >= 0x8000 && address <= 0x97FF {
-			p.UpdateTile(address-0x8000, value)
-			return
-		}
-
-		// are we writing to the tile attributes? (vram bank 1)
-		if address >= 0x9800 && address <= 0x9FFF && p.vRAMBank == 1 {
-			p.UpdateTileAttributes(address-0x9800, value)
-			return
-		}
-
+		p.WriteVRAM(address, value)
 		return
 	}
 	// write to OAM
@@ -347,7 +433,7 @@ func (p *PPU) Write(address uint16, value uint8) {
 			p.SetMode(lcd.HBlank)
 
 			// reset the scanline
-			p.CurrentScanline = 0
+			p.CurrentScanline.Set(0)
 		} else if !wasOn && p.Enabled {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
@@ -361,28 +447,27 @@ func (p *PPU) Write(address uint16, value uint8) {
 		if p.Enabled {
 			p.checkStatInterrupts(false)
 		}
-	case background.ScrollXRegister, background.ScrollYRegister, background.PaletteRegister:
+	case registers.SCY, registers.SCX, registers.BGP:
 		p.Background.Write(address, value)
-	case CurrentScanlineRegister:
-		// writing to this register resets it to 0
-		p.CurrentScanline = 0
-	case LYCompareRegister:
-		p.LYCompare = value
+	case registers.LY:
+		p.CurrentScanline.Write(value)
+	case registers.LYC:
+		p.LYCompare.Set(value)
 
 		// check if the LYC interrupt should be triggered
 		if p.Enabled {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 		}
-	case ObjectPalette0Register:
+	case registers.OBP0:
 		p.SpritePalettes[0] = palette.ByteToPalette(value)
-	case ObjectPalette1Register:
+	case registers.OBP1:
 		p.SpritePalettes[1] = palette.ByteToPalette(value)
 	case WindowXRegister:
 		p.WindowX = value
 	case WindowYRegister:
 		p.WindowY = value
-	case DMARegister:
+	case registers.DMA:
 		p.DMA.Write(address, value)
 	case 0xFF4F:
 		if p.bus.IsGBC() {
@@ -414,45 +499,47 @@ func (p *PPU) UpdateSprite(address uint16, value uint8) {
 	p.sprites[spriteId].UpdateSprite(address, value)
 }
 
-// UpdateTile updates the tile at the given index with the given data.
-func (p *PPU) UpdateTile(index uint16, value uint8) {
-	// get the tileID
-	index &= 0x1FFE // clear the last bit
+// UpdateTile updates the tile at the given address
+func (p *PPU) UpdateTile(index uint16) {
+	// get the tile index
+	index &= 0x1FFE // only the lower 13 bits are used
 
 	// get the tileID
 	tileID := index >> 4
 
 	// get the tile row
-	y := (index >> 1) & 0x07 // clear the last 3 bits
+	row := (index >> 1) & 0x7
 
 	// iterate over the 8 pixels in the row
-	for x := uint16(0); x < 8; x++ {
-		bitIndex := uint8(1 << (7 - x))
+	for i := 0; i < 8; i++ {
+		bitIndex := uint8(1 << (7 - i))
+
+		// get the low and high bits
 		low := 0
 		high := 0
 
-		if p.vRAM[p.vRAMBank].Read(index)&bitIndex != 0 {
+		if p.vRAM[p.vRAMBank].Read((tileID<<4)+(row<<1))&bitIndex != 0 {
 			low = 1
 		}
-		if p.vRAM[p.vRAMBank].Read(index+1)&bitIndex != 0 {
+
+		if p.vRAM[p.vRAMBank].Read((tileID<<4)+(row<<1)+1)&bitIndex != 0 {
 			high = 2
 		}
 
-		// set the pixel in the tile
-		p.tileData[p.vRAMBank][tileID][y][x] = (low + high)
+		// set the pixel
+		p.tileData[p.vRAMBank][tileID][row][i] = int(low + high)
 	}
 }
 
 func (p *PPU) UpdateTileAttributes(index uint16, value uint8) {
 	// panic(fmt.Sprintf("updating tile %x with %b", index, value))
 	// get the ID of the tile being updated (0-383)
-
 	p.tileAttributes[index].Write(index, value)
 }
 
 // checkLYC checks if the LYC interrupt should be triggered.
 func (p *PPU) checkLYC() {
-	if p.CurrentScanline == p.LYCompare {
+	if p.CurrentScanline.Value() == p.LYCompare.Value() {
 		p.Status.Coincidence = true
 	} else {
 		p.Status.Coincidence = false
@@ -521,14 +608,14 @@ func (p *PPU) Tick() {
 		if p.currentCycle == p.hblankCycles() {
 			// reset cycle and increment scanline
 			p.currentCycle = 0
-			p.CurrentScanline++
+			p.CurrentScanline.Increment()
 
 			// check LYC
 			p.checkLYC()
 
 			// check if we've reached the end of the visible screen
 			// and need to enter VBlank
-			if p.CurrentScanline == 144 {
+			if p.CurrentScanline.Value() == 144 {
 				// enter VBBlank mode and trigger VBlank interrupt
 				p.SetMode(lcd.VBlank)
 				p.checkStatInterrupts(true)
@@ -556,16 +643,16 @@ func (p *PPU) Tick() {
 
 			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			p.currentCycle = 0
-			p.CurrentScanline++
+			p.CurrentScanline.Increment()
 
 			// check LYC
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 
-			if p.CurrentScanline >= 153 {
+			if p.CurrentScanline.Value() >= 153 {
 				// reset scanline and enter OAM mode
 				p.SetMode(lcd.OAM)
-				p.CurrentScanline = 0
+				p.CurrentScanline.Set(0)
 				p.WindowYInternal = 0
 
 				// check LYC
@@ -597,7 +684,7 @@ func (p *PPU) Tick() {
 			}
 
 			if p.SpriteEnabled {
-				// p.renderSprites()
+				p.renderSprites()
 			}
 		}
 	}
@@ -627,7 +714,7 @@ func (p *PPU) renderBlank() {
 
 func (p *PPU) renderBlankLine() {
 	for x := 0; x < ScreenWidth; x++ {
-		p.ScreenData[x][p.CurrentScanline] = p.Palette.GetColour(0)
+		p.ScreenData[x][p.CurrentScanline.Value()] = p.Palette.GetColour(0)
 	}
 }
 
@@ -636,7 +723,7 @@ func (p *PPU) renderWindow() {
 	var xPos, yPos uint8
 
 	// do nothing if window is out of bounds
-	if p.CurrentScanline < p.WindowY {
+	if p.CurrentScanline.Value() < p.WindowY {
 		return
 	} else if p.WindowX > ScreenWidth {
 		return
@@ -656,13 +743,15 @@ func (p *PPU) renderWindow() {
 		tileXIndex := uint16(xPos / 8)
 
 		tileID := p.calculateTileID(tileYIndex, tileXIndex)
+		// get the tile attributes for the tile
+		tileAttributes := p.tileAttributes[tileYIndex-p.WindowTileMapAddress+tileXIndex]
 
 		// get pixel position within tile
 		xPixelPos := xPos % 8
 		yPixelPos := yPos % 8
 
 		// get the colour (shade) of the pixel using the background palette
-		pixelShade := p.tileData[p.vRAMBank][tileID][yPixelPos][xPixelPos]
+		pixelShade := p.tileData[tileAttributes.VRAMBank][tileID][yPixelPos][xPixelPos]
 
 		// convert the shade to a colour
 		pixelColour := p.Palette.GetColour(uint8(pixelShade))
@@ -672,7 +761,7 @@ func (p *PPU) renderWindow() {
 		}
 
 		// set the pixel on the screen
-		p.ScreenData[i][p.CurrentScanline] = pixelColour
+		p.ScreenData[i][p.CurrentScanline.Value()] = pixelColour
 	}
 	p.WindowYInternal++
 }
@@ -680,15 +769,19 @@ func (p *PPU) renderWindow() {
 func (p *PPU) renderBackground() {
 	var xPos, yPos uint8
 
-	yPos = p.CurrentScanline + p.ScrollY
+	yPos = p.CurrentScanline.Value() + p.ScrollY
 	tileYIndex := p.BackgroundTileMapAddress + uint16(yPos/8)*32
 
 	for i := uint8(0); i < ScreenWidth; i++ {
+		// determine the x position of the pixel
 		xPos = i + p.ScrollX
 		tileXIndex := uint16(xPos / 8)
+
+		// determine the tile ID to draw from the tile map
 		tileID := uint16(p.calculateTileID(tileYIndex, tileXIndex))
 
-		tileAttributes := p.tileAttributes[tileID]
+		// get the tile attributes for the tile
+		tileAttributes := p.tileAttributes[tileYIndex-p.BackgroundTileMapAddress+tileXIndex]
 
 		// get pixel position within tile
 		xPixelPos := xPos % 8
@@ -713,14 +806,14 @@ func (p *PPU) renderBackground() {
 		if p.bus.IsGBC() {
 			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, byte(pixelShade))
 		}
-		p.ScreenData[i][p.CurrentScanline] = pixelColour
+		p.ScreenData[i][p.CurrentScanline.Value()] = pixelColour
 	}
 
 }
 
 // calculateTileID calculates the tile ID for the current scanline
 func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint16) int {
-	// determine the tile ID
+	// determine the tile ID (tile map is always located in VRAM bank 0)
 	tileID := int(p.vRAM[0].Read(tilemapOffset + lineOffset - 0x8000))
 
 	// if the tile ID is signed, we need to convert it to an unsigned value
@@ -740,7 +833,7 @@ func (p *PPU) renderSprites() {
 
 	for _, sprite := range p.sprites {
 
-		if sprite.Y > p.CurrentScanline || sprite.Y+p.SpriteSize <= p.CurrentScanline {
+		if sprite.Y > p.CurrentScanline.Value() || sprite.Y+p.SpriteSize <= p.CurrentScanline.Value() {
 			continue
 		}
 		if spriteCount >= 10 {
@@ -748,14 +841,14 @@ func (p *PPU) renderSprites() {
 		}
 		spriteCount++
 
-		tilerowIndex := p.CurrentScanline - sprite.Y
+		tilerowIndex := p.CurrentScanline.Value() - sprite.Y
 		if sprite.FlipY {
 			tilerowIndex = p.SpriteSize - tilerowIndex - 1
 		}
 		tilerowIndex %= 8
 		tileID := uint16(sprite.tileID)
 		if p.SpriteSize == 16 {
-			if p.CurrentScanline-sprite.Y < 8 {
+			if p.CurrentScanline.Value()-sprite.Y < 8 {
 				if sprite.FlipY {
 					tileID |= 0x01
 				} else {
@@ -791,7 +884,7 @@ func (p *PPU) renderSprites() {
 
 			// skip if the sprite doesn't have priority and the background is not transparent
 			if p.BackgroundEnabled {
-				if !sprite.Priority && p.ScreenData[pixelPos][p.CurrentScanline] != p.SpritePalettes[sprite.UseSecondPalette].GetColour(0) {
+				if !sprite.Priority && p.ScreenData[pixelPos][p.CurrentScanline.Value()] != p.SpritePalettes[sprite.UseSecondPalette].GetColour(0) {
 					continue
 				}
 			}
@@ -802,7 +895,7 @@ func (p *PPU) renderSprites() {
 			}
 
 			// draw the pixel
-			p.ScreenData[pixelPos][p.CurrentScanline] = p.SpritePalettes[sprite.UseSecondPalette].GetColour(uint8(color))
+			p.ScreenData[pixelPos][p.CurrentScanline.Value()] = p.SpritePalettes[sprite.UseSecondPalette].GetColour(uint8(color))
 
 			// mark the pixel as occupied
 			spriteXPerScreen[pixelPos] = sprite.X

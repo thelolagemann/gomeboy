@@ -9,4 +9,7 @@ type Peripheral interface {
 	// peripheral to update its state. Each call to Tick should
 	// advance the peripheral by one tick.
 	Tick()
+	// HasDoubleSpeed returns true if the peripheral is affected by
+	// the double speed mode.
+	HasDoubleSpeed() bool
 }

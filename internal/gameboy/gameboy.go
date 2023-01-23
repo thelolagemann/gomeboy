@@ -207,13 +207,25 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 		},
 		10: func() {
-			img := g.ppu.DumpTiledata()
+			img := g.ppu.DumpTileMap()
 
 			f, err := os.Create("tilemap.png")
 			if err != nil {
 				panic(err)
 			}
 			defer f.Close()
+			if err := png.Encode(f, img); err != nil {
+				panic(err)
+			}
+
+			img = g.ppu.DumpTiledata()
+
+			f, err = os.Create("tiledata.png")
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
+
 			if err := png.Encode(f, img); err != nil {
 				panic(err)
 			}
