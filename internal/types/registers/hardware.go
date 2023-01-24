@@ -58,6 +58,37 @@ const (
 	//  Bit 3: Serial Interrupt Request (INT 58h)   (1=Request)
 	//  Bit 4: Joypad Interrupt Request (INT 60h)   (1=Request)
 	IF HardwareAddress = 0xFF0F
+	// LCDC is the address of the LCDC hardware register. The LCDC
+	// hardware register is used to control the LCD.
+	//
+	// The register is set as follows:
+	//
+	//  Bit 7: LCD Enable             (0=Off, 1=On)
+	//  Bit 6: Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
+	//  Bit 5: Window Display Enable          (0=Off, 1=On)
+	//  Bit 4: BG & Window Tile Data Select   (0=8800-97FF, 1=8000-8FFF)
+	//  Bit 3: BG Tile Map Display Select     (0=9800-9BFF, 1=9C00-9FFF)
+	//  Bit 2: OBJ (Sprite) Size              (0=8x8, 1=8x16)
+	//  Bit 1: OBJ (Sprite) Display Enable    (0=Off, 1=On)
+	//  Bit 0: BG Display (for CGB see below) (0=Off, 1=On)
+	LCDC HardwareAddress = 0xFF40
+	// STAT is the address of the STAT hardware register. The STAT
+	// hardware register contains the status of the LCD, and is used
+	// to report the mode the LCD is in, and to request LCD interrupts.
+	//
+	// The register is set as follows:
+	//
+	//  Bit 6: LYC=LY Coincidence Interrupt (1=Enable) (Read/Write)
+	//  Bit 5: Mode 2 OAM Interrupt         (1=Enable) (Read/Write)
+	//  Bit 4: Mode 1 V-Blank Interrupt     (1=Enable) (Read/Write)
+	//  Bit 3: Mode 0 H-Blank Interrupt     (1=Enable) (Read/Write)
+	//  Bit 2: Coincidence Flag  (0:LYC<>LY, 1:LYC=LY) (Read Only)
+	//  Bit 1-0: Mode Flag       (Mode 0-3, see below) (Read Only)
+	//           0: During H-Blank
+	//           1: During V-Blank
+	//           2: During Searching OAM-RAM
+	//           3: During Transfering Data to LCD Driver
+	STAT HardwareAddress = 0xFF41
 	// SCY is the address of the SCY hardware register. The SCY
 	// hardware register is used to control the vertical scroll
 	// position of the background.
@@ -111,9 +142,16 @@ const (
 	OBP1 HardwareAddress = 0xFF49
 	// WY is the address of the WY hardware register. The WY
 	// hardware register is used to set the Y position of the window.
-	// The window is displayed when WY <= LY < WY + 144.
+	// The window is visible when (if enabled) when both WY and WX
+	// are in the ranges WX=0..166, WY=0..143 respectively. Values
+	// WX=7 and WY=0 locates the window at the top left of the LCD.
 	WY HardwareAddress = 0xFF4A
-
+	// WX is the address of the WX hardware register. The WX
+	// hardware register is used to set the X position of the window.
+	// The window is visible when (if enabled) when both WY and WX
+	// are in the ranges WX=0..166, WY=0..143 respectively. Values
+	// WX=7 and WY=0 locates the window at the top left of the LCD.
+	WX HardwareAddress = 0xFF4B
 	// IE is the address of the IE hardware register. The IE
 	// hardware register is used to enable interrupts. Writing a 1
 	// to a bit in IE enables the corresponding interrupt, and writing

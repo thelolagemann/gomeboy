@@ -157,9 +157,9 @@ func (h *Header) GameboyColor() bool {
 
 func (h *Header) Hardware() string {
 	switch h.CartridgeGBMode {
-	case FlagOnlyDMG, FlagSupportsCGB:
+	case FlagOnlyDMG:
 		return "DMG"
-	case FlagOnlyCGB:
+	case FlagOnlyCGB, FlagSupportsCGB:
 		return "CGB"
 	default:
 		return "Unknown"

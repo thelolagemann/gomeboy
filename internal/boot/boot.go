@@ -16,8 +16,7 @@ import (
 // over the boot rom, thus starting the cartridge execution, and
 // preventing the boot rom from being executed again.
 type ROM struct {
-	raw         []byte
-	md5Checksum string
+	raw []byte
 }
 
 // NewBootROM returns a new boot rom for the Game
@@ -29,6 +28,18 @@ type ROM struct {
 //  1. The boot rom is not a valid length (256 or 2304 bytes)
 //  2. The boot rom does not match the provided MD5 checksum
 //  3. The provided MD5 checksum is not a valid MD5 checksum (32 characters)
+//
+// Several checksums for various boot roms are provided in the
+// boot package for convenience, and can be used to verify the
+// provided boot rom. There are two boot roms provided in the
+// boot package, one for the DMG/MGB/SGB, and one for the CGB.
+//
+//	 Example:
+//
+//		// loading the DMG boot rom
+//		boot.NewBootROM(boot.DMGBootROM[:], boot.DMGBootROMChecksum)
+//		// loading the CGB boot rom
+//		boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
 func NewBootROM(raw []byte, md5Checksum string) *ROM {
 	// ensure correct lengths
 	if len(raw) != 256 && len(raw) != 2304 { // 256 bytes for DMG/MGB/SGB, 2304 bytes for CGB
@@ -45,8 +56,7 @@ func NewBootROM(raw []byte, md5Checksum string) *ROM {
 	}
 
 	return &ROM{
-		raw:         raw,
-		md5Checksum: md5Checksum,
+		raw: raw,
 	}
 }
 
@@ -64,30 +74,30 @@ func (b *ROM) Write(addr uint16, val byte) {
 
 // known boot rom checksums
 const (
-	// DMGEarlyBootRomChecksum is the checksum of the DMG early boot rom,
+	// DMGEarlyBootROMChecksum is the checksum of the DMG early boot rom,
 	// a variant that was found in very early DMG units, only ever sold
 	// in Japan.
-	DMGEarlyBootRomChecksum = "a8f84a0ac44da5d3f0ee19f9cea80a8c"
-	// DMGBootRomChecksum is the checksum of the DMG boot rom, which is
+	DMGEarlyBootROMChecksum = "a8f84a0ac44da5d3f0ee19f9cea80a8c"
+	// DMBBootROMChecksum is the checksum of the DMG boot rom, which is
 	// the boot rom found in the original B&W Game Boy.
-	DMGBootRomChecksum = "32fbbd84168d3482956eb3c5051637f5"
-	// MGBBootRomChecksum is the checksum of the MGB boot rom, which differs
+	DMBBootROMChecksum = "32fbbd84168d3482956eb3c5051637f5"
+	// MGBBootROMChecksum is the checksum of the MGB boot rom, which differs
 	// only by a single byte from the DMG boot rom, used to identify the
 	// MGB.
-	MGBBootRomChecksum = "71a378e71ff30b2d8a1f02bf5c7896aa"
-	// CGBEarlyBootRomChecksum is the checksum of the CGB early boot rom,
+	MGBBootROMChecksum = "71a378e71ff30b2d8a1f02bf5c7896aa"
+	// CGBEarlyBootROMChecksum is the checksum of the CGB early boot rom,
 	// a variant that was found in very early CGB units, only ever sold
 	// in Japan.
-	CGBEarlyBootRomChecksum = "7c773f3c0b01cb73bca8e83227287b7f"
-	// CGBBootRomChecksum is the checksum of the CGB boot rom, which is
+	CGBEarlyBootROMChecksum = "7c773f3c0b01cb73bca8e83227287b7f"
+	// CGBBootROMChecksum is the checksum of the CGB boot rom, which is
 	// the boot rom found in the original CGB.
-	CGBBootRomChecksum = "dbfce9db9deaa2567f6a84fde55f9680"
+	CGBBootROMChecksum = "dbfce9db9deaa2567f6a84fde55f9680"
 )
 
-// DMGBootRom is a boot rom for the DMG. This boot rom
+// DMGBootROM is a boot rom for the DMG. This boot rom
 // should be 256 bytes in length, and will be used to
 // initialize the DMG hardware.
-var DMGBootRom = [0x100]byte{}
+var DMGBootROM = [0x100]byte{}
 
 // CGBBootROM is a boot rom for the CGB. This boot rom
 // should be 2304 bytes in length, and will be used to
@@ -101,7 +111,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	copy(DMGBootRom[:], dmgBootRom)
+	copy(DMGBootROM[:], dmgBootRom)
 
 	cgbBootRom, err := os.ReadFile("boot/cgb_boot.bin")
 	if err != nil {
