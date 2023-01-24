@@ -197,10 +197,9 @@ func (c *CPU) registerName(reg *Register) string {
 func (c *CPU) Step() uint16 {
 	// reset tick counter
 	c.currentTick = 0
-
 	// should we tick HDMA?
-	if c.mmu.HDMA.IsCopying() {
-		c.mmu.HDMA.Tick()
+	if c.mmu.HDMA.IsCopying() && c.mmu.IsGBC() {
+		c.hdmaTick4()
 		return 4
 	}
 

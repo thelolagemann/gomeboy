@@ -118,10 +118,10 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 	// load boot depending on cartridge type
 	if cart.Header().Hardware() == "CGB" {
 		// TODO load cgb boot
-		m.bios = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootRomChecksum)
+		m.bios = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
 	} else {
 		// load dmg boot
-		m.bios = boot.NewBootROM(boot.DMGBootRom[:], boot.DMGBootRomChecksum)
+		m.bios = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
 	}
 
 	return m
@@ -173,15 +173,11 @@ func (m *MMU) Read(address uint16) uint8 {
 	case address <= 0xBFFF:
 		return m.Cart.Read(address)
 	// Working RAM (0xC000-0xCFFF)
-	case address <= 0xCFFF:
-		return m.iRAM.Read(address - 0xC000)
-	// Working RAM (0xD000-0xDFFF) (switchable bank 1-7)
 	case address <= 0xDFFF:
-		if m.IsGBC() {
+		if m.IsGBC() && address >= 0xD000 && address <= 0xDFFF {
 			return m.wRAM[m.wRAMBank].Read(address - 0xD000)
-		} else {
-			return m.iRAM.Read(address - 0xD000)
 		}
+		return m.iRAM.Read(address - 0xC000)
 	// Working RAM shadow (0xE000-0xFDFF)
 	case address <= 0xFDFF:
 		return m.iRAM.Read(address - 0xE000)

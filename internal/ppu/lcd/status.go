@@ -1,12 +1,8 @@
 package lcd
 
 import (
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
-)
-
-const (
-	// StatusRegister is the address of the status register.
-	StatusRegister = 0xFF41
 )
 
 // Status represents the LCD status register. It contains information about the
@@ -59,7 +55,7 @@ func (s *Status) SetMode(mode Mode) {
 
 // Write writes the value to the status register.
 func (s *Status) Write(address uint16, value uint8) {
-	if address != StatusRegister {
+	if address != registers.STAT {
 		panic("illegal write for LCDStatus")
 	}
 	s.CoincidenceInterrupt = utils.Test(value, 6)
@@ -70,7 +66,7 @@ func (s *Status) Write(address uint16, value uint8) {
 
 // Read returns the value of the status register.
 func (s *Status) Read(address uint16) uint8 {
-	if address != StatusRegister {
+	if address != registers.STAT {
 		panic("illegal read for LCDStatus")
 	}
 	var value uint8

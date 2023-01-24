@@ -58,7 +58,7 @@ func (s *SpriteAttributes) Update(attribute int, value uint8) {
 		} else {
 			s.UseSecondPalette = 0
 		}
-		s.VRAMBank = value & 0x08
+		s.VRAMBank = (value >> 3) & 0x01
 		s.CGBPalette = value & 0x07
 	}
 }

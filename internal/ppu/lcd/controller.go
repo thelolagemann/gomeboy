@@ -2,12 +2,8 @@ package lcd
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
-)
-
-const (
-	// ControlRegister is the address of the LCD control register.
-	ControlRegister = 0xFF40
 )
 
 // Controller is the LCD controller. It is responsible for controlling various
@@ -80,7 +76,7 @@ func NewController() *Controller {
 // Write writes the value to the LCD controller.
 func (c *Controller) Write(address uint16, value uint8) {
 	switch address {
-	case ControlRegister:
+	case registers.LCDC:
 		// detect a rising edge on the LCD enable bit
 		if !c.Enabled && utils.Test(value, 7) {
 			c.cleared = false
@@ -114,7 +110,7 @@ func (c *Controller) Write(address uint16, value uint8) {
 // Read reads the value from the LCD controller.
 func (c *Controller) Read(address uint16) uint8 {
 	switch address {
-	case ControlRegister:
+	case registers.LCDC:
 		var value uint8
 		if c.Enabled {
 			value |= 1 << 7
