@@ -223,7 +223,11 @@ func (m *MMU) Read(address uint16) uint8 {
 		}
 		// HDMA (0xFF51-0xFF55)
 	case address >= 0xFF51 && address <= 0xFF55:
-		return m.HDMA.Read(address)
+		if m.IsGBC() {
+			return m.HDMA.Read(address)
+		} else {
+			return 0xFF
+		}
 	// GPU CGB (0xFF4F-0xFF70)
 	case address == 0xFF4F || address >= 0xFF68 && address <= 0xFF6B:
 		return m.Video.Read(address)
@@ -272,7 +276,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 		if m.IsGBC() {
 			m.wRAM[m.wRAMBank].Write(address-0xD000, value)
 		} else {
-			m.iRAM.Write(address-0xD000, value)
+			m.iRAM.Write(address-0xC000, value)
 		}
 	// Working RAM shadow (0xE000-0xFDFF)
 	case address <= 0xFDFF:
@@ -308,7 +312,9 @@ func (m *MMU) Write(address uint16, value uint8) {
 				m.key = value
 			}
 		case 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55:
-			m.HDMA.Write(address, value)
+			if m.IsGBC() {
+				m.HDMA.Write(address, value)
+			}
 		case 0xFF70:
 			if m.IsGBC() {
 				m.wRAMBank = value & 0b111 // first 3 bits

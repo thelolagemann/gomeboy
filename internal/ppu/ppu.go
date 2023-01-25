@@ -59,6 +59,8 @@ type PPU struct {
 
 	currentFramePalette palette.Colour
 
+	tileBgPriority [ScreenWidth][ScreenHeight]bool
+
 	// new cgb stuff
 
 	tileAttributes [2048]*TileAttributes // 32x32 tile attributes
@@ -135,7 +137,7 @@ func (p *PPU) Read(address uint16) uint8 {
 
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		if p.oamUnlocked() && !p.DMA.IsTransferring() {
+		if p.oamUnlocked() {
 			return p.oam.Read(address - 0xFE00)
 		}
 		return 0xff
@@ -263,46 +265,10 @@ func (p *PPU) DumpTileMap() image.Image {
 			// get tile
 			tile := p.tileData[0][tileNumber]
 			tile.Draw(img, x*8, y*8+256)
-		}
-	}
 
-	if p.bus.IsGBC() {
-		// draw tilemap (0x9800 - 0x9BFF) (bank 1)
-		for x := 0; x < 32; x++ {
-			for y := 0; y < 32; y++ {
-				// get tile number
-				tileNumber := int(p.vRAM[0].Read(uint16(0x1800 + (y*32 + x))))
-
-				// is it a signed tile number?
-				if p.Controller.UsingSignedTileData() {
-					if tileNumber < 128 {
-						tileNumber += 256
-					}
-				}
-
-				// get tile
-				tile := p.tileData[1][tileNumber]
-				tile.Draw(img, x*8+256, y*8)
-			}
-		}
-
-		// draw tilemap (0x9C00 - 0x9FFF) (bank 1)
-		for x := 0; x < 32; x++ {
-			for y := 0; y < 32; y++ {
-				// get tile number
-				tileNumber := int(p.vRAM[0].Read(uint16(0x1C00 + (y*32 + x))))
-
-				// is it a signed tile number?
-				if p.Controller.UsingSignedTileData() {
-					if tileNumber < 128 {
-						tileNumber += 256
-					}
-				}
-
-				// get tile
-				tile := p.tileData[1][tileNumber]
-				tile.Draw(img, x*8+256, y*8+256)
-			}
+			// get attributes
+			attributes := p.tileAttributes[y*32+x+1024]
+			attributes.Draw(img, x*8, y*8+256)
 		}
 	}
 
@@ -327,7 +293,7 @@ func (p *PPU) DumpTiledata() image.Image {
 	// CGB = 512 * 96 = 49152 pixels total
 	var img *image.RGBA
 	if p.bus.IsGBC() {
-		img = image.NewRGBA(image.Rect(0, 0, 512, 96))
+		img = image.NewRGBA(image.Rect(0, 0, 256, 192))
 	} else {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 96))
 	}
@@ -343,8 +309,8 @@ func (p *PPU) DumpTiledata() image.Image {
 	if p.bus.IsGBC() {
 		for i, tile := range p.tileData[1] {
 			// calculate the x and y position of the tile
-			x := (i%32)*8 + 256
-			y := (i / 32) * 8
+			x := (i % 32) * 8
+			y := (i/32)*8 + 96
 
 			tile.Draw(img, x, y)
 		}
@@ -703,7 +669,6 @@ func (p *PPU) renderBlankLine() {
 }
 
 func (p *PPU) renderWindow() {
-	//fmt.Println("rendering window")
 	var xPos, yPos uint8
 
 	// do nothing if window is out of bounds
@@ -716,7 +681,15 @@ func (p *PPU) renderWindow() {
 	}
 
 	yPos = p.WindowYInternal
-	tileYIndex := p.WindowTileMapAddress + uint16(yPos)/8*32
+	tileYIndex := uint16(yPos) / 8 * 32
+
+	var mapOffset uint16
+
+	if p.WindowTileMapAddress == 0x9800 {
+		mapOffset = 0x1800
+	} else {
+		mapOffset = 0x1C00
+	}
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		if i < p.WindowX-7 {
@@ -726,9 +699,9 @@ func (p *PPU) renderWindow() {
 		xPos = i - (p.WindowX - 7)
 		tileXIndex := uint16(xPos / 8)
 
-		tileID := uint16(p.calculateTileID(tileYIndex, tileXIndex))
+		tileID := uint16(p.calculateTileID(p.WindowTileMapAddress+tileYIndex, tileXIndex))
 		// get the tile attributes for the tile
-		tileAttributes := p.tileAttributes[tileYIndex+tileXIndex-p.WindowTileMapAddress]
+		tileAttributes := p.tileAttributes[mapOffset-0x1800+tileYIndex+tileXIndex]
 
 		// get pixel position within tile
 		xPixelPos := xPos % 8
@@ -752,6 +725,7 @@ func (p *PPU) renderWindow() {
 
 		if p.bus.IsGBC() {
 			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, uint8(pixelShade))
+			p.tileBgPriority[i][p.CurrentScanline.Value()] = tileAttributes.UseBGPriority
 		}
 
 		// set the pixel on the screen
@@ -764,7 +738,14 @@ func (p *PPU) renderBackground() {
 	var xPos, yPos uint8
 
 	yPos = p.CurrentScanline.Value() + p.ScrollY
-	tileYIndex := p.BackgroundTileMapAddress + uint16(yPos/8)*32
+	tileYIndex := uint16(yPos/8) * 32
+
+	var mapOffset uint16
+	if p.BackgroundTileMapAddress == 0x9800 {
+		mapOffset = 0x1800
+	} else {
+		mapOffset = 0x1C00
+	}
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// determine the x position of the pixel
@@ -772,10 +753,10 @@ func (p *PPU) renderBackground() {
 		tileXIndex := uint16(xPos / 8)
 
 		// determine the tile ID to draw from the tile map
-		tileID := uint16(p.calculateTileID(tileYIndex, tileXIndex))
+		tileID := uint16(p.calculateTileID(p.BackgroundTileMapAddress+tileYIndex, tileXIndex))
 
 		// get the tile attributes for the tile
-		tileAttributes := p.tileAttributes[tileYIndex+tileXIndex-p.BackgroundTileMapAddress]
+		tileAttributes := p.tileAttributes[mapOffset-0x1800+tileYIndex+tileXIndex]
 
 		// get pixel position within tile
 		xPixelPos := xPos % 8
@@ -799,6 +780,7 @@ func (p *PPU) renderBackground() {
 
 		if p.bus.IsGBC() {
 			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, byte(pixelShade))
+			p.tileBgPriority[i][p.CurrentScanline.Value()] = tileAttributes.UseBGPriority
 		}
 		p.ScreenData[i][p.CurrentScanline.Value()] = pixelColour
 	}
@@ -878,8 +860,13 @@ func (p *PPU) renderSprites() {
 
 			// skip if the sprite doesn't have priority and the background is not transparent
 			if !p.bus.IsGBC() || p.BackgroundEnabled {
-				if !sprite.Priority && p.ScreenData[pixelPos][p.CurrentScanline.Value()] != p.SpritePalettes[sprite.UseSecondPalette].GetColour(0) {
-					continue
+				if !(sprite.Priority && !p.tileBgPriority[pixelPos][p.CurrentScanline.Value()]) {
+					if p.bus.IsGBC() {
+						// is the background using color 0 from palette 0? if so, we can draw the sprite
+						if p.ScreenData[pixelPos][p.CurrentScanline.Value()] != p.colourPalette.GetColour(sprite.CGBPalette, 0) {
+							continue
+						}
+					}
 				}
 			}
 
