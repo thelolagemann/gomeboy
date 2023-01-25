@@ -161,6 +161,12 @@ var unreadableRegisters = []uint16{
 	0xFF26,
 }
 
+// HasDoubleSpeed returns false as the APU does not respond
+// to double speed mode.
+func (a *APU) HasDoubleSpeed() bool {
+	return false
+}
+
 // Read returns the value at the given address.
 func (a *APU) Read(address uint16) uint8 {
 	for _, reg := range unreadableRegisters {
