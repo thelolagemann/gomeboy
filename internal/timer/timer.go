@@ -7,12 +7,7 @@ package timer
 import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-)
-
-const (
-	// DividerRegister is the address of the timer divider register.
-	// It is incremented at a rate specified by the TimerControlRegister.
-	DividerRegister = 0xFF04
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
 // Controller is a timer controller. It is used to generate
@@ -110,13 +105,13 @@ func (c *Controller) multiplexer() uint16 {
 // Read reads a byte from the timer controller.
 func (c *Controller) Read(addr uint16) uint8 {
 	switch addr {
-	case DividerRegister:
+	case registers.DIV:
 		return uint8(c.divider >> 8)
-	case 0xFF05:
+	case registers.TIMA:
 		return c.tima
-	case 0xFF06:
+	case registers.TMA:
 		return c.tma
-	case 0xFF07:
+	case registers.TAC:
 		return c.tac | 0xF8
 	}
 	panic(fmt.Sprintf("timer: illegal read from %x", addr))
@@ -125,9 +120,9 @@ func (c *Controller) Read(addr uint16) uint8 {
 // Write writes a byte to the timer controller.
 func (c *Controller) Write(addr uint16, val uint8) {
 	switch addr {
-	case DividerRegister:
+	case registers.DIV:
 		c.divider = 0
-	case 0xFF05:
+	case registers.TIMA:
 		// writes to TIMA are ignored if written the same tick it is
 		// reloading
 		if c.ticksSinceOverflow != 5 {
@@ -135,14 +130,14 @@ func (c *Controller) Write(addr uint16, val uint8) {
 			c.overflow = false
 			c.ticksSinceOverflow = 0
 		}
-	case 0xFF06:
+	case registers.TMA:
 		c.tma = val
 		// if you write to TMA the same tick that TIMA is reloading,
 		// TIMA will be set to the new value of TMA
 		if c.ticksSinceOverflow == 5 {
 			c.tima = val
 		}
-	case 0xFF07:
+	case registers.TAC:
 		wasEnabled := c.enabled
 		oldBit := c.currentBit
 

@@ -76,7 +76,7 @@ const (
 	// hardware register contains the status of the LCD, and is used
 	// to report the mode the LCD is in, and to request LCD interrupts.
 	//
-	// The register is set as follows:
+	//  The register is set as follows:
 	//
 	//  Bit 6: LYC=LY Coincidence Interrupt (1=Enable) (Read/Write)
 	//  Bit 5: Mode 2 OAM Interrupt         (1=Enable) (Read/Write)

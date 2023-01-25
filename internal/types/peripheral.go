@@ -10,6 +10,8 @@ type Peripheral interface {
 	// advance the peripheral by one tick.
 	Tick()
 	// HasDoubleSpeed returns true if the peripheral is affected by
-	// the double speed mode.
+	// the double speed mode. If this returns true, the CPU will
+	// call Tick twice as fast, when the double speed mode is
+	// enabled. (CGB only)
 	HasDoubleSpeed() bool
 }
