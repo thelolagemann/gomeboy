@@ -30,7 +30,7 @@ func NewHDMA(bus IOBus) *HDMA {
 		mode:         GDMAMode,
 		transferring: false,
 		copying:      false,
-		blocks:       1,
+		blocks:       0x01,
 
 		bus: bus,
 	}
@@ -78,7 +78,7 @@ func (h *HDMA) Write(address uint16, value uint8) {
 		} else {
 			// start copy
 			h.mode = value >> 7
-			h.blocks = value&0x7F + 1
+			h.blocks = (value & 0x7F) + 1
 
 			h.transferring = true
 		}
@@ -95,7 +95,6 @@ func (h *HDMA) Write(address uint16, value uint8) {
 func (h *HDMA) Tick() {
 	// write to vram
 	h.bus.Write(h.destination+0x8000, h.bus.Read(h.source))
-	fmt.Printf("writing %02X to %04X from %04X\n", h.bus.Read(h.source), h.destination&0x1FFF, h.source)
 	h.destination++
 	h.source++
 

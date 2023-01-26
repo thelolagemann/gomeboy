@@ -177,7 +177,6 @@ func (m *MMU) Read(address uint16) uint8 {
 		return m.wRAM[0].Read(address - 0xC000)
 	case address >= 0xD000 && address <= 0xDFFF:
 		if m.IsGBC() {
-			fmt.Println("reading from wram bank", m.wRAMBank)
 			return m.wRAM[m.wRAMBank].Read(address - 0xD000)
 		}
 		return m.wRAM[1].Read(address - 0xD000)

@@ -113,28 +113,25 @@ func (g *GameBoy) Start(mon *display.Display) {
 	// create a ticker to update the display
 	ticker := time.NewTicker(FrameTime)
 
-	// main loop
-	for {
-		select {
-		case <-ticker.C:
-			// update fps counter
-			g.frames++
-			if !g.paused {
-				// render frame
+	for !mon.IsClosed() {
+		g.frames++
 
-				g.ProcessInputs(mon.PollKeys())
-				mon.Render(g.Frame())
-			}
-			if time.Since(start) > time.Second {
-				title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), g.frames)
-				mon.SetTitle(title)
-
-				g.frames = 0
-				start = time.Now()
-			}
+		if !g.paused {
+			// render frame
+			g.ProcessInputs(mon.PollKeys())
+			mon.Render(g.Frame())
 		}
-	}
+		if time.Since(start) > time.Second {
+			title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), g.frames)
+			mon.SetTitle(title)
 
+			g.frames = 0
+			start = time.Now()
+		}
+
+		// wait for tick
+		<-ticker.C
+	}
 }
 
 // Frame will step the emulation until the PPU has finished
