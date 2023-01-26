@@ -328,7 +328,6 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 	// if !p.vramUnlocked() {
 	//	return
 	// }
-
 	if p.bus.IsGBC() {
 		// write to the current VRAM bank
 		p.vRAM[p.vRAMBank].Write(address&0x1FFF, value)
@@ -338,6 +337,7 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 			p.UpdateTile(address)
 			// update the tile data
 		} else if address >= 0x9800 && address <= 0x9FFF {
+			// TODO tilemap	// update the tile map
 			// update the tile attributes
 			if p.vRAMBank == 1 {
 				p.UpdateTileAttributes(address-0x9800, value)
@@ -360,9 +360,11 @@ func (p *PPU) Write(address uint16, value uint8) {
 	}
 	// write to OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
-		p.oam.Write(address-0xFE00, value)
-		// update sprite data
-		p.UpdateSprite(address-0xFE00, value)
+		if p.oamUnlocked() {
+			p.oam.Write(address-0xFE00, value)
+			// update sprite data
+			p.UpdateSprite(address-0xFE00, value)
+		}
 
 		return
 	}

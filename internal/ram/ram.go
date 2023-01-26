@@ -37,8 +37,8 @@ func (r *ram) Read(address uint16) uint8 {
 
 // Write writes the value to the given address.
 func (r *ram) Write(address uint16, value uint8) {
-	if uint32(address) > r.size {
-		panic(fmt.Sprintf("RAM: address out of bounds: %X", address))
+	if address > uint16(r.size) {
+		panic(fmt.Sprintf("RAM: address out of bounds: %04x with len %d", address, r.size))
 	}
 	r.data[address] = value
 }

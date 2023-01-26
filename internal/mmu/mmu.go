@@ -9,6 +9,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/boot"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
@@ -39,10 +40,9 @@ type MMU struct {
 	// (0xA000-0xBFFF) - external RAM TODO implement RAM bank switching
 
 	// (0xC000-0xCFFF) - internal RAM bank 0 fixed
-	iRAM ram.RAM
 
 	// (0xD000-0xDFFF) - internal switchable RAM bank 1 - 7
-	wRAM     [7]ram.RAM
+	wRAM     [8]ram.RAM
 	wRAMBank uint8
 
 	// (0xE000-0xFDFF) - echo of 8kB internal RAM
@@ -91,10 +91,10 @@ func NewMMU(cart *cartridge.Cartridge, joypad, serial, timer, interrupts, sound 
 	m := &MMU{
 		biosFinished: false,
 		Cart:         cart,
-		iRAM:         ram.NewRAM(0x2000),
 		eRAM:         ram.NewRAM(0x1E00),
-		wRAM: [7]ram.RAM{
-			ram.NewRAM(0x1000),
+		wRAM: [8]ram.RAM{
+			ram.NewRAM(0x2000), // doubled to account for echo
+			ram.NewRAM(0x2000), // doubled to account for echo
 			ram.NewRAM(0x1000),
 			ram.NewRAM(0x1000),
 			ram.NewRAM(0x1000),
@@ -173,16 +173,24 @@ func (m *MMU) Read(address uint16) uint8 {
 	case address <= 0xBFFF:
 		return m.Cart.Read(address)
 	// Working RAM (0xC000-0xCFFF)
-	case address <= 0xDFFF:
-		if m.IsGBC() && address >= 0xD000 && address <= 0xDFFF {
+	case address >= 0xC000 && address <= 0xCFFF:
+		return m.wRAM[0].Read(address - 0xC000)
+	case address >= 0xD000 && address <= 0xDFFF:
+		if m.IsGBC() {
+			fmt.Println("reading from wram bank", m.wRAMBank)
 			return m.wRAM[m.wRAMBank].Read(address - 0xD000)
 		}
-		return m.iRAM.Read(address - 0xC000)
+		return m.wRAM[1].Read(address - 0xD000)
 	// Working RAM shadow (0xE000-0xFDFF)
-	case address <= 0xFDFF:
-		return m.iRAM.Read(address - 0xE000)
+	case address >= 0xE000 && address <= 0xEFFF:
+		return m.wRAM[0].Read(address - 0xC000)
+	case address >= 0xF000 && address <= 0xFDFF:
+		if m.IsGBC() && address >= 0xF000 && address <= 0xFDFF {
+			return m.wRAM[m.wRAMBank].Read(address - 0xF000)
+		}
+		return m.wRAM[1].Read(address - 0xD000)
 	// OAM (0xFE00-0xFE9F)
-	case address <= 0xFE9F:
+	case address >= 0xFE00 && address <= 0xFE9F:
 		return m.Video.Read(address)
 	// Unusable memory (0xFEA0-0xFEFF)
 	case address <= 0xFEFF:
@@ -231,7 +239,12 @@ func (m *MMU) Read(address uint16) uint8 {
 	// GPU CGB (0xFF4F-0xFF70)
 	case address == 0xFF4F || address >= 0xFF68 && address <= 0xFF6B:
 		return m.Video.Read(address)
-
+	case address == 0xFF70:
+		if m.IsGBC() {
+			return m.wRAMBank | 0xF8
+		} else {
+			return 0xFF
+		}
 	// Unusable memory (0xFF4C-0xFF7F)
 	case address <= 0xFF7F:
 		return 0xFF
@@ -269,18 +282,20 @@ func (m *MMU) Write(address uint16, value uint8) {
 	case address <= 0xBFFF:
 		m.Cart.Write(address, value)
 	// Working RAM (0xC000-0xDFFF)
-	case address <= 0xCFFF:
-		m.iRAM.Write(address-0xC000, value)
+	case address >= 0xC000 && address <= 0xCFFF:
+		m.wRAM[0].Write(address-0xC000, value)
 	// Working RAM (0xD000-0xDFFF) (switchable bank 1-7)
-	case address <= 0xDFFF:
+	case address >= 0xD000 && address <= 0xDFFF:
 		if m.IsGBC() {
 			m.wRAM[m.wRAMBank].Write(address-0xD000, value)
 		} else {
-			m.iRAM.Write(address-0xC000, value)
+			m.wRAM[1].Write(address-0xD000, value)
 		}
 	// Working RAM shadow (0xE000-0xFDFF)
-	case address <= 0xFDFF:
-		m.iRAM.Write(address-0xE000, value)
+	case address >= 0xE000 && address <= 0xEFFF:
+		m.wRAM[0].Write(address-0xE000, value)
+	case address >= 0xF000 && address <= 0xFDFF:
+		m.wRAM[1].Write(address-0xF000, value)
 	// OAM (0xFE00-0xFE9F)
 	case address <= 0xFE9F:
 		m.Video.Write(address, value)
@@ -309,7 +324,7 @@ func (m *MMU) Write(address uint16, value uint8) {
 			m.biosFinished = true
 		case 0xFF4D:
 			if m.IsGBC() {
-				m.key = value
+				m.key |= value & uint8(types.Bit0)
 			}
 		case 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55:
 			if m.IsGBC() {
@@ -317,9 +332,9 @@ func (m *MMU) Write(address uint16, value uint8) {
 			}
 		case 0xFF70:
 			if m.IsGBC() {
-				m.wRAMBank = value & 0b111 // first 3 bits
-				if m.wRAMBank != 0 {
-					m.wRAMBank-- // 0 is bank 1
+				m.wRAMBank = value & 0x7 // first 3 bits
+				if m.wRAMBank == 0 {
+					m.wRAMBank = 1
 				}
 			}
 

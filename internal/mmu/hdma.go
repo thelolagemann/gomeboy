@@ -1,6 +1,9 @@
 package mmu
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type Mode = uint8
 
@@ -35,8 +38,15 @@ func NewHDMA(bus IOBus) *HDMA {
 
 func (h *HDMA) Read(address uint16) uint8 {
 	switch address {
-	case 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55: // Reading from HDMA registers returns 0xFF
+	case 0xFF51, 0xFF52, 0xFF53, 0xFF54: // Reading from HDMA registers returns 0xFF
 		return 0xFF
+	case 0xFF55: // HDMA5
+		// is HDMA transferring?
+		if h.transferring {
+			return uint8(types.Bit7) | (h.blocks - 1)
+		} else {
+			return h.blocks - 1
+		}
 	}
 
 	panic(fmt.Sprintf("hdma\tillegal read from address %04X", address))
@@ -45,21 +55,23 @@ func (h *HDMA) Read(address uint16) uint8 {
 func (h *HDMA) Write(address uint16, value uint8) {
 	switch address {
 	case 0xFF51: // HDMA1
-		h.source = (h.source & 0x00FF) | uint16(value)<<8
+		h.source = (h.source & 0x00FF) | (uint16(value) << 8)
 	case 0xFF52: // HDMA2
 		h.source = (h.source & 0xFF00) | uint16(value&0xF0)
 	case 0xFF53: // HDMA3
-		h.destination = (h.destination & 0x00FF) | uint16(value&0x1F)<<8
+		h.destination = (h.destination & 0x00FF) | (uint16(value&0x1F) << 8)
 	case 0xFF54: // HDMA4
 		h.destination = (h.destination & 0xFF00) | uint16(value&0xF0)
 	case 0xFF55: // HDMA5
 		// is HDMA copying?
-		if h.mode == HDMAMode && h.copying {
-			if value>>7 == GDMAMode {
+		if h.mode == HDMAMode && h.transferring {
+			if Mode(value>>7) == GDMAMode {
 				// stop the HDMA transfer
 				h.transferring = false
+				panic("stopping")
 			} else {
 				// restart the HDMA transfer
+				panic("restarting")
 				h.mode = value >> 7
 				h.blocks = value&0x7F + 1
 			}
@@ -83,6 +95,7 @@ func (h *HDMA) Write(address uint16, value uint8) {
 func (h *HDMA) Tick() {
 	// write to vram
 	h.bus.Write(h.destination+0x8000, h.bus.Read(h.source))
+	fmt.Printf("writing %02X to %04X from %04X\n", h.bus.Read(h.source), h.destination&0x1FFF, h.source)
 	h.destination++
 	h.source++
 
@@ -104,7 +117,7 @@ func (h *HDMA) Tick() {
 // HasDoubleSpeed returns true as the HDMA controller responds to
 // double speed mode.
 func (h *HDMA) HasDoubleSpeed() bool {
-	return true
+	return false
 }
 
 // IsCopying returns true if the HDMA controller is currently copying

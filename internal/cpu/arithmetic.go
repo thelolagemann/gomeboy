@@ -249,7 +249,8 @@ func (c *CPU) popNN(h, l *Register) {
 }
 
 func (c *CPU) addSPSigned() uint16 {
-	result := c.addUint16Signed(c.SP, int8(c.readOperand()))
+	value := c.readOperand()
+	result := c.addUint16Signed(c.SP, int8(value))
 
 	c.ticks(4)
 	return result

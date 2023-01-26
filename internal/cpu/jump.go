@@ -6,6 +6,8 @@ import (
 
 // pushStack pushes a 16 bit value onto the stack.
 func (c *CPU) pushStack(high, low uint8) {
+	c.ticks(4)
+
 	c.push(high, low)
 }
 
@@ -32,7 +34,7 @@ func (c *CPU) popStack(high *uint8, low *uint8) {
 func (c *CPU) call() {
 	PC := c.PC + 2
 	c.jumpAbsolute()
-	c.pushStack(uint8(PC>>8), uint8(PC&0xFF))
+	c.push(uint8(PC>>8), uint8(PC&0xFF))
 }
 
 // callConditional pushes the address of the next instruction onto the stack and
@@ -83,8 +85,8 @@ func (c *CPU) jumpAbsolute() {
 	low := c.readOperand()
 	high := c.readOperand()
 
-	c.ticks(4)
 	c.PC = uint16(high)<<8 | uint16(low)
+	c.ticks(4)
 }
 
 // jumpAbsoluteConditional jumps to the given address if the given condition is
@@ -106,7 +108,7 @@ func (c *CPU) jumpAbsoluteConditional(condition bool) {
 //
 //	RET
 func (c *CPU) ret() {
-	var high, low uint8 = 0, 0
+	var high, low uint8
 	c.popStack(&high, &low)
 	c.PC = uint16(high)<<8 | uint16(low)
 	c.ticks(4)
@@ -118,7 +120,6 @@ func (c *CPU) ret() {
 //	RET cc
 //	cc = NZ, Z, NC, C
 func (c *CPU) retConditional(condition bool) {
-
 	if condition {
 		c.ret()
 	}
@@ -194,7 +195,6 @@ func (c *CPU) generateRSTInstructions() {
 	for i := uint8(0); i < 8; i++ {
 		address := uint16(i * 8)
 		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU) {
-			c.ticks(4)
 			c.pushStack(uint8(c.PC>>8), uint8(c.PC&0xFF))
 			c.PC = address
 		})

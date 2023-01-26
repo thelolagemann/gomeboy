@@ -5,8 +5,8 @@ package joypad
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 // Button represents a physical button on the Game Boy.
@@ -14,7 +14,7 @@ type Button = uint8
 
 const (
 	// ButtonA is the A button.
-	ButtonA Button = iota
+	ButtonA Button = 1 << iota
 	// ButtonB is the B button.
 	ButtonB
 	// ButtonSelect is the Select button.
@@ -71,10 +71,10 @@ func (s *State) Read(address uint16) uint8 {
 	value := s.Register.Read()
 	// P14 and P15 are set to 1 by default, so if they are set to 0,
 	// we are reading the state of the buttons.
-	if !utils.Test(value, 4) {
+	if !types.TestBit(value, types.Bit4) {
 		// direction buttons are in the upper 4 bits
 		return value | s.State>>4
-	} else if !utils.Test(value, 5) {
+	} else if !types.TestBit(value, types.Bit5) {
 		// action buttons are in the lower 4 bits
 		return value | s.State&0b0000_1111
 	}
@@ -93,12 +93,12 @@ func (s *State) Write(address uint16, value byte) {
 // Press presses a button.
 func (s *State) Press(button Button) {
 	// reset the button bit in the state (0 = pressed)
-	s.State = utils.Reset(s.State, button)
+	s.State = types.ResetBit(s.State, types.Bit(button))
 	s.irq.Request(interrupts.JoypadFlag)
 }
 
 // Release releases a button.
 func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
-	s.State = utils.Set(s.State, button)
+	s.State = types.SetBit(s.State, types.Bit(button))
 }

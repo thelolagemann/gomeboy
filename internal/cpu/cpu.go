@@ -5,6 +5,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"time"
 )
 
 const (
@@ -197,10 +198,11 @@ func (c *CPU) registerName(reg *Register) string {
 func (c *CPU) Step() uint16 {
 	// reset tick counter
 	c.currentTick = 0
+
 	// should we tick HDMA?
-	if c.mmu.HDMA.IsCopying() && c.mmu.IsGBC() {
+	if c.mmu.HDMA.IsCopying() {
 		c.hdmaTick4()
-		return 4
+		return c.currentTick
 	}
 
 	reqInt := false
@@ -300,6 +302,7 @@ func (c *CPU) readOperand() uint8 {
 
 func (c *CPU) skipOperand() {
 	c.ticks(4)
+	c.mmu.Read(c.PC)
 	c.PC++
 }
 
@@ -316,6 +319,7 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 }
 
 func (c *CPU) runInstruction(opcode uint8) {
+	currentPC := c.PC - 1
 	var instruction Instructor
 	// do we need to run a CB instruction?
 	if opcode == 0xCB {
@@ -337,6 +341,13 @@ func (c *CPU) runInstruction(opcode uint8) {
 
 	// execute the instruction
 	instruction.Execute(c)
+
+	if false {
+		fmt.Printf("%s (%d ticks)", instruction.Name(), c.currentTick)
+		fmt.Println()
+		fmt.Printf("A: %02x F: %02x B: %02x C: %02x D: %02x E: %02x H: %02x L: %02x SP: %04x PC: %04x\n", c.A, c.F, c.B, c.C, c.D, c.E, c.H, c.L, c.SP, currentPC)
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// check for debug
 	if c.Debug {
@@ -397,12 +408,6 @@ func (c *CPU) ticks(n uint) {
 	}
 }
 
-// rst resets the CPU.
-func (c *CPU) rst(v uint8) {
-	c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
-	c.PC = uint16(v)
-}
-
 // setFlags sets the given flags to the given values.
 func (c *CPU) setFlags(flags ...Flag) {
 	for _, flag := range flags {
@@ -417,11 +422,4 @@ func (c *CPU) shouldZeroFlag(value uint8) {
 	} else {
 		c.clearFlag(FlagZero)
 	}
-}
-
-// pop pops a value from the stack.
-func (c *CPU) pop() uint8 {
-	value := c.mmu.Read(c.SP)
-	c.SP++
-	return value
 }

@@ -84,7 +84,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus.AttachVideo(video)
 
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, video.DMA),
+		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound),
 		MMU: memBus,
 		ppu: video,
 
