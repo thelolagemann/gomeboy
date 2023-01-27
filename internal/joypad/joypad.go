@@ -10,7 +10,7 @@ import (
 )
 
 // Button represents a physical button on the Game Boy.
-type Button = uint8
+type Button = types.Bit
 
 const (
 	// ButtonA is the A button.
@@ -58,47 +58,37 @@ type State struct {
 
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
-	return &State{
-		State:    0b1111_1111,
-		irq:      irq,
-		Register: registers.NewHardware(registers.P1, registers.Mask(0b1100_0000)),
+	s := &State{
+		State: 0b1111_1111,
+		irq:   irq,
 	}
-}
+	s.Register = registers.NewHardware(registers.P1, registers.Mask(0b1100_0000), registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
+		value := h.Value() // read value from the register
 
-// Read reads the joypad state.
-func (s *State) Read(address uint16) uint8 {
-	// read value from the register
-	value := s.Register.Read()
-	// P14 and P15 are set to 1 by default, so if they are set to 0,
-	// we are reading the state of the buttons.
-	if !types.TestBit(value, types.Bit4) {
-		// direction buttons are in the upper 4 bits
-		return value | s.State>>4
-	} else if !types.TestBit(value, types.Bit5) {
-		// action buttons are in the lower 4 bits
-		return value | s.State&0b0000_1111
-	}
+		// P14 and P15 are set to 1 by default, so if they are set to 0,
+		// we are reading the state of the buttons.
+		if !types.TestBit(value, types.Bit4) {
+			// direction buttons are in the upper 4 bits
+			return value | s.State>>4
+		} else if !types.TestBit(value, types.Bit5) {
+			// action buttons are in the lower 4 bits
+			return value | s.State&0b0000_1111
+		}
 
-	return value
-}
-
-// Write writes to the joypad register. Only bits 4 and 5 are
-// writable. The rest of the bits are read-only. Bits 6 and 7
-// are always set to 1.
-func (s *State) Write(address uint16, value byte) {
-	// write bits 4 and 5 to the register
-	s.Register.Write(value)
+		return value
+	}))
+	return s
 }
 
 // Press presses a button.
 func (s *State) Press(button Button) {
 	// reset the button bit in the state (0 = pressed)
-	s.State = types.ResetBit(s.State, types.Bit(button))
+	s.State = types.ResetBit(s.State, button)
 	s.irq.Request(interrupts.JoypadFlag)
 }
 
 // Release releases a button.
 func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
-	s.State = types.SetBit(s.State, types.Bit(button))
+	s.State = types.SetBit(s.State, button)
 }

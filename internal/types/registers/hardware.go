@@ -2,6 +2,38 @@ package registers
 
 import "fmt"
 
+// HardwareRegisters is a collection of hardware registers,
+// which allows them to be read and written to.
+var HardwareRegisters = map[HardwareAddress]*Hardware{}
+
+var newAddresses = map[HardwareAddress]struct{}{
+	0xFF00: {},
+	0xFF04: {},
+	0xFF05: {},
+	0xFF06: {},
+	0xFF07: {},
+	0xFF0F: {},
+	0xFFFF: {},
+}
+
+// Has returns true if the HardwareRegisters map contains the given
+// address.
+func Has(address HardwareAddress) bool {
+	_, ok := HardwareRegisters[address]
+	_, ok2 := newAddresses[address]
+	return ok && ok2
+}
+
+// Read returns the value of the hardware register at the given address.
+func Read(address uint16) uint8 {
+	return HardwareRegisters[HardwareAddress(address)].Read()
+}
+
+// Write writes the given value to the hardware register at the given address.
+func Write(address uint16, value uint8) {
+	HardwareRegisters[HardwareAddress(address)].Write(value)
+}
+
 // Hardware represents a hardware register of the Game
 // Boy. The hardware registers are used to control and
 // read the state of the hardware.
@@ -179,6 +211,9 @@ func NewHardware(address HardwareAddress, opts ...HardwareOpt) *Hardware {
 	// TODO - add global map of hardware registers for easy lookup
 	// TODO - redirect MMU read/write to hardware registers if address is in range of hardware registers
 
+	// add hardware register to global map of hardware registers
+	HardwareRegisters[address] = h
+
 	return h
 }
 
@@ -230,6 +265,16 @@ func IsWritableMasked(mask uint8) HardwareOpt {
 	return func(h *Hardware) {
 		h.write = func(address uint16, value uint8) {
 			h.value = value | mask
+		}
+	}
+}
+
+// WithReadFunc allows the hardware register to be read, but with
+// a custom read function.
+func WithReadFunc(readFunc func(h *Hardware, address uint16) uint8) HardwareOpt {
+	return func(h *Hardware) {
+		h.read = func(address uint16) uint8 {
+			return readFunc(h, address)
 		}
 	}
 }

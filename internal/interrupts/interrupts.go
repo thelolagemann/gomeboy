@@ -1,7 +1,7 @@
 package interrupts
 
 import (
-	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
@@ -53,38 +53,21 @@ type Service struct {
 // NewService returns a new Service.
 func NewService() *Service {
 	return &Service{
-		Flag:   registers.NewHardware(registers.IF, registers.Mask(0b11100000)),
-		Enable: registers.NewHardware(registers.IE, registers.IsReadableWritable()),
-		IME:    false,
+		Flag: registers.NewHardware(
+			registers.IF,
+			registers.Mask(types.CombineMasks(types.Mask0, types.Mask1, types.Mask2, types.Mask3, types.Mask4)),
+		),
+		Enable: registers.NewHardware(
+			registers.IE,
+			registers.IsReadableWritable(),
+		),
+		IME: false,
 	}
 }
 
 // Request requests an interrupt.
 func (s *Service) Request(flag Flag) {
 	s.Flag.Write(s.Flag.Read() | 1<<flag)
-}
-
-// Read returns the value of the register at the given address.
-func (s *Service) Read(address uint16) uint8 {
-	switch address {
-	case registers.IF:
-		return s.Flag.Read()
-	case registers.IE:
-		return s.Enable.Read()
-	}
-	panic(fmt.Sprintf("interrupts\tillegal read from address %04X", address))
-}
-
-// Write writes the given value to the register at the given address.
-func (s *Service) Write(address uint16, value uint8) {
-	switch address {
-	case registers.IF:
-		s.Flag.Write(value)
-	case registers.IE:
-		s.Enable.Write(value)
-	default:
-		panic(fmt.Sprintf("interrupts\tillegal write to address %04X", address))
-	}
 }
 
 // Vector returns the currently serviced interrupt vector,

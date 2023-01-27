@@ -79,7 +79,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	serial := io.NewSerial()
 	timerCtl := timer.NewController(interrupt)
 	sound := apu.NewAPU()
-	memBus := mmu.NewMMU(cart, pad, serial, timerCtl, interrupt, sound)
+	memBus := mmu.NewMMU(cart, serial, sound)
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
 
