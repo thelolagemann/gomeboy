@@ -7,11 +7,28 @@ import "fmt"
 var HardwareRegisters = map[HardwareAddress]*Hardware{}
 
 var newAddresses = map[HardwareAddress]struct{}{
-	0xFF00: {},
-	0xFF04: {},
-	0xFF05: {},
-	0xFF06: {},
-	0xFF07: {},
+	P1:     {},
+	DIV:    {},
+	TIMA:   {},
+	TMA:    {},
+	TAC:    {},
+	LCDC:   {},
+	STAT:   {},
+	SCY:    {},
+	SCX:    {},
+	LY:     {},
+	LYC:    {},
+	DMA:    {},
+	BGP:    {},
+	OBP0:   {},
+	OBP1:   {},
+	WY:     {},
+	WX:     {},
+	VBK:    {},
+	BCPS:   {},
+	BCPD:   {},
+	OCPS:   {},
+	OCPD:   {},
 	0xFF0F: {},
 	0xFFFF: {},
 }
@@ -40,9 +57,12 @@ func Write(address uint16, value uint8) {
 type Hardware struct {
 	address HardwareAddress
 	value   uint8
+	set     func(v uint8)
+	get     func() uint8
 
-	read  func(address uint16) uint8
-	write func(address uint16, value uint8)
+	read         func(address uint16) uint8
+	write        func(address uint16, value uint8)
+	writeHandler WriteHandler
 }
 
 // HardwareAddress represents the address of a hardware
@@ -184,6 +204,47 @@ const (
 	// are in the ranges WX=0..166, WY=0..143 respectively. Values
 	// WX=7 and WY=0 locates the window at the top left of the LCD.
 	WX HardwareAddress = 0xFF4B
+	// VBK is the address of the VBK hardware register. The VBK
+	// hardware register is used to select the current VRAM bank.
+	// VBK is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit 0   - VRAM Bank (0=Bank 0, 1=Bank 1)
+	VBK HardwareAddress = 0xFF4F
+	// BCPS is the address of the BCPS hardware register. The BCPS
+	// hardware register is used to set the background palette index
+	// and auto increment flag. BCPS is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit 7   - Auto Increment  (0=Off, 1=On)
+	// Bit 5-0 - Background Palette Index  ($00-$3F)
+	BCPS HardwareAddress = 0xFF68
+	// BCPD is the address of the BCPD hardware register. The BCPD
+	// hardware register is used to read and write the background
+	// palette data. BCPD is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit   0 - 4 = Red Intensity   ($00-$1F)
+	//  Bit   5 - 9 = Green Intensity ($00-$1F)
+	//  Bit 10 - 14 = Blue Intensity  ($00-$1F)
+	BCPD HardwareAddress = 0xFF69
+	// OCPS is the address of the OCPS hardware register. The OCPS
+	// hardware register is used to set the sprite palette index
+	// and auto increment flag. OCPS is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit 7   - Auto Increment  (0=Off, 1=On)
+	// Bit 5-0 - Sprite Palette Index  ($00-$3F)
+	OCPS HardwareAddress = 0xFF6A
+	// OCPD is the address of the OCPD hardware register. The OCPD
+	// hardware register is used to read and write the sprite
+	// palette data. OCPD is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit   0 - 4 = Red Intensity   ($00-$1F)
+	//  Bit   5 - 9 = Green Intensity ($00-$1F)
+	//  Bit 10 - 14 = Blue Intensity  ($00-$1F)
+	OCPD HardwareAddress = 0xFF6B
 	// IE is the address of the IE hardware register. The IE
 	// hardware register is used to enable interrupts. Writing a 1
 	// to a bit in IE enables the corresponding interrupt, and writing
@@ -215,6 +276,29 @@ func NewHardware(address HardwareAddress, opts ...HardwareOpt) *Hardware {
 	HardwareRegisters[address] = h
 
 	return h
+}
+
+// RegisterHardware registers a hardware register with the given
+// address and options. Similar to NewHardware, but requires the
+// caller to provide a pointer to the variable that will hold the
+// hardware register.
+func RegisterHardware(address HardwareAddress, set func(v uint8), get func() uint8, opts ...HardwareOpt) {
+	h := &Hardware{
+		address: address,
+		// value:   value,
+		set: set,
+		get: get,
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	// TODO - add default read/write functions for registers that are not readable/writable
+	// TODO - add global map of hardware registers for easy lookup
+	// TODO - redirect MMU read/write to hardware registers if address is in range of hardware registers
+
+	// add hardware register to global map of hardware registers
+	HardwareRegisters[address] = h
 }
 
 // IsReadable allows the hardware register to be read.
@@ -289,6 +373,16 @@ func WithWriteFunc(write func(h *Hardware, address uint16, value uint8)) Hardwar
 	}
 }
 
+func WithWriteHandler(writeHandler func(writeFn func())) HardwareOpt {
+	return func(h *Hardware) {
+		h.writeHandler = writeHandler
+	}
+}
+
+type WriteHandler func(writeFn func())
+
+type WriteFunc func(h *Hardware, address uint16, value uint8)
+
 // Mask is simply a helper function to call IsReadableMasked and
 // IsWritableMasked with the same mask. This is useful for hardware
 // registers that are both readable and writable, but have unused
@@ -301,19 +395,38 @@ func Mask(mask uint8) HardwareOpt {
 }
 
 func (h *Hardware) Read() uint8 {
+	// was the hardware register get function set?
+	if h.get != nil {
+		return h.get()
+	}
+	// was the hardware register read function set?
 	if h.read != nil {
 		return h.read(h.address)
 	}
 
+	// the hardware register is not readable, a panic is thrown
 	panic(fmt.Sprintf("hardware: no read function for address 0x%04X", h.address))
 }
 
 func (h *Hardware) Write(value uint8) {
+	// was the hardware register set function set?
+	if h.set != nil {
+		h.set(value)
+		return
+	}
+	// was the hardware register write function set?
 	if h.write != nil {
-		h.write(h.address, value)
+		if h.writeHandler != nil {
+			h.writeHandler(func() {
+				h.write(h.address, value)
+			})
+		} else {
+			h.write(h.address, value)
+		}
 		return
 	}
 
+	// the hardware register is not writable, a panic is thrown
 	panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
 }
 

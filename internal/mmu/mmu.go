@@ -153,8 +153,15 @@ func (m *MMU) Read(address uint16) uint8 {
 	switch {
 	// BOOT ROM / ROM (0x0000-0x7FFF)
 	case address <= 0x7FFF:
-		if !m.biosFinished && address < 0x0100 || !m.biosFinished && m.Cart.Header().Hardware() == "CGB" && address >= 0x200 && address < 0x900 {
-			return m.bios.Read(address)
+		if !m.biosFinished {
+			if address < 0x100 {
+				return m.bios.Read(address)
+			}
+			// CGB boot ROM is 0x900 bytes long, with a gap of 0x100 bytes
+			// at 0x100 - 0x1FF, to read the cartridge header.
+			if m.Cart.Header().Hardware() == "CGB" && address >= 0x200 && address < 0x900 {
+				return m.bios.Read(address)
+			}
 		}
 		return m.Cart.Read(address)
 	// VRAM (0x8000-0x9FFF)
@@ -172,14 +179,15 @@ func (m *MMU) Read(address uint16) uint8 {
 			return m.wRAM[m.wRAMBank].Read(address - 0xD000)
 		}
 		return m.wRAM[1].Read(address - 0xD000)
-	// Working RAM shadow (0xE000-0xFDFF)
+	// WRAM (Bank 0 / Echo) (0xE000-0xEFFF)
 	case address >= 0xE000 && address <= 0xEFFF:
-		return m.wRAM[0].Read(address - 0xC000)
+		return m.wRAM[0].Read(address - 0xE000)
+	// WRAM (Bank 1-7 / Echo) (0xF000-0xFDFF)
 	case address >= 0xF000 && address <= 0xFDFF:
 		if m.IsGBC() && address >= 0xF000 && address <= 0xFDFF {
 			return m.wRAM[m.wRAMBank].Read(address - 0xF000)
 		}
-		return m.wRAM[1].Read(address - 0xD000)
+		return m.wRAM[1].Read(address - 0xF000)
 	// OAM (0xFE00-0xFE9F)
 	case address >= 0xFE00 && address <= 0xFE9F:
 		return m.Video.Read(address)
@@ -194,17 +202,13 @@ func (m *MMU) Read(address uint16) uint8 {
 		case address == 0xFF01 || address == 0xFF02:
 			return m.Serial.Read(address)
 		// Sound (0xFF10-0xFF3F)
-		case address >= 0xFF10 && address <= 0xFF26:
+		case address >= 0xFF10 && address <= 0xFF3F:
 			return m.Sound.Read(address)
-		case address == 0xFF03:
-			return 0xFF
 		default:
 			fmt.Printf("warning: unimplemented IO read at 0x%04X\n", address)
 			return 0xFF
 		}
 	// GPU (0xFF40-0xFF4B)
-	case address >= 0xFF40 && address <= 0xFF4B:
-		return m.Video.Read(address)
 	case address == 0xFF4C, address == 0xFF4E, address == 0xFF50:
 		return 0xFF
 	case address == 0xFF4D:
@@ -220,9 +224,6 @@ func (m *MMU) Read(address uint16) uint8 {
 		} else {
 			return 0xFF
 		}
-	// GPU CGB (0xFF4F-0xFF70)
-	case address == 0xFF4F || address >= 0xFF68 && address <= 0xFF6B:
-		return m.Video.Read(address)
 	case address == 0xFF70:
 		if m.IsGBC() {
 			return m.wRAMBank | 0xF8
@@ -294,10 +295,6 @@ func (m *MMU) Write(address uint16, value uint8) {
 			// waveform RAM
 		case 0xFF30, 0xFF31, 0xFF32, 0xFF33, 0xFF34, 0xFF35, 0xFF36, 0xFF37, 0xFF38, 0xFF39, 0xFF3A, 0xFF3B, 0xFF3C, 0xFF3D, 0xFF3E, 0xFF3F:
 			m.Sound.Write(address, value)
-		case 0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF46, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B:
-			m.Video.Write(address, value)
-		case 0xFF4F, 0xFF68, 0xFF69, 0xFF6A, 0xFF6B:
-			m.Video.Write(address, value)
 		case 0xFF50:
 			m.biosFinished = true
 		case 0xFF4D:

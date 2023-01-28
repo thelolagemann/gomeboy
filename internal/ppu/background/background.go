@@ -3,7 +3,6 @@
 package background
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
@@ -14,45 +13,27 @@ import (
 // different parts of the map.
 type Background struct {
 	// ScrollY is the Y position of the background.
-	ScrollY uint8
+	ScrollY *registers.Hardware
 	// ScrollX is the X position of the background.
-	ScrollX uint8
+	ScrollX *registers.Hardware
 	// Palette is the current background palette.
-	Palette palette.Palette
+	palette *registers.Hardware
+}
+
+func (b *Background) init() {
+	// setup the registers
+	b.ScrollY = registers.NewHardware(registers.SCY, registers.IsReadableWritable())
+	b.ScrollX = registers.NewHardware(registers.SCX, registers.IsReadableWritable())
+	b.palette = registers.NewHardware(registers.BGP, registers.IsReadableWritable())
 }
 
 // NewBackground returns a new Background.
 func NewBackground() *Background {
-	return &Background{
-		ScrollY: 0,
-		ScrollX: 0,
-	}
+	b := &Background{}
+	b.init()
+	return b
 }
 
-// Read reads a byte from the background.
-func (b *Background) Read(addr uint16) uint8 {
-	switch addr {
-	case registers.SCY:
-		return b.ScrollY
-	case registers.SCX:
-		return b.ScrollX
-	case registers.BGP:
-		return b.Palette.ToByte()
-	}
-
-	panic(fmt.Sprintf("background: illegal read from address 0x%04X", addr))
-}
-
-// Write writes a byte to the background.
-func (b *Background) Write(addr uint16, val uint8) {
-	switch addr {
-	case registers.SCY:
-		b.ScrollY = val
-	case registers.SCX:
-		b.ScrollX = val
-	case registers.BGP:
-		b.Palette = palette.ByteToPalette(val)
-	default:
-		panic(fmt.Sprintf("background: illegal write to address 0x%04X", addr))
-	}
+func (b *Background) Palette() palette.Palette {
+	return palette.ByteToPalette(b.palette.Value()) // TODO handle CGB
 }

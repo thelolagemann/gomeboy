@@ -1,6 +1,9 @@
 package ppu
 
-import "github.com/thelolagemann/go-gameboy/internal/mmu"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+)
 
 type DMA struct {
 	enabled    bool
@@ -11,25 +14,33 @@ type DMA struct {
 	value  uint8
 
 	bus mmu.IOBus
+	reg *registers.Hardware
+}
+
+func (d *DMA) init() {
+	// setup register
+	d.reg = registers.NewHardware(
+		registers.DMA,
+		registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
+			return d.value
+		}),
+		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
+			d.value = value
+			d.source = uint16(value) << 8
+			d.timer = 0
+
+			d.restarting = d.enabled
+			d.enabled = true
+		}),
+	)
 }
 
 func NewDMA(bus mmu.IOBus) *DMA {
-	return &DMA{
+	d := &DMA{
 		bus: bus,
 	}
-}
-
-func (d *DMA) Read(address uint16) uint8 {
-	return d.value
-}
-
-func (d *DMA) Write(address uint16, value uint8) {
-	d.value = value
-	d.source = uint16(value) << 8
-	d.timer = 0
-
-	d.restarting = d.enabled
-	d.enabled = true
+	d.init()
+	return d
 }
 
 func (d *DMA) Tick() {

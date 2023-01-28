@@ -9,6 +9,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"image"
 )
@@ -26,14 +27,16 @@ type PPU struct {
 	*lcd.Status
 	CurrentScanline *registers.Hardware
 	LYCompare       *registers.Hardware
-	SpritePalettes  [2]palette.Palette
-	WindowX         uint8
-	WindowY         uint8
+	SpritePalettes  [2]*registers.Hardware
+	WindowX         *registers.Hardware
+	WindowY         *registers.Hardware
 	WindowYInternal uint8
+
+	// CGB registers
+	vRAMBank uint8
 
 	oam                 ram.RAM
 	vRAM                [2]ram.RAM // Second bank only exists on CGB
-	vRAMBank            uint8
 	colourPalette       *palette.CGBPalette
 	colourSpritePalette *palette.CGBPalette
 
@@ -66,42 +69,132 @@ type PPU struct {
 	tileAttributes [2048]*TileAttributes // 32x32 tile attributes
 }
 
-func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
-	p := &PPU{
-		Background: background.NewBackground(),
-		Controller: lcd.NewController(),
-		Status:     lcd.NewStatus(),
-		CurrentScanline: registers.NewHardware(
-			registers.LY,
-			registers.IsReadable(),
-			registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
-				// writing to LY resets it to 0
-				h.Set(0)
-			})),
-		LYCompare: registers.NewHardware(
-			registers.LYC,
-			registers.IsReadable(),
-			registers.IsWritable()),
-		SpritePalettes: [2]palette.Palette{},
-		WindowX:        0,
-		WindowY:        0,
-		currentCycle:   0,
+func (p *PPU) init() {
+	// setup components
+	p.Controller = lcd.NewController(func(writeFn func()) {
+		wasOn := p.Enabled
+		writeFn()
 
-		sprites:  [40]Sprite{},
-		tileData: [2][384]*Tile{},
+		// if the screen was turned off, clear the screen
+		if wasOn && !p.Enabled {
+			// the screen should not be turned off unless in vblank
+			if p.Mode != lcd.VBlank {
+				panic("PPU: Screen was turned off while not in VBlank")
+			}
 
-		bus: mmu,
-		irq: irq,
-		oam: ram.NewRAM(160),
-		vRAM: [2]ram.RAM{
-			ram.NewRAM(8192),
-			ram.NewRAM(8192), // TODO only create if CGB
-		},
-		vRAMBank:            0,
-		DMA:                 NewDMA(mmu),
-		colourPalette:       palette.NewCGBPallette(),
-		colourSpritePalette: palette.NewCGBPallette(),
-		tileAttributes:      [2048]*TileAttributes{},
+			// enter hblank
+			p.SetMode(lcd.HBlank)
+
+			// reset the scanline
+			p.CurrentScanline.Set(0)
+		} else if !wasOn && p.Enabled {
+			p.checkLYC()
+			p.checkStatInterrupts(false)
+			// if the screen was turned on, reset the clock
+			p.SetMode(lcd.HBlank)
+			p.currentCycle = 4
+			p.delayedTick = true
+		}
+	})
+	p.Status = lcd.NewStatus(func(writeFn func()) {
+		writeFn()
+		if p.Enabled {
+			p.checkStatInterrupts(false)
+		}
+	})
+
+	// setup registers
+	p.CurrentScanline = registers.NewHardware(
+		registers.LY,
+		registers.IsReadable(),
+		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
+			// A write to LY resets the value to 0
+			h.Set(0)
+		}),
+	)
+	p.LYCompare = registers.NewHardware(
+		registers.LYC,
+		registers.IsReadable(),
+		registers.IsWritable(),
+		registers.WithWriteHandler(func(writeFn func()) {
+			writeFn()
+			// check if the LYC interrupt should be triggered
+			if p.Enabled {
+				p.checkLYC()
+				p.checkStatInterrupts(false)
+			}
+		}),
+	)
+	p.SpritePalettes[0] = registers.NewHardware(
+		registers.OBP0,
+		registers.IsReadable(),
+		registers.IsWritable(),
+	)
+	p.SpritePalettes[1] = registers.NewHardware(
+		registers.OBP1,
+		registers.IsReadable(),
+		registers.IsWritable(),
+	)
+	p.WindowX = registers.NewHardware(
+		registers.WX,
+		registers.IsReadable(),
+		registers.IsWritable(),
+	)
+	p.WindowY = registers.NewHardware(
+		registers.WY,
+		registers.IsReadable(),
+		registers.IsWritable(),
+	)
+
+	// CGB registers
+	if p.bus.IsGBC() {
+		registers.RegisterHardware(
+			registers.VBK,
+			func(v uint8) {
+				p.vRAMBank = v & types.Bit0 // only the first bit is used
+			},
+			func() uint8 {
+				return p.vRAMBank
+			},
+		)
+		registers.RegisterHardware(
+			registers.BCPS,
+			func(v uint8) {
+				p.colourPalette.SetIndex(v)
+			},
+			func() uint8 {
+				return p.colourPalette.GetIndex()
+			},
+		)
+		registers.RegisterHardware(
+			registers.BCPD,
+			func(v uint8) {
+				p.colourPalette.Write(v)
+			},
+			func() uint8 {
+				// TODO handle locked state
+				return p.colourPalette.Read()
+			},
+		)
+		registers.RegisterHardware(
+			registers.OCPS,
+			func(v uint8) {
+				p.colourSpritePalette.SetIndex(v)
+			},
+			func() uint8 {
+				return p.colourSpritePalette.GetIndex()
+			},
+		)
+		registers.RegisterHardware(
+			registers.OCPD,
+			func(v uint8) {
+				p.colourSpritePalette.Write(v)
+			},
+			func() uint8 {
+				// TODO handle locked state
+				return p.colourSpritePalette.Read()
+			},
+		)
 	}
 
 	// initialize sprites
@@ -120,6 +213,30 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 			p.tileData[i][j] = &Tile{}
 		}
 	}
+}
+
+func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
+	p := &PPU{
+		Background:   background.NewBackground(),
+		currentCycle: 0,
+
+		sprites:  [40]Sprite{},
+		tileData: [2][384]*Tile{},
+
+		bus: mmu,
+		irq: irq,
+		oam: ram.NewRAM(160),
+		vRAM: [2]ram.RAM{
+			ram.NewRAM(8192),
+			ram.NewRAM(8192), // TODO only create if CGB
+		},
+		DMA:                 NewDMA(mmu),
+		colourPalette:       palette.NewCGBPallette(),
+		colourSpritePalette: palette.NewCGBPallette(),
+		tileAttributes:      [2048]*TileAttributes{},
+	}
+
+	p.init()
 	return p
 }
 
@@ -143,66 +260,7 @@ func (p *PPU) Read(address uint16) uint8 {
 		return 0xff
 	}
 
-	// read from registers
-	switch address {
-	case registers.LCDC:
-		return p.Controller.Read(registers.LCDC)
-	case registers.STAT:
-		return p.Status.Read(registers.STAT)
-	case registers.SCY:
-		return p.Background.ScrollY
-	case registers.SCX:
-		return p.Background.ScrollX
-	case registers.LY:
-		return p.CurrentScanline.Value()
-	case registers.LYC:
-		return p.LYCompare.Read()
-	case registers.DMA:
-		return p.DMA.Read(registers.DMA)
-	case registers.BGP:
-		return p.Background.Palette.ToByte()
-	case registers.OBP0:
-		return p.SpritePalettes[0].ToByte()
-	case registers.OBP1:
-		return p.SpritePalettes[1].ToByte()
-	case registers.WY:
-		return p.WindowY
-	case registers.WX:
-		return p.WindowX
-	case 0xFF4F:
-		if p.bus.IsGBC() {
-			return p.vRAMBank | 0xFE
-		} else {
-			return 0xFF
-		}
-	case 0xFF68:
-		if p.bus.IsGBC() {
-			return p.colourPalette.GetIndex()
-		} else {
-			return 0xFF
-		}
-	case 0xFF69:
-		if p.bus.IsGBC() && p.colorPaletteUnlocked() {
-			panic("be")
-			return p.colourPalette.Read()
-		} else {
-			return 0xFF
-		}
-	case 0xFF6A:
-		if p.bus.IsGBC() {
-			return p.colourSpritePalette.GetIndex()
-		} else {
-			return 0xFF
-		}
-	case 0xFF6B:
-		if p.bus.IsGBC() && p.colorPaletteUnlocked() {
-			panic("be")
-			return p.colourSpritePalette.Read()
-		} else {
-			return 0xFF
-		}
-	}
-
+	// illegal read
 	panic(fmt.Sprintf("PPU: Read from invalid address: %X", address))
 }
 
@@ -353,97 +411,23 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 }
 
 func (p *PPU) Write(address uint16, value uint8) {
-	// write to VRAM
+	// VRAM (0x8000 - 0x9FFF)
 	if address >= 0x8000 && address <= 0x9FFF {
 		p.WriteVRAM(address, value)
 		return
 	}
-	// write to OAM
+	// OAM (0xFE00 - 0xFE9F)
 	if address >= 0xFE00 && address <= 0xFE9F {
 		if p.oamUnlocked() {
 			p.oam.Write(address-0xFE00, value)
 			// update sprite data
 			p.UpdateSprite(address-0xFE00, value)
 		}
-
 		return
 	}
 
-	switch address {
-	case registers.LCDC:
-		wasOn := p.Enabled
-		p.Controller.Write(address, value)
-
-		// if the screen was turned off, clear the screen
-		if wasOn && !p.Enabled {
-			// the screen should not be turned off unless in vblank
-			if p.Mode != lcd.VBlank {
-				panic("PPU: Screen was turned off while not in VBlank")
-			}
-
-			// enter hblank
-			p.SetMode(lcd.HBlank)
-
-			// reset the scanline
-			p.CurrentScanline.Set(0)
-		} else if !wasOn && p.Enabled {
-			p.checkLYC()
-			p.checkStatInterrupts(false)
-			// if the screen was turned on, reset the clock
-			p.SetMode(lcd.HBlank)
-			p.currentCycle = 4
-			p.delayedTick = true
-		}
-	case registers.STAT:
-		p.Status.Write(address, value)
-		if p.Enabled {
-			p.checkStatInterrupts(false)
-		}
-	case registers.SCY, registers.SCX, registers.BGP:
-		p.Background.Write(address, value)
-	case registers.LY:
-		p.CurrentScanline.Write(value)
-	case registers.LYC:
-		p.LYCompare.Set(value)
-
-		// check if the LYC interrupt should be triggered
-		if p.Enabled {
-			p.checkLYC()
-			p.checkStatInterrupts(false)
-		}
-	case registers.OBP0:
-		p.SpritePalettes[0] = palette.ByteToPalette(value)
-	case registers.OBP1:
-		p.SpritePalettes[1] = palette.ByteToPalette(value)
-	case registers.WY:
-		p.WindowY = value
-	case registers.WX:
-		p.WindowX = value
-	case registers.DMA:
-		p.DMA.Write(address, value)
-	case 0xFF4F:
-		if p.bus.IsGBC() {
-			p.vRAMBank = value & 0x01 // only bit 0 is used
-		}
-	case 0xFF68:
-		if p.bus.IsGBC() {
-			p.colourPalette.SetIndex(value)
-		}
-	case 0xFF69:
-		if p.bus.IsGBC() && p.colorPaletteUnlocked() {
-			p.colourPalette.Write(value)
-		}
-	case 0xFF6A:
-		if p.bus.IsGBC() {
-			p.colourSpritePalette.SetIndex(value)
-		}
-	case 0xFF6B:
-		if p.bus.IsGBC() && p.colorPaletteUnlocked() {
-			p.colourSpritePalette.Write(value)
-		}
-	default:
-		panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
-	}
+	// illegal writes
+	panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
 }
 
 func (p *PPU) UpdateSprite(address uint16, value uint8) {
@@ -643,7 +627,7 @@ func (p *PPU) Tick() {
 }
 
 func (p *PPU) hblankCycles() int16 {
-	switch p.ScrollX & 0x07 {
+	switch p.ScrollX.Read() & 0x07 {
 	case 0x00:
 		return 204
 	case 0x01, 0x02, 0x03, 0x04:
@@ -658,7 +642,7 @@ func (p *PPU) hblankCycles() int16 {
 func (p *PPU) renderBlank() {
 	for x := 0; x < ScreenWidth; x++ {
 		for y := 0; y < ScreenHeight; y++ {
-			p.ScreenData[x][y] = p.Palette.GetColour(0)
+			p.ScreenData[x][y] = p.Palette().GetColour(0)
 		}
 	}
 	p.Clear()
@@ -666,7 +650,7 @@ func (p *PPU) renderBlank() {
 
 func (p *PPU) renderBlankLine() {
 	for x := 0; x < ScreenWidth; x++ {
-		p.ScreenData[x][p.CurrentScanline.Value()] = p.Palette.GetColour(0)
+		p.ScreenData[x][p.CurrentScanline.Value()] = p.Palette().GetColour(0)
 	}
 }
 
@@ -674,11 +658,11 @@ func (p *PPU) renderWindow() {
 	var xPos, yPos uint8
 
 	// do nothing if window is out of bounds
-	if p.CurrentScanline.Value() < p.WindowY {
+	if p.CurrentScanline.Value() < p.WindowY.Read() {
 		return
-	} else if p.WindowX > ScreenWidth {
+	} else if p.WindowX.Read() > ScreenWidth {
 		return
-	} else if p.WindowY > ScreenHeight {
+	} else if p.WindowY.Read() > ScreenHeight {
 		return
 	}
 
@@ -694,11 +678,11 @@ func (p *PPU) renderWindow() {
 	}
 
 	for i := uint8(0); i < ScreenWidth; i++ {
-		if i < p.WindowX-7 {
+		if i < p.WindowX.Read()-7 {
 			continue
 		}
 
-		xPos = i - (p.WindowX - 7)
+		xPos = i - (p.WindowX.Read() - 7)
 		tileXIndex := uint16(xPos / 8)
 
 		tileID := uint16(p.calculateTileID(p.WindowTileMapAddress+tileYIndex, tileXIndex))
@@ -723,7 +707,7 @@ func (p *PPU) renderWindow() {
 		pixelShade := p.tileData[tileAttributes.VRAMBank][tileID][yPixelPos][xPixelPos]
 
 		// convert the shade to a colour
-		pixelColour := p.Palette.GetColour(uint8(pixelShade))
+		pixelColour := p.Palette().GetColour(uint8(pixelShade))
 
 		if p.bus.IsGBC() {
 			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, uint8(pixelShade))
@@ -739,7 +723,7 @@ func (p *PPU) renderWindow() {
 func (p *PPU) renderBackground() {
 	var xPos, yPos uint8
 
-	yPos = p.CurrentScanline.Value() + p.ScrollY
+	yPos = p.CurrentScanline.Value() + p.ScrollY.Read()
 	tileYIndex := uint16(yPos/8) * 32
 
 	var mapOffset uint16
@@ -751,7 +735,7 @@ func (p *PPU) renderBackground() {
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// determine the x position of the pixel
-		xPos = i + p.ScrollX
+		xPos = i + p.ScrollX.Read()
 		tileXIndex := uint16(xPos / 8)
 
 		// determine the tile ID to draw from the tile map
@@ -778,7 +762,7 @@ func (p *PPU) renderBackground() {
 		pixelShade := p.tileData[tileAttributes.VRAMBank][tileID][yPixelPos][xPixelPos]
 
 		// convert the shade to a colour
-		pixelColour := p.Palette.GetColour(uint8(pixelShade))
+		pixelColour := p.Palette().GetColour(uint8(pixelShade))
 
 		if p.bus.IsGBC() {
 			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, byte(pixelShade))
@@ -862,13 +846,9 @@ func (p *PPU) renderSprites() {
 
 			// skip if the sprite doesn't have priority and the background is not transparent
 			if !p.bus.IsGBC() || p.BackgroundEnabled {
-				if !(sprite.Priority && !p.tileBgPriority[pixelPos][p.CurrentScanline.Value()]) {
-					if p.bus.IsGBC() {
-						// is the background using color 0 from palette 0? if so, we can draw the sprite
-						if p.ScreenData[pixelPos][p.CurrentScanline.Value()] != p.colourPalette.GetColour(sprite.CGBPalette, 0) {
-							continue
-						}
-					}
+				if !(sprite.Priority && !p.tileBgPriority[pixelPos][p.CurrentScanline.Value()]) &&
+					p.ScreenData[pixelPos][p.CurrentScanline.Value()] != p.colourPalette.GetColour(0, 0) {
+					continue
 				}
 			}
 
@@ -877,14 +857,14 @@ func (p *PPU) renderSprites() {
 				if spriteXPerScreen[pixelPos] != 0 {
 					continue
 				}
+			} else {
+				// skip if pixel is occupied by sprite with lower x coordinate
+				if spriteXPerScreen[pixelPos] != 0 && spriteXPerScreen[pixelPos] <= sprite.X+10 {
+					continue
+				}
 			}
 
-			// skip if pixel is occupied by sprite with lower x coordinate
-			if spriteXPerScreen[pixelPos] != 0 && spriteXPerScreen[pixelPos] <= sprite.X {
-				continue
-			}
-
-			rgb := p.SpritePalettes[sprite.UseSecondPalette].GetColour(uint8(color))
+			rgb := p.getObjectColourFromPalette(sprite.UseSecondPalette, uint8(color))
 
 			if p.bus.IsGBC() {
 				rgb = p.colourSpritePalette.GetColour(sprite.CGBPalette, uint8(color))
@@ -894,11 +874,15 @@ func (p *PPU) renderSprites() {
 			p.ScreenData[pixelPos][p.CurrentScanline.Value()] = rgb
 
 			// mark the pixel as occupied
-			spriteXPerScreen[pixelPos] = sprite.X
+			spriteXPerScreen[pixelPos] = sprite.X + 10
 		}
 	}
 }
 
 func (p *PPU) ClearRefresh() {
 	p.refreshScreen = false
+}
+
+func (p *PPU) getObjectColourFromPalette(paletteNumber uint8, colour uint8) [3]uint8 {
+	return palette.ByteToPalette(p.SpritePalettes[paletteNumber].Read()).GetColour(colour)
 }
