@@ -29,6 +29,7 @@ var newAddresses = map[HardwareAddress]struct{}{
 	BCPD:   {},
 	OCPS:   {},
 	OCPD:   {},
+	SVBK:   {},
 	0xFF0F: {},
 	0xFFFF: {},
 }
@@ -211,6 +212,17 @@ const (
 	// The register is set as follows:
 	//  Bit 0   - VRAM Bank (0=Bank 0, 1=Bank 1)
 	VBK HardwareAddress = 0xFF4F
+	// BANK is the address of the BANK hardware register. The BANK
+	// hardware register is used only to disable the boot ROM.
+	//
+	// The register is set as follows:
+	//  Bit 0   - Disable boot ROM (0=Enable, 1=Disable)
+	BANK  HardwareAddress = 0xFF50
+	HDMA1 HardwareAddress = 0xFF51
+	HDMA2 HardwareAddress = 0xFF52
+	HDMA3 HardwareAddress = 0xFF53
+	HDMA4 HardwareAddress = 0xFF54
+	HDMA5 HardwareAddress = 0xFF55
 	// BCPS is the address of the BCPS hardware register. The BCPS
 	// hardware register is used to set the background palette index
 	// and auto increment flag. BCPS is only used in CGB mode.
@@ -245,6 +257,22 @@ const (
 	//  Bit   5 - 9 = Green Intensity ($00-$1F)
 	//  Bit 10 - 14 = Blue Intensity  ($00-$1F)
 	OCPD HardwareAddress = 0xFF6B
+	// OPRI is the address of the OPRI hardware register. The OPRI
+	// hardware register is used to set the sprite priority. OPRI
+	// is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit 0 - Sprite Priority (0=OBJ Priority, 1=Coordinates Priority)
+	OPRI HardwareAddress = 0xFF6C
+	// SVBK is the address of the SVBK hardware register. The SVBK
+	// hardware register is used to select the current WRAM bank.
+	// SVBK is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bit 0 - 2 = WRAM Bank ($00-$07)
+	//
+	// Note: Writing a value of 00h selects WRAM Bank 01h.
+	SVBK HardwareAddress = 0xFF70
 	// IE is the address of the IE hardware register. The IE
 	// hardware register is used to enable interrupts. Writing a 1
 	// to a bit in IE enables the corresponding interrupt, and writing
@@ -409,25 +437,32 @@ func (h *Hardware) Read() uint8 {
 }
 
 func (h *Hardware) Write(value uint8) {
-	// was the hardware register set function set?
-	if h.set != nil {
-		h.set(value)
-		return
-	}
-	// was the hardware register write function set?
-	if h.write != nil {
-		if h.writeHandler != nil {
+	// did the hardware register have a write handler?
+	if h.writeHandler != nil {
+		// was the hardware register write function set?
+		if h.write != nil {
 			h.writeHandler(func() {
 				h.write(h.address, value)
 			})
+			// was the hardware register set function set?
+		} else if h.set != nil {
+			h.writeHandler(func() {
+				h.set(value)
+			})
 		} else {
-			h.write(h.address, value)
+			panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
 		}
-		return
+	} else {
+		// was the hardware register write function set?
+		if h.write != nil {
+			h.write(h.address, value)
+			// was the hardware register set function set?
+		} else if h.set != nil {
+			h.set(value)
+		} else {
+			panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
+		}
 	}
-
-	// the hardware register is not writable, a panic is thrown
-	panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
 }
 
 func (h *Hardware) Increment() {

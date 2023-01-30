@@ -7,14 +7,15 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 // Button represents a physical button on the Game Boy.
-type Button = types.Bit
+type Button = uint8
 
 const (
 	// ButtonA is the A button.
-	ButtonA Button = 1 << iota
+	ButtonA Button = iota
 	// ButtonB is the B button.
 	ButtonB
 	// ButtonSelect is the Select button.
@@ -83,12 +84,12 @@ func New(irq *interrupts.Service) *State {
 // Press presses a button.
 func (s *State) Press(button Button) {
 	// reset the button bit in the state (0 = pressed)
-	s.State = types.ResetBit(s.State, button)
+	s.State = utils.Reset(s.State, button)
 	s.irq.Request(interrupts.JoypadFlag)
 }
 
 // Release releases a button.
 func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
-	s.State = types.SetBit(s.State, button)
+	s.State = utils.Set(s.State, button)
 }

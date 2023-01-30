@@ -1,6 +1,7 @@
 package lcd
 
 import (
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
@@ -42,31 +43,22 @@ func (s *Status) init(handler registers.WriteHandler) {
 	s.reg = registers.NewHardware(
 		registers.STAT,
 		registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
-			var value uint8
-			if s.CoincidenceInterrupt {
-				value |= 1 << 6
-			}
-			if s.OAMInterrupt {
-				value |= 1 << 5
-			}
-			if s.VBlankInterrupt {
-				value |= 1 << 4
-			}
-			if s.HBlankInterrupt {
-				value |= 1 << 3
-			}
+			val := h.Value() | types.Bit7
+			// set the R_ONLY bits
 			if s.Coincidence {
-				value |= 1 << 2
+				val |= types.Bit2 // set the coincidence flag
 			}
-			// set the mode bits 1 and 0
-			value |= uint8(s.Mode) & 0x03
-			return value | 0b10000000 // bit 7 is always set
+			val |= uint8(s.Mode) // set the mode
+			return val
 		}),
 		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
 			s.CoincidenceInterrupt = utils.Test(value, 6)
 			s.OAMInterrupt = utils.Test(value, 5)
 			s.VBlankInterrupt = utils.Test(value, 4)
 			s.HBlankInterrupt = utils.Test(value, 3)
+
+			// set raw value
+			h.Set(value & 0xF8)
 		}),
 		registers.WithWriteHandler(handler),
 	)

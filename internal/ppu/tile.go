@@ -62,7 +62,7 @@ func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
 // the background or window. In CGB mode, there are two tile maps for
 // each background and window, located at 0x9800 and 0x9C00 for bank 0,
 // and at 0x9C00 and 0xA000 for bank 1.
-type TileMap [32][32]*Tile
+type TileMap [32][32]uint8
 
 func (t *TileAttributes) Read(address uint16) uint8 {
 	var val uint8

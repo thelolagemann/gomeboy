@@ -6,7 +6,6 @@ package timer
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
@@ -14,12 +13,10 @@ import (
 // interrupts at a specific frequency. The frequency can be
 // configured using the registers.TAC register.
 type Controller struct {
-	internalDivider uint16
-
-	div  *registers.Hardware
-	tima *registers.Hardware
-	tma  *registers.Hardware
-	tac  *registers.Hardware
+	div  uint16
+	tima uint8
+	tma  uint8
+	tac  uint8
 
 	enabled    bool
 	currentBit uint16
@@ -35,64 +32,63 @@ type Controller struct {
 // before the controller is returned to the caller.
 func (c *Controller) init() {
 	// set up registers
-	c.div = registers.NewHardware(
+	registers.RegisterHardware(
 		registers.DIV,
-		registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
-			return uint8(c.internalDivider >> 8)
-		}),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
-			c.internalDivider = 0
-		}),
+		func(v uint8) {
+			c.div = 0 // any write to DIV resets it
+		},
+		func() uint8 {
+			// return bits 6-13 of divider register
+			return uint8(c.div >> 8) // TODO actually return bits 6-13
+		},
 	)
-
-	c.tima = registers.NewHardware(
+	registers.RegisterHardware(
 		registers.TIMA,
-		registers.IsReadable(),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
+		func(v uint8) {
 			// writes to TIMA are ignored if written the same tick it is
 			// reloading
 			if c.ticksSinceOverflow != 5 {
-				h.Set(value)
+				c.tima = v
 				c.overflow = false
 				c.ticksSinceOverflow = 0
 			}
-		}),
+		}, func() uint8 {
+			return c.tima
+		},
 	)
-
-	c.tma = registers.NewHardware(
+	registers.RegisterHardware(
 		registers.TMA,
-		registers.IsReadable(),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
-			h.Set(value)
+		func(v uint8) {
+			c.tma = v
 			// if you write to TMA the same tick that TIMA is reloading,
 			// TIMA will be set to the new value of TMA
 			if c.ticksSinceOverflow == 5 {
-				c.tima.Set(value)
+				c.tima = v
 			}
-		}),
+		}, func() uint8 {
+			return c.tma
+		},
 	)
-
-	c.tac = registers.NewHardware(
+	registers.RegisterHardware(
 		registers.TAC,
-		registers.IsReadableMasked(types.CombineMasks(types.Mask0, types.Mask1, types.Mask2)),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
+		func(v uint8) {
 			wasEnabled := c.enabled
 			oldBit := c.currentBit
 
-			h.Set(value & 0b111)
-			c.currentBit = 1 << bits[value&0b11]
-			c.enabled = (value & 0x4) == 0x4
+			c.tac = v & 0b111
+			c.currentBit = 1 << bits[v&0b11]
+			c.enabled = (v & 0x4) == 0x4
 
 			c.timaGlitch(wasEnabled, oldBit)
-		}),
+		}, func() uint8 {
+			return c.tac & 0b111
+		},
 	)
 }
 
 // NewController returns a new timer controller.
 func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
-		internalDivider: 0,
-
 		irq:        irq,
 		currentBit: 1 << bits[0],
 	}
@@ -110,17 +106,17 @@ func (c *Controller) HasDoubleSpeed() bool {
 // Tick ticks the timer controller.
 func (c *Controller) Tick() {
 	// increment internalDivider register
-	c.internalDivider++
+	c.div++
 
-	bit := (c.internalDivider&c.currentBit) != 0 && c.enabled
+	bit := (c.div&c.currentBit) != 0 && c.enabled
 
 	// detect a falling edge
 	if c.lastBit && !bit {
 		// increment timer
-		c.tima.Increment()
+		c.tima++
 
 		// check for overflow
-		if c.tima.Read() == 0 {
+		if c.tima == 0 {
 			c.overflow = true
 			c.ticksSinceOverflow = 0
 		}
@@ -137,7 +133,7 @@ func (c *Controller) Tick() {
 		if c.ticksSinceOverflow == 4 {
 			c.irq.Request(interrupts.TimerFlag)
 		} else if c.ticksSinceOverflow == 5 {
-			c.tima.Set(c.tma.Value())
+			c.tima = c.tma
 		} else if c.ticksSinceOverflow == 6 {
 			c.overflow = false
 			c.ticksSinceOverflow = 0
@@ -146,7 +142,7 @@ func (c *Controller) Tick() {
 }
 
 func (c *Controller) multiplexer() uint16 {
-	switch c.tac.Read() & 0x03 {
+	switch c.tac & 0x03 {
 	case 0:
 		return 1024
 	case 1:
@@ -167,12 +163,12 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 		return
 	}
 
-	if c.internalDivider&oldBit != 0 {
-		if !c.enabled || !(c.internalDivider&c.currentBit != 0) {
-			c.tima.Increment()
+	if c.div&oldBit != 0 {
+		if !c.enabled || !(c.div&c.currentBit != 0) {
+			c.tima++
 
-			if c.tima.Value() == 0 {
-				c.tima.Set(c.tma.Value())
+			if c.tima == 0 {
+				c.tima = c.tma
 				c.irq.Request(interrupts.TimerFlag)
 			}
 

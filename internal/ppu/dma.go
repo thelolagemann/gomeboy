@@ -2,6 +2,7 @@ package ppu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
@@ -9,35 +10,36 @@ type DMA struct {
 	enabled    bool
 	restarting bool
 
-	timer  uint16
+	timer  uint
 	source uint16
 	value  uint8
 
 	bus mmu.IOBus
-	reg *registers.Hardware
+	oam ram.RAM
 }
 
 func (d *DMA) init() {
 	// setup register
-	d.reg = registers.NewHardware(
+	registers.RegisterHardware(
 		registers.DMA,
-		registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
-			return d.value
-		}),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
-			d.value = value
-			d.source = uint16(value) << 8
+		func(v uint8) {
+			d.value = v
+			d.source = uint16(v) << 8
 			d.timer = 0
 
 			d.restarting = d.enabled
 			d.enabled = true
-		}),
+		},
+		func() uint8 {
+			return d.value
+		},
 	)
 }
 
-func NewDMA(bus mmu.IOBus) *DMA {
+func NewDMA(bus mmu.IOBus, oam ram.RAM) *DMA {
 	d := &DMA{
 		bus: bus,
+		oam: oam,
 	}
 	d.init()
 	return d
@@ -51,25 +53,24 @@ func (d *DMA) Tick() {
 	// increment the timer
 	d.timer++
 
-	// if the timer is done, copy the value
-	if d.timer > 4 {
-		d.restarting = false
+	// every 4 ticks, transfer a byte
+	if d.timer%4 == 0 {
+		d.restarting = false //
 
-		offset := (d.timer - 4) >> 2
-		currentSource := d.source + offset
+		offset := uint16(d.timer-4) >> 2
+		currentSource := d.source + (offset)
 
-		// is OAM trying to read from itself? (>= 0xFE00)
-		if currentSource >= 0xFE00 {
+		// is a DMA trying to read from the OAM?
+		if currentSource > 0xE000 {
 			// if so, make sure we don't read from the OAM
-			// and instead read from the source address
-			// minus 0x2000
-			currentSource -= 0x2000
+			// and instead read from the source address - 0x2000
+			currentSource &^= 0x2000
 		}
+		// write directly to OAM to avoid any locking
+		d.oam.Write(offset, d.bus.Read(currentSource))
 
-		// write to OAM
-		d.bus.Write(0xFE00+uint16(offset), d.bus.Read(currentSource))
-
-		if d.timer > 160*4+4 {
+		// 4 ticks per byte (0xFE00-0xFE9F) = 160 bytes = 640 ticks
+		if d.timer >= 640 {
 			d.enabled = false
 			d.timer = 0
 		}

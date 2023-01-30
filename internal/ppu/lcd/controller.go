@@ -55,8 +55,9 @@ type Controller struct {
 	// background and window are enabled.
 	BackgroundEnabled bool
 
-	cleared bool
-	reg     *registers.Hardware
+	cleared  bool
+	reg      *registers.Hardware
+	isSigned bool
 }
 
 func (c *Controller) init(onWrite registers.WriteHandler) {
@@ -77,8 +78,10 @@ func (c *Controller) init(onWrite registers.WriteHandler) {
 			c.WindowEnabled = utils.Test(value, 5)
 			if utils.Test(value, 4) {
 				c.TileDataAddress = 0x8000
+				c.isSigned = false
 			} else {
 				c.TileDataAddress = 0x8800
+				c.isSigned = true
 			}
 			if utils.Test(value, 3) {
 				c.BackgroundTileMapAddress = 0x9C00
@@ -139,7 +142,7 @@ func NewController(writeHandler registers.WriteHandler) *Controller {
 // UsingSignedTileData returns true if the LCD controller is using signed tile
 // data.
 func (c *Controller) UsingSignedTileData() bool {
-	return c.TileDataAddress == 0x8800
+	return c.isSigned
 }
 
 func (c *Controller) Clear() {

@@ -13,16 +13,16 @@ const (
 )
 
 type HDMA struct {
-	mode         Mode
+	mode Mode
+
 	transferring bool
 	copying      bool
 
-	source      uint16
-	destination uint16
-
-	blocks uint8
-
-	bus IOBus
+	blocks        uint8
+	source        uint16
+	destination   uint16
+	bus           IOBus
+	vRAMWriteFunc func(uint16, uint8)
 }
 
 func NewHDMA(bus IOBus) *HDMA {
@@ -37,15 +37,16 @@ func NewHDMA(bus IOBus) *HDMA {
 }
 
 func (h *HDMA) Read(address uint16) uint8 {
+	//fmt.Printf("hdma\tread from address %04X\n", address)
 	switch address {
 	case 0xFF51, 0xFF52, 0xFF53, 0xFF54: // Reading from HDMA registers returns 0xFF
 		return 0xFF
 	case 0xFF55: // HDMA5
 		// is HDMA transferring?
 		if h.transferring {
-			return uint8(types.Bit7) | (h.blocks - 1)
-		} else {
 			return h.blocks - 1
+		} else {
+			return types.Bit7 | h.blocks - 1
 		}
 	}
 
@@ -53,6 +54,7 @@ func (h *HDMA) Read(address uint16) uint8 {
 }
 
 func (h *HDMA) Write(address uint16, value uint8) {
+	//fmt.Printf("hdma\twrite %02X to address %04X\n", value, address)
 	switch address {
 	case 0xFF51: // HDMA1
 		h.source = (h.source & 0x00FF) | (uint16(value) << 8)
@@ -68,12 +70,10 @@ func (h *HDMA) Write(address uint16, value uint8) {
 			if Mode(value>>7) == GDMAMode {
 				// stop the HDMA transfer
 				h.transferring = false
-				panic("stopping")
 			} else {
 				// restart the HDMA transfer
-				panic("restarting")
 				h.mode = value >> 7
-				h.blocks = value&0x7F + 1
+				h.blocks = (value & 0x7F) + 1
 			}
 		} else {
 			// start copy
@@ -94,13 +94,16 @@ func (h *HDMA) Write(address uint16, value uint8) {
 
 func (h *HDMA) Tick() {
 	// write to vram
-	h.bus.Write(h.destination+0x8000, h.bus.Read(h.source))
+	h.vRAMWriteFunc(h.destination&0x1FFF, h.bus.Read(h.source))
+
+	// increment source and destination
 	h.destination++
 	h.source++
 
-	// has a block been copied?
-	if h.destination&0xf == 0 {
+	// has a block finished?
+	if (h.destination & 0xf) == 0 {
 		h.blocks--
+		// has the transfer finished?
 		if h.blocks == 0 {
 			h.transferring = false
 			h.copying = false
@@ -113,12 +116,6 @@ func (h *HDMA) Tick() {
 	}
 }
 
-// HasDoubleSpeed returns true as the HDMA controller responds to
-// double speed mode.
-func (h *HDMA) HasDoubleSpeed() bool {
-	return false
-}
-
 // IsCopying returns true if the HDMA controller is currently copying
 // data.
 func (h *HDMA) IsCopying() bool {
@@ -129,4 +126,8 @@ func (h *HDMA) SetHBlank() {
 	if h.mode == HDMAMode && h.transferring {
 		h.copying = true
 	}
+}
+
+func (h *HDMA) AttachVRAM(vramWriteFunc func(uint16, uint8)) {
+	h.vRAMWriteFunc = vramWriteFunc
 }

@@ -100,7 +100,7 @@ func init() {
 		if c.irq.IME {
 			c.mode = ModeHalt
 		} else {
-			if c.irq.Flag.Read()&c.irq.Enable.Read() != 0 {
+			if c.irq.Flag&c.irq.Enable != 0 {
 				c.mode = ModeHaltBug
 			} else {
 				c.mode = ModeHaltDI

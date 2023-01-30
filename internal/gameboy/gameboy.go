@@ -235,10 +235,13 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 	for _, key := range inputs.Pressed {
 		// check if it's a gameboy key
-		if key > joypad.ButtonDown {
-			g.keyHandlers()[key]()
-		} else {
+		if key <= joypad.ButtonDown {
 			g.Joypad.Press(key)
+		} else {
+			// check if it's a debug key
+			if handler, ok := g.keyHandlers()[key]; ok {
+				handler()
+			}
 		}
 	}
 	for _, key := range inputs.Released {

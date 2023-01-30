@@ -12,7 +12,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
 // IOBus is the interface that the MMU uses to communicate with the other
@@ -69,7 +68,28 @@ type MMU struct {
 
 	HDMA *HDMA
 
-	key uint8
+	key   uint8
+	isGBC bool
+}
+
+func (m *MMU) init() {
+	// setup registers
+	// CGB registers
+	if m.IsGBC() {
+		registers.RegisterHardware(
+			registers.SVBK,
+			func(v uint8) {
+				v &= 0x07 // only 3 bits are used
+				if v == 0 {
+					v = 1
+				}
+				m.wRAMBank = v
+			},
+			func() uint8 {
+				return m.wRAMBank
+			},
+		)
+	}
 }
 
 // NewMMU returns a new MMU.
@@ -97,11 +117,12 @@ func NewMMU(cart *cartridge.Cartridge, serial, sound IOBus) *MMU {
 			ram.NewRAM(0x1000),
 		},
 
-		zRAM: ram.NewRAM(0x7F),
+		zRAM: ram.NewRAM(0x80), // 128 bytes
 
 		Serial: serial,
 		Sound:  sound,
 		Log:    l,
+		isGBC:  cart.Header().Hardware() == "CGB",
 	}
 
 	m.HDMA = NewHDMA(m)
@@ -114,6 +135,8 @@ func NewMMU(cart *cartridge.Cartridge, serial, sound IOBus) *MMU {
 		// load dmg boot
 		m.bios = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
 	}
+
+	m.init()
 
 	return m
 }
@@ -132,7 +155,7 @@ func (m *MMU) AttachVideo(video IOBus) {
 }
 
 func (m *MMU) IsGBC() bool {
-	return m.Cart.Header().Hardware() == "CGB"
+	return m.isGBC
 }
 
 // EnableMock enables the mock bank.
@@ -147,7 +170,7 @@ func (m *MMU) Read(address uint16) uint8 {
 	if m.isMocking {
 		return m.mockBank.Read(address)
 	}
-	if registers.Has(address) {
+	if address >= 0xFF00 && registers.Has(address) {
 		return registers.HardwareRegisters[address].Read()
 	}
 	switch {
@@ -224,12 +247,6 @@ func (m *MMU) Read(address uint16) uint8 {
 		} else {
 			return 0xFF
 		}
-	case address == 0xFF70:
-		if m.IsGBC() {
-			return m.wRAMBank | 0xF8
-		} else {
-			return 0xFF
-		}
 	// Unusable memory (0xFF4C-0xFF7F)
 	case address >= 0xFF4C && address <= 0xFF7F:
 		return 0xFF
@@ -240,11 +257,6 @@ func (m *MMU) Read(address uint16) uint8 {
 	panic(fmt.Sprintf("Invalid address 0x%04X", address))
 }
 
-// Read16 returns the 16bit value at the given address.
-func (m *MMU) Read16(address uint16) uint16 {
-	return uint16(m.Read(address)) | uint16(m.Read(address+1))<<8
-}
-
 // Write writes the given value to the given address. It handles all the memory
 // banks, mirroring, I/O, etc.
 func (m *MMU) Write(address uint16, value uint8) {
@@ -252,7 +264,8 @@ func (m *MMU) Write(address uint16, value uint8) {
 		m.mockBank.Write(address, value)
 		return
 	}
-	if registers.Has(address) {
+	// is it a hardware register?
+	if address >= 0xFF00 && registers.Has(address) {
 		registers.HardwareRegisters[address].Write(value)
 		return
 	}
@@ -305,35 +318,11 @@ func (m *MMU) Write(address uint16, value uint8) {
 			if m.IsGBC() {
 				m.HDMA.Write(address, value)
 			}
-		case 0xFF70:
-			if m.IsGBC() {
-				m.wRAMBank = value & 0x7 // first 3 bits
-				if m.wRAMBank == 0 {
-					m.wRAMBank = 1
-				}
-			}
-
 		}
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address >= 0xFF80 && address <= 0xFFFE:
 		m.zRAM.Write(address-0xFF80, value)
 	default:
 		panic(fmt.Sprintf("mmu\t illegal write to 0x%04X", address))
-	}
-}
-
-// Write16 writes the given 16bit value to the given address.
-func (m *MMU) Write16(address uint16, value uint16) {
-	upper, lower := utils.Uint16ToBytes(value)
-	m.Write(address, lower)
-	m.Write(address+1, upper)
-}
-
-// LoadCartridge loads a cartridge from a byte slice into the MMU.
-func (m *MMU) LoadCartridge(rom []byte) {
-	if len(rom) == 0 {
-		m.Cart = cartridge.NewEmptyCartridge()
-	} else {
-		m.Cart = cartridge.NewCartridge(rom)
 	}
 }

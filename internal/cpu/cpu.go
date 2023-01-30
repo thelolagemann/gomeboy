@@ -58,25 +58,13 @@ type CPU struct {
 	mode        mode
 }
 
-// PopStack pops a 16-bit value from the stack.
-func (c *CPU) PopStack() uint16 {
-	value := c.mmu.Read16(c.SP)
-	c.SP += 2
-	return value
-}
-
-// PushStack pushes a 16-bit value to the stack.
-func (c *CPU) PushStack(pc uint16) {
-	c.SP -= 2
-	c.mmu.Write16(c.SP, pc)
-}
-
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
 func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripheral) *CPU {
 	c := &CPU{
-		PC: 0,
-		SP: 0,
+		PC:    0,
+		SP:    0,
+		Debug: true,
 		Registers: Registers{
 			A: 0x11,
 			B: 0x01,
@@ -202,7 +190,7 @@ func (c *CPU) Step() uint16 {
 	// should we tick HDMA?
 	if c.mmu.HDMA.IsCopying() {
 		c.hdmaTick4()
-		return c.currentTick
+		return 0
 	}
 
 	reqInt := false
@@ -269,9 +257,12 @@ func (c *CPU) hdmaTick4() {
 		c.tick()
 		c.tickDoubleSpeed()
 
-		c.mmu.HDMA.Tick()
+		c.mmu.HDMA.Tick() // HDMA takes twice as long in double speed mode
 	} else {
-		c.ticks(4)
+		c.tick()
+		c.tick()
+		c.tick()
+		c.tick()
 
 		c.mmu.HDMA.Tick()
 		c.mmu.HDMA.Tick()
@@ -279,7 +270,7 @@ func (c *CPU) hdmaTick4() {
 }
 
 func (c *CPU) hasInterrupts() bool {
-	return c.irq.Enable.Read()&c.irq.Flag.Read()&0x1F != 0
+	return c.irq.Enable&c.irq.Flag&0x1F != 0
 }
 
 // readInstruction reads the next instruction from memory.
@@ -353,6 +344,7 @@ func (c *CPU) runInstruction(opcode uint8) {
 	if c.Debug {
 		if instruction.Name() == "LD B, B" {
 			c.DebugBreakpoint = true
+			// panic("debug breakpoint")
 		}
 	}
 }

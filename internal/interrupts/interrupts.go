@@ -1,7 +1,6 @@
 package interrupts
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
@@ -42,9 +41,9 @@ const (
 // Service represents the current state of the interrupts.
 type Service struct {
 	// Flag is the Interrupt FlagRegister. (0xFF0F)
-	Flag *registers.Hardware
+	Flag uint8
 	// Enable is the Interrupt EnableRegister. (0xFFFF)
-	Enable *registers.Hardware
+	Enable uint8
 
 	// IME is the Interrupt Master Enable flag.
 	IME bool
@@ -52,22 +51,35 @@ type Service struct {
 
 // NewService returns a new Service.
 func NewService() *Service {
-	return &Service{
-		Flag: registers.NewHardware(
-			registers.IF,
-			registers.Mask(types.CombineMasks(types.Mask0, types.Mask1, types.Mask2, types.Mask3, types.Mask4)),
-		),
-		Enable: registers.NewHardware(
-			registers.IE,
-			registers.IsReadableWritable(),
-		),
-		IME: false,
+	s := &Service{
+		Flag:   0,
+		Enable: 0,
+		IME:    false,
 	}
+	// setup registers
+	registers.RegisterHardware(
+		registers.IF,
+		func(v uint8) {
+			s.Flag = v & 0x1F // only the first 5 bits are used
+		}, func() uint8 {
+			return s.Flag
+		},
+	)
+	registers.RegisterHardware(
+		registers.IE,
+		func(v uint8) {
+			s.Enable = v
+		}, func() uint8 {
+			return s.Enable
+		},
+	)
+
+	return s
 }
 
 // Request requests an interrupt.
 func (s *Service) Request(flag Flag) {
-	s.Flag.Write(s.Flag.Read() | 1<<flag)
+	s.Flag = s.Flag | 1<<flag
 }
 
 // Vector returns the currently serviced interrupt vector,
@@ -75,9 +87,9 @@ func (s *Service) Request(flag Flag) {
 // will also clear the interrupt flag.
 func (s *Service) Vector() Address {
 	for i := uint8(0); i < 5; i++ {
-		if s.Flag.Read()&(1<<i) != 0 && s.Enable.Read()&(1<<i) != 0 {
+		if s.Flag&(1<<i) != 0 && s.Enable&(1<<i) != 0 {
 			// clear the interrupt flag and return the vector
-			s.Flag.Write(s.Flag.Read() ^ 1<<i)
+			s.Flag = s.Flag ^ 1<<i
 			return Address(0x0040 + i*8)
 		}
 	}

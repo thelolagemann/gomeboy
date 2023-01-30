@@ -13,18 +13,42 @@ import (
 // different parts of the map.
 type Background struct {
 	// ScrollY is the Y position of the background.
-	ScrollY *registers.Hardware
+	ScrollY uint8
 	// ScrollX is the X position of the background.
-	ScrollX *registers.Hardware
+	ScrollX uint8
 	// Palette is the current background palette.
-	palette *registers.Hardware
+	Palette palette.Palette
 }
 
 func (b *Background) init() {
 	// setup the registers
-	b.ScrollY = registers.NewHardware(registers.SCY, registers.IsReadableWritable())
-	b.ScrollX = registers.NewHardware(registers.SCX, registers.IsReadableWritable())
-	b.palette = registers.NewHardware(registers.BGP, registers.IsReadableWritable())
+	registers.RegisterHardware(
+		registers.BGP,
+		func(v uint8) {
+			b.Palette = palette.ByteToPalette(v)
+		},
+		func() uint8 {
+			return b.Palette.ToByte()
+		},
+	)
+	registers.RegisterHardware(
+		registers.SCX,
+		func(v uint8) {
+			b.ScrollX = v
+		},
+		func() uint8 {
+			return b.ScrollX
+		},
+	)
+	registers.RegisterHardware(
+		registers.SCY,
+		func(v uint8) {
+			b.ScrollY = v
+		},
+		func() uint8 {
+			return b.ScrollY
+		},
+	)
 }
 
 // NewBackground returns a new Background.
@@ -32,8 +56,4 @@ func NewBackground() *Background {
 	b := &Background{}
 	b.init()
 	return b
-}
-
-func (b *Background) Palette() palette.Palette {
-	return palette.ByteToPalette(b.palette.Value()) // TODO handle CGB
 }
