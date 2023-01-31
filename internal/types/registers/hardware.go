@@ -30,6 +30,12 @@ var newAddresses = map[HardwareAddress]struct{}{
 	OCPS:   {},
 	OCPD:   {},
 	SVBK:   {},
+	HDMA1:  {},
+	HDMA2:  {},
+	HDMA3:  {},
+	HDMA4:  {},
+	HDMA5:  {},
+	KEY0:   {},
 	0xFF0F: {},
 	0xFFFF: {},
 }
@@ -205,6 +211,21 @@ const (
 	// are in the ranges WX=0..166, WY=0..143 respectively. Values
 	// WX=7 and WY=0 locates the window at the top left of the LCD.
 	WX HardwareAddress = 0xFF4B
+	// KEY0 is the address of the KEY0 hardware register. The KEY0
+	// hardware register is written to indicate the CGB compatibility
+	// mode. KEY0 is only used in CGB mode.
+	//
+	// The register is set as follows:
+	//  Bits 7 - 4 - Not used
+	//  Bit 3 - Disable some CGB functions (0=Normal, 1=Disable)
+	//  Bit 2 - Disable all CGB functions (0=Normal, 1=Disable)
+	//  Bit 1 - Unused
+	//  Bit 0 - Unknown
+	KEY0 HardwareAddress = 0xFF4C
+	// KEY1 is the address of the KEY1 hardware register. The KEY1
+	// hardware register is written to indicate the CGB speed mode.
+	// KEY1 is only used in CGB mode.
+	KEY1 HardwareAddress = 0xFF4D
 	// VBK is the address of the VBK hardware register. The VBK
 	// hardware register is used to select the current VRAM bank.
 	// VBK is only used in CGB mode.
@@ -479,4 +500,11 @@ func (h *Hardware) Set(value uint8) {
 
 func (h *Hardware) Value() uint8 {
 	return h.value
+}
+
+// NoRead is a convenience function to return a read function that
+// always returns 0xFF. This is useful for hardware registers that
+// are not readable.
+func NoRead() uint8 {
+	return 0xFF
 }

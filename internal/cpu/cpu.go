@@ -188,7 +188,7 @@ func (c *CPU) Step() uint16 {
 	c.currentTick = 0
 
 	// should we tick HDMA?
-	if c.mmu.HDMA.IsCopying() {
+	if c.mmu.IsGBC() && c.mmu.HDMA.IsCopying() {
 		c.hdmaTick4()
 		return 0
 	}

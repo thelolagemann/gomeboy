@@ -1,8 +1,8 @@
 package mmu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
 type Mode = uint8
@@ -25,8 +25,75 @@ type HDMA struct {
 	vRAMWriteFunc func(uint16, uint8)
 }
 
+func (h *HDMA) init() {
+	// setup registers
+	registers.RegisterHardware(
+		registers.HDMA1,
+		func(v uint8) {
+			h.source = (h.source & 0x00FF) | (uint16(v) << 8)
+		},
+		registers.NoRead,
+	)
+	registers.RegisterHardware(
+		registers.HDMA2,
+		func(v uint8) {
+			h.source = (h.source & 0xFF00) | uint16(v&0xF0)
+		},
+		registers.NoRead,
+	)
+	registers.RegisterHardware(
+		registers.HDMA3,
+		func(v uint8) {
+			h.destination = (h.destination & 0x00FF) | (uint16(v&0x1F) << 8)
+		},
+		registers.NoRead,
+	)
+	registers.RegisterHardware(
+		registers.HDMA4,
+		func(v uint8) {
+			h.destination = (h.destination & 0xFF00) | uint16(v&0xF0)
+		},
+		registers.NoRead,
+	)
+	registers.RegisterHardware(
+		registers.HDMA5,
+		func(v uint8) {
+			// is HDMA copying?
+			if h.mode == HDMAMode && h.transferring {
+				if Mode(v>>7) == GDMAMode {
+					// stop the HDMA transfer
+					h.transferring = false
+				} else {
+					// restart the HDMA transfer
+					h.mode = v >> 7
+					h.blocks = (v & 0x7F) + 1
+				}
+			} else {
+				// start copy
+				h.mode = v >> 7
+				h.blocks = (v & 0x7F) + 1
+
+				h.transferring = true
+			}
+
+			// start GDMA transfer immediately
+			if h.mode == GDMAMode {
+				h.copying = true
+			}
+		},
+		func() uint8 {
+			// is HDMA transferring?
+			if h.transferring {
+				return h.blocks - 1
+			} else {
+				return types.Bit7 | h.blocks - 1
+			}
+		},
+	)
+}
+
 func NewHDMA(bus IOBus) *HDMA {
-	return &HDMA{
+	h := &HDMA{
 		mode:         GDMAMode,
 		transferring: false,
 		copying:      false,
@@ -34,62 +101,8 @@ func NewHDMA(bus IOBus) *HDMA {
 
 		bus: bus,
 	}
-}
-
-func (h *HDMA) Read(address uint16) uint8 {
-	//fmt.Printf("hdma\tread from address %04X\n", address)
-	switch address {
-	case 0xFF51, 0xFF52, 0xFF53, 0xFF54: // Reading from HDMA registers returns 0xFF
-		return 0xFF
-	case 0xFF55: // HDMA5
-		// is HDMA transferring?
-		if h.transferring {
-			return h.blocks - 1
-		} else {
-			return types.Bit7 | h.blocks - 1
-		}
-	}
-
-	panic(fmt.Sprintf("hdma\tillegal read from address %04X", address))
-}
-
-func (h *HDMA) Write(address uint16, value uint8) {
-	//fmt.Printf("hdma\twrite %02X to address %04X\n", value, address)
-	switch address {
-	case 0xFF51: // HDMA1
-		h.source = (h.source & 0x00FF) | (uint16(value) << 8)
-	case 0xFF52: // HDMA2
-		h.source = (h.source & 0xFF00) | uint16(value&0xF0)
-	case 0xFF53: // HDMA3
-		h.destination = (h.destination & 0x00FF) | (uint16(value&0x1F) << 8)
-	case 0xFF54: // HDMA4
-		h.destination = (h.destination & 0xFF00) | uint16(value&0xF0)
-	case 0xFF55: // HDMA5
-		// is HDMA copying?
-		if h.mode == HDMAMode && h.transferring {
-			if Mode(value>>7) == GDMAMode {
-				// stop the HDMA transfer
-				h.transferring = false
-			} else {
-				// restart the HDMA transfer
-				h.mode = value >> 7
-				h.blocks = (value & 0x7F) + 1
-			}
-		} else {
-			// start copy
-			h.mode = value >> 7
-			h.blocks = (value & 0x7F) + 1
-
-			h.transferring = true
-		}
-
-		// start GDMA transfer immediately
-		if h.mode == GDMAMode {
-			h.copying = true
-		}
-	default:
-		panic(fmt.Sprintf("hdma\tillegal write to address %04X", address))
-	}
+	h.init()
+	return h
 }
 
 func (h *HDMA) Tick() {

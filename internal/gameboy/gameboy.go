@@ -26,7 +26,7 @@ const (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
 	// FrameRate is the frame rate of the emulator.
-	FrameRate = 144
+	FrameRate = 60
 	// FrameTime is the time it should take to render a frame.
 	FrameTime     = time.Second / FrameRate
 	TicksPerFrame = ClockSpeed / FrameRate
@@ -108,21 +108,46 @@ func (g *GameBoy) Start(mon *display.Display) {
 	// setup fps counter
 	g.frames = 0
 	start := time.Now()
+	frameStart := time.Now()
+	frameTimes := make([]time.Duration, 0, FrameRate)
+	pollTimes := make([]time.Duration, 0, FrameRate)
+	renderTimes := make([]time.Duration, 0, FrameRate)
 	g.APU.Play()
 
 	// create a ticker to update the display
 	ticker := time.NewTicker(FrameTime)
 
 	for !mon.IsClosed() {
+		frameStart = time.Now()
 		g.frames++
 
 		if !g.paused {
 			// render frame
 			g.ProcessInputs(mon.PollKeys())
-			mon.Render(g.Frame())
+			pollTimes = append(pollTimes, time.Since(frameStart))
+			frameStart = time.Now()
+
+			frame := g.Frame()
+			renderTimes = append(renderTimes, time.Since(frameStart))
+			frameStart = time.Now()
+
+			mon.Render(frame)
+
+			// update frametime
+			frameTimes = append(frameTimes, time.Since(frameStart))
 		}
 		if time.Since(start) > time.Second {
-			title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), g.frames)
+			// average frame time
+			avgFrameTime := avgTime(frameTimes)
+			avgPollTime := avgTime(pollTimes)
+			avgRenderTime := avgTime(renderTimes)
+			frameTimes = frameTimes[:0]
+			pollTimes = pollTimes[:0]
+			renderTimes = renderTimes[:0]
+
+			total := avgFrameTime + avgPollTime + avgRenderTime
+
+			title := fmt.Sprintf("Poll: %v + Render: %v + Frame: %v | FPS: (%v:%s)", avgPollTime.String(), avgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
 			mon.SetTitle(title)
 
 			g.frames = 0
@@ -132,6 +157,14 @@ func (g *GameBoy) Start(mon *display.Display) {
 		// wait for tick
 		<-ticker.C
 	}
+}
+
+func avgTime(t []time.Duration) time.Duration {
+	var avg time.Duration
+	for _, d := range t {
+		avg += d
+	}
+	return avg / time.Duration(len(t))
 }
 
 // Frame will step the emulation until the PPU has finished
@@ -154,7 +187,6 @@ func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
 		g.previousFrame = g.ppu.PreparedFrame
 		return g.previousFrame
 	}
-
 	ticks := uint32(0)
 	// step until the next frame or until tick threshold is reached
 	for ticks <= TicksPerFrame {

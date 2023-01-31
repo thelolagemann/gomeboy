@@ -36,12 +36,12 @@ type PPU struct {
 	vRAMBank uint8
 
 	oam                 *OAM
-	vRAM                [2]ram.RAM // Second bank only exists on CGB
+	vRAM                [2]*ram.Ram // Second bank only exists on CGB
 	colourPalette       *palette.CGBPalette
 	colourSpritePalette *palette.CGBPalette
 
 	tileData [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
-	tileMaps [2]TileMap    // 32x32 tiles, 8x8 pixels each (double in CGB mode)
+	tileMaps [2]TileMap    // 32x32 tiles, 8x8 pixels each
 
 	irq *interrupts.Service
 
@@ -59,13 +59,7 @@ type PPU struct {
 	DMA                *DMA
 	delayedTick        bool
 
-	currentFramePalette palette.Colour
-
 	tileBgPriority [ScreenWidth][ScreenHeight]bool
-
-	// new cgb stuff
-
-	tileAttributes [2048]*TileAttributes // 32x32 tile attributes
 }
 
 func (p *PPU) init() {
@@ -95,7 +89,6 @@ func (p *PPU) init() {
 			// if the screen was turned on, reset the clock
 			p.currentCycle = 4
 			p.delayedTick = true
-			fmt.Println(p.Mode)
 		}
 	})
 	p.Status = lcd.NewStatus(func(writeFn func()) {
@@ -218,11 +211,6 @@ func (p *PPU) init() {
 		)
 	}
 
-	// initialize tile attributes
-	for i := 0; i < len(p.tileAttributes); i++ {
-		p.tileAttributes[i] = &TileAttributes{}
-	}
-
 	// initialize tile data
 	for i := 0; i < 2; i++ {
 		for j := 0; j < len(p.tileData[0]); j++ {
@@ -233,7 +221,7 @@ func (p *PPU) init() {
 	// initialize tile map
 	for i := 0; i < 2; i++ {
 		for j := 0; j < len(p.tileMaps); j++ {
-			p.tileMaps[i] = TileMap{}
+			p.tileMaps[i] = NewTileMap()
 		}
 	}
 }
@@ -241,24 +229,25 @@ func (p *PPU) init() {
 func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	oam := NewOAM()
 	p := &PPU{
-		Background:   background.NewBackground(),
-		currentCycle: 0,
-
-		tileData: [2][384]*Tile{},
+		Background: background.NewBackground(),
+		tileData:   [2][384]*Tile{},
 
 		bus: mmu,
 		irq: irq,
 		oam: oam,
-		vRAM: [2]ram.RAM{
+		vRAM: [2]*ram.Ram{
 			ram.NewRAM(8192),
-			ram.NewRAM(8192), // TODO only create if CGB
 		},
-		DMA:                 NewDMA(mmu, oam),
-		colourPalette:       palette.NewCGBPallette(),
-		colourSpritePalette: palette.NewCGBPallette(),
-		tileAttributes:      [2048]*TileAttributes{},
+		DMA: NewDMA(mmu, oam),
 	}
-	mmu.HDMA.AttachVRAM(p.WriteVRAM)
+
+	// initialize CGB features
+	if mmu.IsGBC() {
+		p.colourPalette = palette.NewCGBPallette()
+		p.colourSpritePalette = palette.NewCGBPallette()
+		p.vRAM[1] = ram.NewRAM(0x2000)
+		mmu.HDMA.AttachVRAM(p.WriteVRAM)
+	}
 
 	p.init()
 	return p
@@ -300,60 +289,27 @@ func (p *PPU) oamUnlocked() bool {
 }
 
 func (p *PPU) DumpTileMap() image.Image {
-	// 2 tilemaps per bank (0x1800 bytes) (32x32 tiles)
-	// 1 byte per tile (0-255)
-	fmt.Println("Dumping tilemaps")
-
 	var img *image.RGBA
-	if p.bus.IsGBC() {
-		img = image.NewRGBA(image.Rect(0, 0, 512, 512))
-	} else {
-		img = image.NewRGBA(image.Rect(0, 0, 256, 256))
-	}
+	img = image.NewRGBA(image.Rect(0, 0, 256, 512))
 
 	// draw tilemap (0x9800 - 0x9BFF)
-	for x := 0; x < 32; x++ {
-		for y := 0; y < 32; y++ {
-			// get tile number
-			tileNumber := int(p.vRAM[0].Read(uint16(0x1800 + (y*32 + x))))
-
-			// is it a signed tile number?
-			if p.Controller.UsingSignedTileData() {
-				if tileNumber < 128 {
-					tileNumber += 256
-				}
-			}
-
-			// get tile
-			tile := p.tileData[0][tileNumber]
-			tile.Draw(img, x*8, y*8)
-
-			// get attributes
-			attributes := p.tileAttributes[y*32+x]
-			attributes.Draw(img, x*8, y*8)
+	for i := uint8(0); i < 32; i++ {
+		for j := uint8(0); j < 32; j++ {
+			tileEntry := p.calculateTileID(j, i, 0x1800)
+			// get tile data
+			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile.Draw(img, int(i*8), int(j*8))
 		}
 	}
 
 	// draw tilemap (0x9C00 - 0x9FFF)
-	for x := 0; x < 32; x++ {
-		for y := 0; y < 32; y++ {
-			// get tile number
-			tileNumber := int(p.vRAM[0].Read(uint16(0x1C00 + (y*32 + x))))
+	for i := uint8(0); i < 32; i++ {
+		for j := uint8(0); j < 32; j++ {
+			tileEntry := p.calculateTileID(j, i, 0x1C00)
 
-			// is it a signed tile number?
-			if p.Controller.UsingSignedTileData() {
-				if tileNumber < 128 {
-					tileNumber += 256
-				}
-			}
-
-			// get tile
-			tile := p.tileData[0][tileNumber]
-			tile.Draw(img, x*8, y*8+256)
-
-			// get attributes
-			attributes := p.tileAttributes[y*32+x+1024]
-			attributes.Draw(img, x*8, y*8+256)
+			// get tile data
+			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile.Draw(img, int(i)*8, int(j)*8+256)
 		}
 	}
 
@@ -411,7 +367,7 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 
 		// are we writing to the tile data?
 		if address <= 0x17FF {
-			p.UpdateTile(address)
+			p.UpdateTile(address, value)
 			// update the tile data
 		} else if address <= 0x1FFF {
 			if p.vRAMBank == 0 {
@@ -427,13 +383,27 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 			}
 			if p.vRAMBank == 1 {
 				// update the tile attributes
-				p.UpdateTileAttributes(address-0x1800, value)
+				if address >= 0x1800 && address <= 0x1BFF {
+					// tilemap 0
+					p.UpdateTileAttributes(address, 0, value)
+				}
+				if address >= 0x1C00 && address <= 0x1FFF {
+					// tilemap 1
+					p.UpdateTileAttributes(address, 1, value)
+				}
 			}
 		}
 	} else {
 		p.vRAM[0].Write(address, value)
 		if address <= 0x17FF {
-			p.UpdateTile(address)
+			p.UpdateTile(address, value)
+		} else if address <= 0x1FFF {
+			if address >= 0x1800 && address <= 0x1BFF {
+				p.UpdateTileMap(address, 0)
+			}
+			if address >= 0x1C00 && address <= 0x1FFF {
+				p.UpdateTileMap(address, 1)
+			}
 		}
 	}
 }
@@ -457,34 +427,32 @@ func (p *PPU) Write(address uint16, value uint8) {
 }
 
 // UpdateTile updates the tile at the given address
-func (p *PPU) UpdateTile(index uint16) {
-	// get the tile index
-	index &= 0x1FFE // only the lower 13 bits are used
+func (p *PPU) UpdateTile(address uint16, value uint8) {
+	// get the tile address
+	address &= 0x1FFE // only the lower 13 bits are used
 
 	// get the tileID
-	tileID := index >> 4 // divide by 16
+	tileID := address >> 4 // divide by 16
 
 	// get the tile row
-	row := (index >> 1) & 0x7
+	row := (address >> 1) & 0x7
 
 	// iterate over the 8 pixels in the row
 	for i := 0; i < 8; i++ {
 		bitIndex := uint8(1 << (7 - i))
 
-		// get the low and high bits
 		low := 0
 		high := 0
-
-		if p.vRAM[p.vRAMBank].Read(index)&bitIndex != 0 {
+		// are we updating the first or second byte?
+		if p.vRAM[p.vRAMBank].Read(address)&bitIndex != 0 {
 			low = 1
 		}
-
-		if p.vRAM[p.vRAMBank].Read(index+1)&bitIndex != 0 {
+		if p.vRAM[p.vRAMBank].Read(address+1)&bitIndex != 0 {
 			high = 2
 		}
 
-		// set the pixel
-		p.tileData[p.vRAMBank][tileID][row][i] = (low) + (high)
+		// update the tile
+		p.tileData[p.vRAMBank][tileID][row][i] = uint8(low + high)
 	}
 }
 
@@ -494,13 +462,17 @@ func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
 	x := address & 0x1F
 
 	// update the tilemap
-	p.tileMaps[tilemapIndex][y][x] = p.vRAM[0].Read(address)
+	p.tileMaps[tilemapIndex][y][x].TileID = p.vRAM[0].Read(address)
 }
 
-func (p *PPU) UpdateTileAttributes(index uint16, value uint8) {
+func (p *PPU) UpdateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
 	// panic(fmt.Sprintf("updating tile %x with %b", index, value))
-	// get the ID of the tile being updated (0-383)
-	p.tileAttributes[index].Write(index, value)
+	// determine the y and x position
+	y := (index / 32) & 0x1F
+	x := index & 0x1F
+
+	// update the tilemap
+	p.tileMaps[tilemapIndex][y][x].Attributes.Write(value)
 }
 
 // checkLYC checks if the LYC interrupt should be triggered.
@@ -556,10 +528,6 @@ func (p *PPU) Tick() {
 	// step logic
 	switch p.Status.Mode {
 	case lcd.HBlank:
-		if p.bus.IsGBC() {
-			p.bus.HDMA.SetHBlank()
-		}
-
 		// are we handling the line 0 M-cycle delay?
 		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/ppu/lcdon_timing-GS.s#L24
 		if p.delayedTick && p.currentCycle == 80 {
@@ -640,11 +608,15 @@ func (p *PPU) Tick() {
 			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
 			p.currentCycle = 0
 			p.SetMode(lcd.HBlank)
+
+			// notify HDMA that we're in HBlank
+			if p.bus.IsGBC() {
+				p.bus.HDMA.SetHBlank()
+			}
 			p.checkStatInterrupts(false)
 
 			if p.BackgroundEnabled || p.bus.IsGBC() {
 				p.renderBackground()
-
 			} else {
 				p.renderBlankLine()
 			}
@@ -718,9 +690,7 @@ func (p *PPU) renderWindow() {
 		xPos = i - (p.WindowX - 7)
 		tileXIndex := (xPos / 8)
 
-		tileID := uint16(p.calculateTileID(tileYIndex, tileXIndex, mapOffset))
-		// get the tile attributes for the tile
-		tileAttributes := p.tileAttributes[mapOffset-0x1800+uint16((tileYIndex)*32)+uint16(tileXIndex)]
+		tileEntry := p.calculateTileID(tileYIndex, tileXIndex, mapOffset)
 
 		// get pixel position within tile
 		xPixelPos := xPos % 8
@@ -728,23 +698,23 @@ func (p *PPU) renderWindow() {
 
 		// are we flipping?
 		if p.bus.IsGBC() {
-			if tileAttributes.YFlip {
+			if tileEntry.Attributes.YFlip {
 				yPixelPos = 7 - yPixelPos
 			}
-			if tileAttributes.XFlip {
+			if tileEntry.Attributes.XFlip {
 				xPixelPos = 7 - xPixelPos
 			}
 		}
 
 		// get the colour (shade) of the pixel using the background palette
-		pixelShade := p.tileData[tileAttributes.VRAMBank][tileID][yPixelPos][xPixelPos]
+		pixelShade := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())][yPixelPos][xPixelPos]
 
 		// convert the shade to a colour
 		pixelColour := p.Palette.GetColour(uint8(pixelShade))
 
 		if p.bus.IsGBC() {
-			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, uint8(pixelShade))
-			p.tileBgPriority[i][p.CurrentScanline] = tileAttributes.UseBGPriority
+			pixelColour = p.colourPalette.GetColour(tileEntry.Attributes.PaletteNumber, uint8(pixelShade))
+			p.tileBgPriority[i][p.CurrentScanline] = tileEntry.Attributes.UseBGPriority
 		}
 
 		// set the pixel on the screen
@@ -754,7 +724,9 @@ func (p *PPU) renderWindow() {
 }
 
 func (p *PPU) renderBackground() {
-	var xPos, yPos uint8
+	// setup variables
+	var xPos, yPos, xPixelPos, yPixelPos, pixelIndex uint8
+	var pixelColour [3]uint8
 
 	yPos = p.CurrentScanline + p.ScrollY
 	tileYIndex := yPos / 8
@@ -766,50 +738,51 @@ func (p *PPU) renderBackground() {
 		mapOffset = 0x1C00
 	}
 
+	// determine the x position of the pixel
+	xPos = 0 + p.ScrollX
+	tileEntry := p.calculateTileID(tileYIndex, xPos/8, mapOffset)
+	tileID := tileEntry.GetID(p.UsingSignedTileData()) // TODO threaded drawing of tiles 160 threads per pixel or 1 thread per tile (20 visible tiles)
 	for i := uint8(0); i < ScreenWidth; i++ {
-		// determine the x position of the pixel
+		// update the x position
 		xPos = i + p.ScrollX
-		tileXIndex := xPos / 8
-
-		// determine the tile ID to draw from the tile map
-		tileID := uint16(p.calculateTileID(tileYIndex, tileXIndex, mapOffset))
-
-		// get the tile attributes for the tile
-		tileAttributes := p.tileAttributes[mapOffset-0x1800+uint16(tileYIndex)*32+uint16(tileXIndex)]
 
 		// get pixel position within tile
-		xPixelPos := xPos % 8
-		yPixelPos := yPos % 8
+		xPixelPos = xPos % 8
+		yPixelPos = yPos % 8
 
 		// are we flipping?
-		if p.bus.IsGBC() {
-			if tileAttributes.YFlip {
-				yPixelPos = 7 - yPixelPos
-			}
-			if tileAttributes.XFlip {
-				xPixelPos = 7 - xPixelPos
-			}
+		// we don't need to check if we're in GBC mode because the
+		// tileEntry defaults all attributes to false
+		if tileEntry.Attributes.YFlip {
+			yPixelPos = 7 - yPixelPos
+		}
+		if tileEntry.Attributes.XFlip {
+			xPixelPos = 7 - xPixelPos
 		}
 
 		// get the colour (shade) of the pixel using the background palette
-		pixelShade := p.tileData[tileAttributes.VRAMBank][tileID][yPixelPos][xPixelPos]
+		pixelIndex = p.tileData[tileEntry.Attributes.VRAMBank][tileID][yPixelPos][xPixelPos]
 
 		// convert the shade to a colour
-		var pixelColour [3]uint8
 
 		if p.bus.IsGBC() {
-			pixelColour = p.colourPalette.GetColour(tileAttributes.PaletteNumber, byte(pixelShade))
-			p.tileBgPriority[i][p.CurrentScanline] = tileAttributes.UseBGPriority
+			pixelColour = p.colourPalette.GetColour(tileEntry.Attributes.PaletteNumber, pixelIndex)
+			p.tileBgPriority[i][p.CurrentScanline] = tileEntry.Attributes.UseBGPriority
 		} else {
-			pixelColour = p.Palette.GetColour(uint8(pixelShade))
+			pixelColour = p.Palette.GetColour(uint8(pixelIndex))
 		}
 		p.ScreenData[i][p.CurrentScanline] = pixelColour
-	}
 
+		// did we just finish a tile?
+		if (xPos+1)%8 == 0 {
+			tileEntry = p.calculateTileID(tileYIndex, (xPos+1)/8, mapOffset)
+			tileID = tileEntry.GetID(p.UsingSignedTileData())
+		}
+	}
 }
 
 // calculateTileID calculates the tile ID for the current scanline
-func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint16) int {
+func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint16) TileMapEntry {
 	// determine which tilemap to use
 	var tilemapNumber uint8
 	if mapOffset == 0x1800 {
@@ -817,18 +790,10 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint16)
 	} else {
 		tilemapNumber = 1
 	}
-	// determine the tile ID to draw from the tile map
+	// get the tile entry from the tilemap
+	tileEntry := p.tileMaps[tilemapNumber][tilemapOffset][lineOffset]
 
-	tileID := int(p.tileMaps[tilemapNumber][tilemapOffset][lineOffset])
-
-	// if the tile ID is signed, we need to convert it to an unsigned value
-	if p.UsingSignedTileData() {
-		if tileID < 128 {
-			tileID += 256
-		}
-	}
-
-	return tileID
+	return tileEntry
 }
 
 // renderSprites renders the sprites on the current scanline.

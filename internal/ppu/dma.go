@@ -53,27 +53,29 @@ func (d *DMA) Tick() {
 	// increment the timer
 	d.timer++
 
-	// every 4 ticks, transfer a byte
-	if d.timer%4 == 0 {
-		d.restarting = false //
+	// every 4 ticks, transfer a byte to OAM
+	// takes 4 ticks to turn on, 640 ticks to transfer
+	if d.timer < 4 {
+		// do nothing on the first 4 ticks
+		return
+	} else if d.timer < 644 {
+		d.restarting = false
+		if d.timer%4 == 0 {
+			offset := uint16(d.timer-4) >> 2
+			currentSource := d.source + (offset)
 
-		offset := uint16(d.timer-4) >> 2
-		currentSource := d.source + (offset)
-
-		// is a DMA trying to read from the OAM?
-		if currentSource > 0xE000 {
-			// if so, make sure we don't read from the OAM
-			// and instead read from the source address - 0x2000
-			currentSource &^= 0x2000
+			// is a DMA trying to read from the OAM?
+			if currentSource >= 0xFE00 {
+				// if so, make sure we don't read from the OAM
+				// and instead read from the source address - 0x2000
+				currentSource -= 0x2000
+			}
+			// write directly to OAM to avoid any locking
+			d.oam.Write(offset, d.bus.Read(currentSource))
 		}
-		// write directly to OAM to avoid any locking
-		d.oam.Write(offset, d.bus.Read(currentSource))
-
-		// 4 ticks per byte (0xFE00-0xFE9F) = 160 bytes = 640 ticks
-		if d.timer >= 640 {
-			d.enabled = false
-			d.timer = 0
-		}
+	} else {
+		d.enabled = false
+		d.timer = 0
 	}
 }
 
@@ -84,5 +86,5 @@ func (d *DMA) HasDoubleSpeed() bool {
 }
 
 func (d *DMA) IsTransferring() bool {
-	return d.timer > 4 || d.restarting
+	return d.timer >= 4 || d.restarting
 }

@@ -68,9 +68,6 @@ func (p *CGBPalette) Write(value byte) {
 // GetColour returns the colour for a given palette index,
 // and colour index.
 func (p *CGBPalette) GetColour(paletteIndex byte, colourIndex byte) [3]uint8 {
-	if paletteIndex != 0 || colourIndex != 0 {
-		//fmt.Println("palette index", paletteIndex, "colour index", colourIndex)
-	}
 	return p.palettes[paletteIndex][colourIndex]
 }
 

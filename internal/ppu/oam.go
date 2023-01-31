@@ -6,6 +6,9 @@ package ppu
 // each, each entry representing a sprite.
 type OAM struct {
 	Sprites [40]*Sprite // 40 sprites
+
+	// raw data
+	data [160]byte
 }
 
 func (o *OAM) init() {
@@ -18,18 +21,23 @@ func (o *OAM) init() {
 }
 
 func NewOAM() *OAM {
-	o := &OAM{}
+	o := &OAM{
+		data: [160]byte{},
+	}
 	o.init()
 	return o
 }
 
 // Read returns the value at the given address.
 func (o *OAM) Read(address uint16) uint8 {
-	return o.Sprites[address>>2].Read(address)
+	return o.data[address]
 }
 
 // Write writes the given value at the given address.
 func (o *OAM) Write(address uint16, value uint8) {
 	// get the sprite index
 	o.Sprites[address>>2].Update(address, value)
+
+	// update raw data so that it can be easily read back
+	o.data[address] = value
 }

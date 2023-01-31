@@ -62,7 +62,7 @@ func NewService() *Service {
 		func(v uint8) {
 			s.Flag = v & 0x1F // only the first 5 bits are used
 		}, func() uint8 {
-			return s.Flag
+			return s.Flag | 0xE0 // the upper 3 bits are always set
 		},
 	)
 	registers.RegisterHardware(

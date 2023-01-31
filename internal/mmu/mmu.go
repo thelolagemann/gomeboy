@@ -26,7 +26,7 @@ type IOBus interface {
 // 12 different memory banks.
 type MMU struct {
 	biosFinished bool
-	bios         IOBus
+	bootROM      *boot.ROM
 	isMocking    bool
 
 	// 64kB address space
@@ -42,7 +42,7 @@ type MMU struct {
 	// (0xC000-0xCFFF) - internal RAM bank 0 fixed
 
 	// (0xD000-0xDFFF) - internal switchable RAM bank 1 - 7
-	wRAM     [8]ram.RAM
+	wRAM     [8]*ram.Ram
 	wRAMBank uint8
 
 	// (0xFE00-0xFE9F) - sprite attribute table (OAM)
@@ -58,7 +58,7 @@ type MMU struct {
 	// (0xFF4C-0xFF7F) - unusable memory
 
 	// (0xFF80-0xFFFE) - internal RAM
-	zRAM ram.RAM
+	zRAM *ram.Ram
 
 	// (0xFFFF) - interrupt enable register
 
@@ -68,7 +68,8 @@ type MMU struct {
 
 	HDMA *HDMA
 
-	key   uint8
+	key0  uint8
+	key1  uint8
 	isGBC bool
 }
 
@@ -76,6 +77,13 @@ func (m *MMU) init() {
 	// setup registers
 	// CGB registers
 	if m.IsGBC() {
+		registers.RegisterHardware(
+			registers.KEY0,
+			func(v uint8) {
+				m.key0 = v & 0xf // only lower nibble is writable
+			}, func() uint8 {
+				return m.key0
+			})
 		registers.RegisterHardware(
 			registers.SVBK,
 			func(v uint8) {
@@ -94,7 +102,6 @@ func (m *MMU) init() {
 
 // NewMMU returns a new MMU.
 func NewMMU(cart *cartridge.Cartridge, serial, sound IOBus) *MMU {
-
 	l := logrus.New()
 	l.SetLevel(logrus.DebugLevel)
 	l.Formatter = &logrus.TextFormatter{
@@ -106,9 +113,9 @@ func NewMMU(cart *cartridge.Cartridge, serial, sound IOBus) *MMU {
 	m := &MMU{
 		biosFinished: false,
 		Cart:         cart,
-		wRAM: [8]ram.RAM{
-			ram.NewRAM(0x2000), // doubled to account for echo
-			ram.NewRAM(0x2000), // doubled to account for echo
+		wRAM: [8]*ram.Ram{
+			ram.NewRAM(0x1000),
+			ram.NewRAM(0x1000),
 			ram.NewRAM(0x1000),
 			ram.NewRAM(0x1000),
 			ram.NewRAM(0x1000),
@@ -125,15 +132,13 @@ func NewMMU(cart *cartridge.Cartridge, serial, sound IOBus) *MMU {
 		isGBC:  cart.Header().Hardware() == "CGB",
 	}
 
-	m.HDMA = NewHDMA(m)
-
 	// load boot depending on cartridge type
 	if cart.Header().Hardware() == "CGB" {
-		// TODO load cgb boot
-		m.bios = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
+		m.bootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
+		m.HDMA = NewHDMA(m)
 	} else {
 		// load dmg boot
-		m.bios = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
+		m.bootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
 	}
 
 	m.init()
@@ -142,11 +147,11 @@ func NewMMU(cart *cartridge.Cartridge, serial, sound IOBus) *MMU {
 }
 
 func (m *MMU) Key() uint8 {
-	return m.key
+	return m.key1
 }
 
 func (m *MMU) SetKey(key uint8) {
-	m.key = key
+	m.key1 = key
 }
 
 // AttachVideo attaches the video component to the MMU.
@@ -178,12 +183,12 @@ func (m *MMU) Read(address uint16) uint8 {
 	case address <= 0x7FFF:
 		if !m.biosFinished {
 			if address < 0x100 {
-				return m.bios.Read(address)
+				return m.bootROM.Read(address)
 			}
 			// CGB boot ROM is 0x900 bytes long, with a gap of 0x100 bytes
 			// at 0x100 - 0x1FF, to read the cartridge header.
 			if m.Cart.Header().Hardware() == "CGB" && address >= 0x200 && address < 0x900 {
-				return m.bios.Read(address)
+				return m.bootROM.Read(address)
 			}
 		}
 		return m.Cart.Read(address)
@@ -203,19 +208,19 @@ func (m *MMU) Read(address uint16) uint8 {
 		}
 		return m.wRAM[1].Read(address - 0xD000)
 	// WRAM (Bank 0 / Echo) (0xE000-0xEFFF)
-	case address >= 0xE000 && address <= 0xEFFF:
-		return m.wRAM[0].Read(address - 0xE000)
-	// WRAM (Bank 1-7 / Echo) (0xF000-0xFDFF)
-	case address >= 0xF000 && address <= 0xFDFF:
-		if m.IsGBC() && address >= 0xF000 && address <= 0xFDFF {
-			return m.wRAM[m.wRAMBank].Read(address - 0xF000)
+	case address >= 0xE000 && address <= 0xFDFF:
+		// which bank is being read from?
+		if address >= 0xE000 && address <= 0xEFFF {
+			return m.wRAM[0].Read(address & 0x0FFF)
+		} else if address >= 0xF000 && address <= 0xFDFF {
+			return m.wRAM[1].Read(address & 0x0FFF)
 		}
-		return m.wRAM[1].Read(address - 0xF000)
 	// OAM (0xFE00-0xFE9F)
 	case address >= 0xFE00 && address <= 0xFE9F:
 		return m.Video.Read(address)
 	// Unusable memory (0xFEA0-0xFEFF)
 	case address >= 0xFEA0 && address <= 0xFEFF:
+		m.Log.Errorf("unhandled read from address %04x", address)
 		return 0xff
 	// IO (0xFF00-0xFF3F)
 	case address >= 0xFF00 && address <= 0xFF3F:
@@ -232,27 +237,20 @@ func (m *MMU) Read(address uint16) uint8 {
 			return 0xFF
 		}
 	// GPU (0xFF40-0xFF4B)
-	case address == 0xFF4C, address == 0xFF4E, address == 0xFF50:
+	case address == 0xFF4E, address == 0xFF50:
 		return 0xFF
 	case address == 0xFF4D:
 		if m.IsGBC() {
-			return m.key | 0x7e
+			return m.key1 | 0x7e
 		} else {
 			return 0xFF
 		}
-		// HDMA (0xFF51-0xFF55)
-	case address >= 0xFF51 && address <= 0xFF55:
-		if m.IsGBC() {
-			return m.HDMA.Read(address)
-		} else {
-			return 0xFF
-		}
-	// Unusable memory (0xFF4C-0xFF7F)
-	case address >= 0xFF4C && address <= 0xFF7F:
-		return 0xFF
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address >= 0xFF80 && address <= 0xFFFE:
 		return m.zRAM.Read(address - 0xFF80)
+	// all of the CGB registers that should return 0xFF when in DMG mode
+	case address == 0xFF4C || address == 0xFF4F || address <= 0xFF7F:
+		return 0xFF
 	}
 	panic(fmt.Sprintf("Invalid address 0x%04X", address))
 }
@@ -291,19 +289,23 @@ func (m *MMU) Write(address uint16, value uint8) {
 			m.wRAM[1].Write(address-0xD000, value)
 		}
 	// Working RAM shadow (0xE000-0xFDFF)
-	case address >= 0xE000 && address <= 0xEFFF:
-		m.wRAM[0].Write(address-0xE000, value)
-	case address >= 0xF000 && address <= 0xFDFF:
-		m.wRAM[1].Write(address-0xF000, value)
+	case address >= 0xE000 && address <= 0xFDFF:
+		m.Log.Errorf("writing to shadow RAM at 0x%04X", address)
+		// which bank is being written to?
+		if address >= 0xE000 && address <= 0xEFFF {
+			m.wRAM[0].Write(address&0x0FFF, value)
+		} else if address >= 0xF000 && address <= 0xFDFF {
+			m.wRAM[1].Write(address&0x0FFF, value) // TODO how does GBC handle this? (bank 1-7)
+		}
 	// OAM (0xFE00-0xFE9F)
-	case address <= 0xFE9F:
+	case address >= 0xFE00 && address <= 0xFE9F:
 		m.Video.Write(address, value)
 	// I/O (0xFF00-0xFF7F)
 	case address <= 0xFF7F:
 		switch address {
 		case 0xFF01:
 			m.Serial.Write(address, value)
-		case 0xFF10, 0xFF11, 0xFF12, 0xFF13, 0xFF14, 0xFF16, 0xFF17, 0xFF18, 0xFF19, 0xFF1A, 0xFF1B, 0xFF1C, 0xFF1D, 0xFF1E, 0xFF20, 0xFF21, 0xFF22, 0xFF23, 0xFF24, 0xFF25, 0xFF26:
+		case 0xFF10, 0xFF11, 0xFF12, 0xFF13, 0xFF14, 0xFF15, 0xFF16, 0xFF17, 0xFF18, 0xFF19, 0xFF1A, 0xFF1B, 0xFF1C, 0xFF1D, 0xFF1E, 0xFF1F, 0xFF20, 0xFF21, 0xFF22, 0xFF23, 0xFF24, 0xFF25, 0xFF26:
 			m.Sound.Write(address, value)
 			// waveform RAM
 		case 0xFF30, 0xFF31, 0xFF32, 0xFF33, 0xFF34, 0xFF35, 0xFF36, 0xFF37, 0xFF38, 0xFF39, 0xFF3A, 0xFF3B, 0xFF3C, 0xFF3D, 0xFF3E, 0xFF3F:
@@ -312,12 +314,10 @@ func (m *MMU) Write(address uint16, value uint8) {
 			m.biosFinished = true
 		case 0xFF4D:
 			if m.IsGBC() {
-				m.key |= value & uint8(types.Bit0)
+				m.key1 |= value & uint8(types.Bit0)
 			}
-		case 0xFF51, 0xFF52, 0xFF53, 0xFF54, 0xFF55:
-			if m.IsGBC() {
-				m.HDMA.Write(address, value)
-			}
+		default:
+			fmt.Printf("warning: unimplemented IO write at 0x%04X\n", address)
 		}
 	// Zero page RAM (0xFF80-0xFFFE)
 	case address >= 0xFF80 && address <= 0xFFFE:

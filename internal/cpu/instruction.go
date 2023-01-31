@@ -41,8 +41,9 @@ type Instructor interface {
 func init() {
 	DefineInstruction(0x00, "NOP", func(c *CPU) {})
 	DefineInstruction(0x10, "STOP", func(c *CPU) {
-		if c.mmu.Cart.Header().Hardware() == "CGB" {
+		if c.mmu.IsGBC() {
 			if c.mmu.Key()&0b0000_0001 == 1 {
+				c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
 				c.doubleSpeed = !c.doubleSpeed
 
 				if c.mmu.Key()&0b1000_0000 == 1 {

@@ -9,7 +9,7 @@ import (
 // Tile represents a tile. Each tile has a size of 8x8 pixels and a color
 // depth of 4 colors/gray shades. Tiles can be displayed as sprites or as
 // background/window tiles.
-type Tile [8][8]int
+type Tile [8][8]uint8
 
 type TileAttributes struct {
 	// UseBGPriority is the BG Priority bit. When set, the tile is displayed
@@ -39,7 +39,7 @@ func (t *Tile) Read(address uint16) uint8 {
 func (t *Tile) Write(address uint16, value uint8) {
 	var tileY = int(address) / 2
 	var tileX = int(address) % 2
-	t[tileY][tileX] = int(value)
+	t[tileY][tileX] = uint8(int(value))
 }
 
 // Draw draws the tile to the given image at the given position.
@@ -62,7 +62,36 @@ func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
 // the background or window. In CGB mode, there are two tile maps for
 // each background and window, located at 0x9800 and 0x9C00 for bank 0,
 // and at 0x9C00 and 0xA000 for bank 1.
-type TileMap [32][32]uint8
+type TileMap [32][32]TileMapEntry
+
+// NewTileMap returns a new tile map.
+func NewTileMap() TileMap {
+	var tileMap = TileMap{}
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			tileMap[y][x] = TileMapEntry{
+				TileID:     0,
+				Attributes: &TileAttributes{},
+			}
+		}
+	}
+	return tileMap
+}
+
+type TileMapEntry struct {
+	TileID     uint8
+	Attributes *TileAttributes
+}
+
+func (t *TileMapEntry) GetID(signed bool) int {
+	id := int(t.TileID)
+	if signed {
+		if id < 128 {
+			id += 256
+		}
+	}
+	return id
+}
 
 func (t *TileAttributes) Read(address uint16) uint8 {
 	var val uint8
@@ -80,14 +109,12 @@ func (t *TileAttributes) Read(address uint16) uint8 {
 	return val
 }
 
-func (t *TileAttributes) Write(address uint16, value uint8) {
+func (t *TileAttributes) Write(value uint8) {
 	t.UseBGPriority = value&0x80 != 0
 	t.YFlip = value&0x40 != 0
 	t.XFlip = value&0x20 != 0
 	t.PaletteNumber = value & 0b111
 	t.VRAMBank = value >> 3 & 0x1
-
-	// fmt.Printf("updated tile with attributes: %v %v %v %v %v\n", t.UseBGPriority, t.YFlip, t.XFlip, t.PaletteNumber, t.VRAMBank)
 }
 
 // Draw draws the bank number over the tile map.

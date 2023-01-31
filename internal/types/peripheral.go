@@ -15,3 +15,7 @@ type Peripheral interface {
 	// enabled. (CGB only)
 	HasDoubleSpeed() bool
 }
+
+// Ticker is a function that can be called to advance the state of
+// the peripheral by one tick.
+type Ticker func()

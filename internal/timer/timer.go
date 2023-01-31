@@ -81,7 +81,7 @@ func (c *Controller) init() {
 
 			c.timaGlitch(wasEnabled, oldBit)
 		}, func() uint8 {
-			return c.tac & 0b111
+			return c.tac | 0b11111000 // bits 3-7 are always 1
 		},
 	)
 }
