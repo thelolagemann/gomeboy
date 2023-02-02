@@ -4,7 +4,10 @@ go 1.19
 
 require (
 	github.com/faiface/pixel v0.10.0
+	github.com/hajimehoshi/ebiten/v2 v2.4.15
+	github.com/hajimehoshi/oto/v2 v2.3.1
 	github.com/sirupsen/logrus v1.9.0
+	golang.org/x/image v0.2.0
 )
 
 require (
@@ -13,11 +16,6 @@ require (
 	github.com/go-gl/gl v0.0.0-20190320180904-bf2b1f2f34d7 // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20221017161538-93cebf72946b // indirect
 	github.com/go-gl/mathgl v0.0.0-20190416160123-c4601bc793c7 // indirect
-	github.com/hajimehoshi/oto v1.0.1 // indirect
-	github.com/pkg/errors v0.8.1 // indirect
-	golang.org/x/exp v0.0.0-20190731235908-ec7cb31e5a56 // indirect
-	golang.org/x/exp/shiny v0.0.0-20221230185412-738e83a70c30 // indirect
-	golang.org/x/image v0.2.0 // indirect
-	golang.org/x/mobile v0.0.0-20221110043201-43a038452099 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/sys v0.3.0 // indirect
 )

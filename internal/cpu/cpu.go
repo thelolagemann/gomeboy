@@ -2,9 +2,12 @@ package cpu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/timer"
+	"time"
 )
 
 const (
@@ -51,31 +54,23 @@ type CPU struct {
 	Debug           bool
 	DebugBreakpoint bool
 
-	peripherals []types.Peripheral
+	// components that need to be ticked
+	dma   *ppu.DMA
+	timer *timer.Controller
+	ppu   *ppu.PPU
+	sound *apu.APU
 
 	currentTick uint16
 	mode        mode
 }
 
-// PopStack pops a 16-bit value from the stack.
-func (c *CPU) PopStack() uint16 {
-	value := c.mmu.Read16(c.SP)
-	c.SP += 2
-	return value
-}
-
-// PushStack pushes a 16-bit value to the stack.
-func (c *CPU) PushStack(pc uint16) {
-	c.SP -= 2
-	c.mmu.Write16(c.SP, pc)
-}
-
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripheral) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Controller, ppu *ppu.PPU, sound *apu.APU) *CPU {
 	c := &CPU{
-		PC: 0,
-		SP: 0,
+		PC:    0,
+		SP:    0,
+		Debug: true,
 		Registers: Registers{
 			A: 0x11,
 			B: 0x01,
@@ -86,12 +81,15 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripher
 			H: 0xB0,
 			L: 0x7C,
 		},
-		mmu:         mmu,
-		Speed:       1,
-		stopped:     false,
-		Halted:      false,
-		irq:         irq,
-		peripherals: peripherals,
+		mmu:     mmu,
+		Speed:   1,
+		stopped: false,
+		Halted:  false,
+		irq:     irq,
+		dma:     dma,
+		timer:   timer,
+		ppu:     ppu,
+		sound:   sound,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -104,6 +102,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripher
 	c.generateLoadRegisterToRegisterInstructions()
 	c.generateLogicInstructions()
 	c.generateRSTInstructions()
+	c.generateRotateInstructions()
+	c.generateShiftInstructions()
 
 	if len(InstructionSet) != 256 || len(InstructionSetCB) != 256 {
 		panic("invalid instruction set")
@@ -199,9 +199,9 @@ func (c *CPU) Step() uint16 {
 	c.currentTick = 0
 
 	// should we tick HDMA?
-	if c.mmu.HDMA.IsCopying() {
-		c.mmu.HDMA.Tick()
-		return 4
+	if c.mmu.HDMA != nil && c.mmu.HDMA.IsCopying() {
+		c.hdmaTick4()
+		return 0
 	}
 
 	reqInt := false
@@ -215,15 +215,11 @@ func (c *CPU) Step() uint16 {
 		// check for interrupts, in normal mode this requires the IME to be enabled
 		reqInt = c.irq.IME && c.hasInterrupts()
 	case ModeHalt, ModeStop:
-		// in stop mode, the CPU ticks 4 times, but does not execute any instructions
+		// in stop, halt mode, the CPU ticks 4 times, but does not execute any instructions
 		c.ticks(4)
 
 		// check for interrupts, in stop mode the IME is ignored
 		reqInt = c.hasInterrupts()
-	case ModeHaltBug:
-		// TODO implement halt bug
-		fmt.Println("waiting for halt bug")
-		panic("halt bug")
 	case ModeHaltDI:
 		c.ticks(4)
 
@@ -241,6 +237,9 @@ func (c *CPU) Step() uint16 {
 
 		// check for interrupts
 		reqInt = c.irq.IME && c.hasInterrupts()
+	case ModeHaltBug:
+		// TODO implement halt bug
+		panic("halt bug")
 	}
 
 	// did we get an interrupt?
@@ -254,11 +253,8 @@ func (c *CPU) Step() uint16 {
 // tickDoubleSpeed ticks the CPU components twice as
 // fast, if they respond to the double speed flag.
 func (c *CPU) tickDoubleSpeed() {
-	for _, p := range c.peripherals {
-		if p.HasDoubleSpeed() {
-			p.Tick()
-		}
-	}
+	c.dma.Tick()
+	c.timer.Tick()
 }
 
 func (c *CPU) hdmaTick4() {
@@ -268,9 +264,12 @@ func (c *CPU) hdmaTick4() {
 		c.tick()
 		c.tickDoubleSpeed()
 
-		c.mmu.HDMA.Tick()
+		c.mmu.HDMA.Tick() // HDMA takes twice as long in double speed mode
 	} else {
-		c.ticks(4)
+		c.tick()
+		c.tick()
+		c.tick()
+		c.tick()
 
 		c.mmu.HDMA.Tick()
 		c.mmu.HDMA.Tick()
@@ -278,7 +277,7 @@ func (c *CPU) hdmaTick4() {
 }
 
 func (c *CPU) hasInterrupts() bool {
-	return c.irq.Enable.Read()&c.irq.Flag.Read()&0x1F != 0
+	return c.irq.Enable&c.irq.Flag&0x1F != 0
 }
 
 // readInstruction reads the next instruction from memory.
@@ -301,6 +300,7 @@ func (c *CPU) readOperand() uint8 {
 
 func (c *CPU) skipOperand() {
 	c.ticks(4)
+	c.mmu.Read(c.PC)
 	c.PC++
 }
 
@@ -317,32 +317,41 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 }
 
 func (c *CPU) runInstruction(opcode uint8) {
-	var instruction Instructor
+	currentPC := c.PC - 1
+	var instruction Instruction
 	// do we need to run a CB instruction?
 	if opcode == 0xCB {
 		// read the next instruction
-		cbIns, ok := InstructionSetCB[c.readOperand()]
-		if !ok {
+		cbIns := InstructionSetCB[c.readOperand()]
+		if cbIns.fn == nil {
 			panic(fmt.Sprintf("invalid CB instruction: %x", opcode))
 		}
 
-		instruction = cbIns.Instruction()
+		instruction = cbIns
 	} else {
 		// get the instruction
-		ins, ok := InstructionSet[opcode]
-		if !ok {
+		ins := InstructionSet[opcode]
+		if ins.fn == nil {
 			panic(fmt.Sprintf("invalid instruction: %x", opcode))
 		}
 		instruction = ins
 	}
 
 	// execute the instruction
-	instruction.Execute(c)
+	instruction.fn(c)
+
+	if false {
+		fmt.Printf("%s (%d ticks)", instruction.name, c.currentTick)
+		fmt.Println()
+		fmt.Printf("A: %02x F: %02x B: %02x C: %02x D: %02x E: %02x H: %02x L: %02x SP: %04x PC: %04x\n", c.A, c.F, c.B, c.C, c.D, c.E, c.H, c.L, c.SP, currentPC)
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// check for debug
 	if c.Debug {
-		if instruction.Name() == "LD B, B" {
+		if instruction.name == "LD B, B" {
 			c.DebugBreakpoint = true
+			// panic("debug breakpoint")
 		}
 	}
 }
@@ -374,10 +383,10 @@ func (c *CPU) executeInterrupt() {
 
 // tick the various components of the CPU.
 func (c *CPU) tick() {
-	//c.dma.Tick()
-	for _, p := range c.peripherals {
-		p.Tick()
-	}
+	c.dma.Tick()
+	c.timer.Tick()
+	c.ppu.Tick()
+	c.sound.Tick()
 	c.currentTick++
 }
 
@@ -398,12 +407,6 @@ func (c *CPU) ticks(n uint) {
 	}
 }
 
-// rst resets the CPU.
-func (c *CPU) rst(v uint8) {
-	c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
-	c.PC = uint16(v)
-}
-
 // setFlags sets the given flags to the given values.
 func (c *CPU) setFlags(flags ...Flag) {
 	for _, flag := range flags {
@@ -418,11 +421,4 @@ func (c *CPU) shouldZeroFlag(value uint8) {
 	} else {
 		c.clearFlag(FlagZero)
 	}
-}
-
-// pop pops a value from the stack.
-func (c *CPU) pop() uint8 {
-	value := c.mmu.Read(c.SP)
-	c.SP++
-	return value
 }

@@ -53,8 +53,7 @@ var ColourPalettes = []Colour{
 // GetColour returns the colour based on the colour index and the
 // Current palette.
 func GetColour(index uint8) [3]uint8 {
-	rgb := [3]uint8{ColourPalettes[Current][index].R, ColourPalettes[Current][index].G, ColourPalettes[Current][index].B}
-	return rgb
+	return [3]uint8{ColourPalettes[Current][index].R, ColourPalettes[Current][index].G, ColourPalettes[Current][index].B}
 }
 
 // ByteToPalette creates a new palette from a byte, using the
@@ -83,8 +82,7 @@ func (p Palette) ToByte() byte {
 
 func (p Palette) GetColour(index uint8) [3]uint8 {
 	// map provided index to the current palette
-	colourNum := p[index]
-	return GetColour(colourNum)
+	return GetColour(p[index])
 }
 
 func toRGB(c [3]uint8) color.RGBA {

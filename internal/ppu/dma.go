@@ -1,35 +1,47 @@
 package ppu
 
-import "github.com/thelolagemann/go-gameboy/internal/mmu"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type DMA struct {
 	enabled    bool
 	restarting bool
 
-	timer  uint16
+	timer  uint
 	source uint16
 	value  uint8
 
 	bus mmu.IOBus
+	oam *OAM
 }
 
-func NewDMA(bus mmu.IOBus) *DMA {
-	return &DMA{
+func (d *DMA) init() {
+	// setup register
+	types.RegisterHardware(
+		types.DMA,
+		func(v uint8) {
+			d.value = v
+			d.source = uint16(v) << 8
+			d.timer = 0
+
+			d.restarting = d.enabled
+			d.enabled = true
+		},
+		func() uint8 {
+			return d.value
+		},
+	)
+}
+
+func NewDMA(bus mmu.IOBus, oam *OAM) *DMA {
+	d := &DMA{
 		bus: bus,
+		oam: oam,
 	}
-}
-
-func (d *DMA) Read(address uint16) uint8 {
-	return d.value
-}
-
-func (d *DMA) Write(address uint16, value uint8) {
-	d.value = value
-	d.source = uint16(value) << 8
-	d.timer = 0
-
-	d.restarting = d.enabled
-	d.enabled = true
+	d.init()
+	return d
 }
 
 func (d *DMA) Tick() {
@@ -40,37 +52,32 @@ func (d *DMA) Tick() {
 	// increment the timer
 	d.timer++
 
-	// if the timer is done, copy the value
-	if d.timer > 4 {
+	// every 4 ticks, transfer a byte to OAM
+	// takes 4 ticks to turn on, 640 ticks to transfer
+	if d.timer < 4 {
+		// do nothing on the first 4 ticks
+		return
+	} else if d.timer < 644 {
 		d.restarting = false
+		if d.timer%4 == 0 {
+			offset := uint16(d.timer-4) >> 2
+			currentSource := d.source + (offset)
 
-		offset := (d.timer - 4) >> 2
-		currentSource := d.source + offset
-
-		// is OAM trying to read from itself? (>= 0xFE00)
-		if currentSource >= 0xFE00 {
-			// if so, make sure we don't read from the OAM
-			// and instead read from the source address
-			// minus 0x2000
-			currentSource -= 0x2000
+			// is a DMA trying to read from the OAM?
+			if currentSource >= 0xFE00 {
+				// if so, make sure we don't read from the OAM
+				// and instead read from the source address - 0x2000
+				currentSource -= 0x2000
+			}
+			// load the value from the source address
+			d.oam.Write(offset, d.bus.Read(currentSource))
 		}
-
-		// write to OAM
-		d.bus.Write(0xFE00+uint16(offset), d.bus.Read(currentSource))
-
-		if d.timer > 160*4+4 {
-			d.enabled = false
-			d.timer = 0
-		}
+	} else {
+		d.enabled = false
+		d.timer = 0
 	}
 }
 
-// HasDoubleSpeed returns true as the DMA controller responds to
-// double speed mode.
-func (d *DMA) HasDoubleSpeed() bool {
-	return true
-}
-
 func (d *DMA) IsTransferring() bool {
-	return d.timer > 4 || d.restarting
+	return d.timer >= 4 || d.restarting
 }

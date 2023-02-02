@@ -5,7 +5,7 @@ package joypad
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
@@ -46,7 +46,7 @@ const (
 type State struct {
 	// Register is the joypad register. It is used to select
 	// either the action or direction buttons.
-	Register *registers.Hardware
+	Register uint8
 	// State is the current state of the joypad. It is used to
 	// hold the state of the buttons, the lower 4 bits are
 	// used for the action buttons, and the upper 4 bits are
@@ -56,38 +56,31 @@ type State struct {
 	irq   *interrupts.Service
 }
 
+func (s *State) init() {
+	// set up the register
+	types.RegisterHardware(
+		types.P1,
+		func(v uint8) {
+			s.Register = v | 0b1100_0000 // bits 6 and 7 are always set
+		}, func() uint8 {
+			if !utils.Test(s.Register, 4) {
+				return s.Register | s.State>>4
+			} else if !utils.Test(s.Register, 5) {
+				return s.Register | s.State&0b0000_1111
+			}
+			return s.Register
+		},
+	)
+}
+
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
-	return &State{
-		State:    0b1111_1111,
-		irq:      irq,
-		Register: registers.NewHardware(registers.P1, registers.Mask(0b1100_0000)),
+	s := &State{
+		State: 0b1111_1111,
+		irq:   irq,
 	}
-}
-
-// Read reads the joypad state.
-func (s *State) Read(address uint16) uint8 {
-	// read value from the register
-	value := s.Register.Read()
-	// P14 and P15 are set to 1 by default, so if they are set to 0,
-	// we are reading the state of the buttons.
-	if !utils.Test(value, 4) {
-		// direction buttons are in the upper 4 bits
-		return value | s.State>>4
-	} else if !utils.Test(value, 5) {
-		// action buttons are in the lower 4 bits
-		return value | s.State&0b0000_1111
-	}
-
-	return value
-}
-
-// Write writes to the joypad register. Only bits 4 and 5 are
-// writable. The rest of the bits are read-only. Bits 6 and 7
-// are always set to 1.
-func (s *State) Write(address uint16, value byte) {
-	// write bits 4 and 5 to the register
-	s.Register.Write(value)
+	s.init()
+	return s
 }
 
 // Press presses a button.

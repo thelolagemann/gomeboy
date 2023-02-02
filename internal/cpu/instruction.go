@@ -9,16 +9,6 @@ type Instruction struct {
 	fn   func(*CPU)
 }
 
-// Execute executes the instruction
-func (i Instruction) Execute(cpu *CPU) {
-	i.fn(cpu)
-}
-
-// Name returns the name of the instruction
-func (i Instruction) Name() string {
-	return i.name
-}
-
 // DefineInstruction is similar to NewInstruction, but it defines the instruction in
 // the InstructionSet, with the provided opcode
 func DefineInstruction(opcode uint8, name string, fn func(*CPU)) {
@@ -30,19 +20,21 @@ func DefineInstruction(opcode uint8, name string, fn func(*CPU)) {
 	InstructionSet[opcode] = instruction
 }
 
-// Instructor is an interface that can be implemented by an instruction
-type Instructor interface {
-	Execute(cpu *CPU)
+func DefineInstructionCB(opcode uint8, name string, fn func(*CPU)) {
+	instruction := Instruction{
+		name: name,
+		fn:   fn,
+	}
 
-	// Name returns the name of the instruction
-	Name() string
+	InstructionSetCB[opcode] = instruction
 }
 
 func init() {
 	DefineInstruction(0x00, "NOP", func(c *CPU) {})
 	DefineInstruction(0x10, "STOP", func(c *CPU) {
-		if c.mmu.Cart.Header().Hardware() == "CGB" {
+		if c.mmu.IsGBC() {
 			if c.mmu.Key()&0b0000_0001 == 1 {
+				c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
 				c.doubleSpeed = !c.doubleSpeed
 
 				if c.mmu.Key()&0b1000_0000 == 1 {
@@ -100,7 +92,7 @@ func init() {
 		if c.irq.IME {
 			c.mode = ModeHalt
 		} else {
-			if c.irq.Flag.Read()&c.irq.Enable.Read() != 0 {
+			if c.irq.Flag&c.irq.Enable != 0 {
 				c.mode = ModeHaltBug
 			} else {
 				c.mode = ModeHaltDI
@@ -119,7 +111,7 @@ var disallowedOpcodes = []uint8{
 	0xCB, 0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
 }
 
-var InstructionSet = map[uint8]Instructor{}
+var InstructionSet [256]Instruction
 
 func disallowedOpcode(cpu *CPU) {
 	panic(fmt.Sprintf("disallowed opcode %X", cpu.mmu.Read(cpu.PC)))

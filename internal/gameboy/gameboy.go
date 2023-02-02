@@ -8,7 +8,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
-	"github.com/thelolagemann/go-gameboy/internal/display"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/io"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
@@ -16,6 +15,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
+	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image/png"
 	"os"
@@ -26,7 +26,7 @@ const (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
 	// FrameRate is the frame rate of the emulator.
-	FrameRate = 144
+	FrameRate = 60
 	// FrameTime is the time it should take to render a frame.
 	FrameTime     = time.Second / FrameRate
 	TicksPerFrame = ClockSpeed / FrameRate
@@ -79,12 +79,12 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	serial := io.NewSerial()
 	timerCtl := timer.NewController(interrupt)
 	sound := apu.NewAPU()
-	memBus := mmu.NewMMU(cart, pad, serial, timerCtl, interrupt, sound)
+	memBus := mmu.NewMMU(cart, sound)
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
 
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, video.DMA),
+		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound),
 		MMU: memBus,
 		ppu: video,
 
@@ -108,33 +108,69 @@ func (g *GameBoy) Start(mon *display.Display) {
 	// setup fps counter
 	g.frames = 0
 	start := time.Now()
+	frameStart := time.Now()
+	frameTimes := make([]time.Duration, 0, FrameRate)
+	renderTimes := make([]time.Duration, 0, FrameRate)
 	g.APU.Play()
+
+	avgRenderTimes := make([]time.Duration, 0, FrameRate)
 
 	// create a ticker to update the display
 	ticker := time.NewTicker(FrameTime)
 
-	// main loop
-	for {
-		select {
-		case <-ticker.C:
-			// update fps counter
-			g.frames++
-			if !g.paused {
-				// render frame
+	for !mon.IsClosed() {
+		g.frames++
 
-				g.ProcessInputs(mon.PollKeys())
-				mon.Render(g.Frame())
-			}
-			if time.Since(start) > time.Second {
-				title := fmt.Sprintf("%s | FPS: %v", g.MMU.Cart.Header().String(), g.frames)
-				mon.SetTitle(title)
+		if !g.paused {
+			// render frame
+			g.ProcessInputs(mon.PollKeys())
+			frameStart = time.Now()
 
-				g.frames = 0
-				start = time.Now()
+			frame := g.Frame()
+			renderTimes = append(renderTimes, time.Since(frameStart))
+			frameStart = time.Now()
+
+			mon.Render(frame)
+
+			// update frametime
+			frameTimes = append(frameTimes, time.Since(frameStart))
+		}
+		if time.Since(start) > time.Second {
+			// average frame time
+			avgFrameTime := avgTime(frameTimes)
+			avgRenderTime := avgTime(renderTimes)
+			frameTimes = frameTimes[:0]
+			renderTimes = renderTimes[:0]
+
+			// append to avg render times
+			avgRenderTimes = append(avgRenderTimes, avgRenderTime)
+			total := avgFrameTime + avgRenderTime
+
+			totalAvgRenderTime := avgTime(avgRenderTimes)
+
+			title := fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
+			mon.SetTitle(title)
+
+			g.frames = 0
+			start = time.Now()
+
+			// make sure avg render times doesn't get too big
+			if len(avgRenderTimes) > 144 {
+				avgRenderTimes = avgRenderTimes[1:]
 			}
 		}
-	}
 
+		// wait for tick
+		<-ticker.C
+	}
+}
+
+func avgTime(t []time.Duration) time.Duration {
+	var avg time.Duration
+	for _, d := range t {
+		avg += d
+	}
+	return avg / time.Duration(len(t))
 }
 
 // Frame will step the emulation until the PPU has finished
@@ -157,7 +193,6 @@ func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
 		g.previousFrame = g.ppu.PreparedFrame
 		return g.previousFrame
 	}
-
 	ticks := uint32(0)
 	// step until the next frame or until tick threshold is reached
 	for ticks <= TicksPerFrame {
@@ -207,13 +242,25 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 		},
 		10: func() {
-			img := g.ppu.DumpTiledata()
+			img := g.ppu.DumpTileMap()
 
 			f, err := os.Create("tilemap.png")
 			if err != nil {
 				panic(err)
 			}
 			defer f.Close()
+			if err := png.Encode(f, img); err != nil {
+				panic(err)
+			}
+
+			img = g.ppu.DumpTiledata()
+
+			f, err = os.Create("tiledata.png")
+			if err != nil {
+				panic(err)
+			}
+			defer f.Close()
+
 			if err := png.Encode(f, img); err != nil {
 				panic(err)
 			}
@@ -226,10 +273,13 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 	for _, key := range inputs.Pressed {
 		// check if it's a gameboy key
-		if key > joypad.ButtonDown {
-			g.keyHandlers()[key]()
-		} else {
+		if key <= joypad.ButtonDown {
 			g.Joypad.Press(key)
+		} else {
+			// check if it's a debug key
+			if handler, ok := g.keyHandlers()[key]; ok {
+				handler()
+			}
 		}
 	}
 	for _, key := range inputs.Released {

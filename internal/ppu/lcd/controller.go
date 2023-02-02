@@ -1,13 +1,8 @@
 package lcd
 
 import (
-	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
-)
-
-const (
-	// ControlRegister is the address of the LCD control register.
-	ControlRegister = 0xFF40
 )
 
 // Controller is the LCD controller. It is responsible for controlling various
@@ -60,12 +55,76 @@ type Controller struct {
 	// background and window are enabled.
 	BackgroundEnabled bool
 
-	cleared bool
+	cleared  bool
+	reg      *types.Hardware
+	isSigned bool
+}
+
+func (c *Controller) init(onWrite types.WriteHandler) {
+	types.RegisterHardware(
+		types.LCDC,
+		func(v uint8) {
+			// detect a rising edge on the LCD enable bit
+			if !c.Enabled && utils.Test(v, 7) {
+				c.cleared = false
+			}
+			c.Enabled = utils.Test(v, 7)
+			if utils.Test(v, 6) {
+				c.WindowTileMapAddress = 0x9C00
+			} else {
+				c.WindowTileMapAddress = 0x9800
+			}
+			c.WindowEnabled = utils.Test(v, 5)
+			if utils.Test(v, 4) {
+				c.TileDataAddress = 0x8000
+				c.isSigned = false
+			} else {
+				c.TileDataAddress = 0x8800
+				c.isSigned = true
+			}
+			if utils.Test(v, 3) {
+				c.BackgroundTileMapAddress = 0x9C00
+			} else {
+				c.BackgroundTileMapAddress = 0x9800
+			}
+			c.SpriteSize = 8 + uint8(utils.Val(v, 2))*8
+			c.SpriteEnabled = utils.Test(v, 1)
+			c.BackgroundEnabled = utils.Test(v, 0)
+		}, func() uint8 {
+			var value uint8
+			if c.Enabled {
+				value |= 1 << 7
+			}
+			if c.WindowTileMapAddress == 0x9C00 {
+				value |= 1 << 6
+			}
+			if c.WindowEnabled {
+				value |= 1 << 5
+			}
+			if c.TileDataAddress == 0x8000 {
+				value |= 1 << 4
+			}
+			if c.BackgroundTileMapAddress == 0x9C00 {
+				value |= 1 << 3
+			}
+			if c.SpriteSize == 16 {
+				value |= 1 << 2
+			}
+			if c.SpriteEnabled {
+				value |= 1 << 1
+			}
+			if c.BackgroundEnabled {
+				value |= 1 << 0
+			}
+			return value
+		},
+		types.WithWriteHandler(onWrite),
+	)
 }
 
 // NewController returns a new LCD controller.
-func NewController() *Controller {
-	return &Controller{
+func NewController(writeHandler types.WriteHandler) *Controller {
+	c := &Controller{
 		WindowTileMapAddress:     0x9800,
 		BackgroundTileMapAddress: 0x9800,
 		TileDataAddress:          0x8800,
@@ -75,81 +134,14 @@ func NewController() *Controller {
 		WindowEnabled:            true,
 		Enabled:                  true,
 	}
-}
-
-// Write writes the value to the LCD controller.
-func (c *Controller) Write(address uint16, value uint8) {
-	switch address {
-	case ControlRegister:
-		// detect a rising edge on the LCD enable bit
-		if !c.Enabled && utils.Test(value, 7) {
-			c.cleared = false
-		}
-		c.Enabled = utils.Test(value, 7)
-		if utils.Test(value, 6) {
-			c.WindowTileMapAddress = 0x9C00
-		} else {
-			c.WindowTileMapAddress = 0x9800
-		}
-		c.WindowEnabled = utils.Test(value, 5)
-		if utils.Test(value, 4) {
-			c.TileDataAddress = 0x8000
-		} else {
-			c.TileDataAddress = 0x8800
-		}
-		if utils.Test(value, 3) {
-			c.BackgroundTileMapAddress = 0x9C00
-		} else {
-			c.BackgroundTileMapAddress = 0x9800
-		}
-		c.SpriteSize = 8 + uint8(utils.Val(value, 2))*8
-		c.SpriteEnabled = utils.Test(value, 1)
-		c.BackgroundEnabled = utils.Test(value, 0)
-		return
-	}
-
-	panic(fmt.Sprintf("lcd controller: invalid write to address 0x%04X", address))
-}
-
-// Read reads the value from the LCD controller.
-func (c *Controller) Read(address uint16) uint8 {
-	switch address {
-	case ControlRegister:
-		var value uint8
-		if c.Enabled {
-			value |= 1 << 7
-		}
-		if c.WindowTileMapAddress == 0x9C00 {
-			value |= 1 << 6
-		}
-		if c.WindowEnabled {
-			value |= 1 << 5
-		}
-		if c.TileDataAddress == 0x8000 {
-			value |= 1 << 4
-		}
-		if c.BackgroundTileMapAddress == 0x9C00 {
-			value |= 1 << 3
-		}
-		if c.SpriteSize == 16 {
-			value |= 1 << 2
-		}
-		if c.SpriteEnabled {
-			value |= 1 << 1
-		}
-		if c.BackgroundEnabled {
-			value |= 1 << 0
-		}
-		return value
-	}
-
-	panic(fmt.Sprintf("lcd controller: invalid read from address 0x%04X", address))
+	c.init(writeHandler)
+	return c
 }
 
 // UsingSignedTileData returns true if the LCD controller is using signed tile
 // data.
 func (c *Controller) UsingSignedTileData() bool {
-	return c.TileDataAddress == 0x8800
+	return c.isSigned
 }
 
 func (c *Controller) Clear() {

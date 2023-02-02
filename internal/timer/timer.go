@@ -5,22 +5,15 @@
 package timer
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-)
-
-const (
-	// DividerRegister is the address of the timer divider register.
-	// It is incremented at a rate specified by the TimerControlRegister.
-	DividerRegister = 0xFF04
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 // Controller is a timer controller. It is used to generate
 // interrupts at a specific frequency. The frequency can be
-// configured using the registers.TAC register.
+// configured using the types.TAC register.
 type Controller struct {
-	divider uint16
-
+	div  uint16
 	tima uint8
 	tma  uint8
 	tac  uint8
@@ -28,6 +21,7 @@ type Controller struct {
 	enabled    bool
 	currentBit uint16
 	lastBit    bool
+	newBit     bool
 
 	overflow           bool
 	ticksSinceOverflow uint8
@@ -35,34 +29,84 @@ type Controller struct {
 	irq *interrupts.Service
 }
 
+// init initializes the timer controller, it should be called
+// before the controller is returned to the caller.
+func (c *Controller) init() {
+	// set up types
+	types.RegisterHardware(
+		types.DIV,
+		func(v uint8) {
+			c.div = 0 // any write to DIV resets it
+		},
+		func() uint8 {
+			// return bits 6-13 of divider register
+			return uint8(c.div >> 8) // TODO actually return bits 6-13
+		},
+	)
+	types.RegisterHardware(
+		types.TIMA,
+		func(v uint8) {
+			// writes to TIMA are ignored if written the same tick it is
+			// reloading
+			if c.ticksSinceOverflow != 5 {
+				c.tima = v
+				c.overflow = false
+				c.ticksSinceOverflow = 0
+			}
+		}, func() uint8 {
+			return c.tima
+		},
+	)
+	types.RegisterHardware(
+		types.TMA,
+		func(v uint8) {
+			c.tma = v
+			// if you write to TMA the same tick that TIMA is reloading,
+			// TIMA will be set to the new value of TMA
+			if c.ticksSinceOverflow == 5 {
+				c.tima = v
+			}
+		}, func() uint8 {
+			return c.tma
+		},
+	)
+	types.RegisterHardware(
+		types.TAC,
+		func(v uint8) {
+			wasEnabled := c.enabled
+			oldBit := c.currentBit
+
+			c.tac = v & 0b111
+			c.currentBit = 1 << bits[v&0b11]
+			c.enabled = (v & 0x4) == 0x4
+
+			c.timaGlitch(wasEnabled, oldBit)
+		}, func() uint8 {
+			return c.tac | 0b11111000 // bits 3-7 are always 1
+		},
+	)
+}
+
 // NewController returns a new timer controller.
 func NewController(irq *interrupts.Service) *Controller {
-	return &Controller{
-		divider: 0,
-		tima:    0,
-		tma:     0,
-		tac:     0,
-
+	c := &Controller{
 		irq:        irq,
 		currentBit: 1 << bits[0],
 	}
-}
+	c.init()
 
-// HasDoubleSpeed returns true as the timer controller responds to
-// double speed mode.
-func (c *Controller) HasDoubleSpeed() bool {
-	return true
+	return c
 }
 
 // Tick ticks the timer controller.
 func (c *Controller) Tick() {
-	// increment divider register
-	c.divider++
+	// increment internalDivider register
+	c.div++
 
-	bit := (c.divider&c.currentBit) != 0 && c.enabled
+	c.newBit = c.enabled && (c.div&c.currentBit) == 0
 
 	// detect a falling edge
-	if c.lastBit && !bit {
+	if c.lastBit && !c.newBit {
 		// increment timer
 		c.tima++
 
@@ -74,7 +118,7 @@ func (c *Controller) Tick() {
 	}
 
 	// update last bit
-	c.lastBit = bit
+	c.lastBit = c.newBit
 
 	// check for overflow
 	if c.overflow {
@@ -107,55 +151,6 @@ func (c *Controller) multiplexer() uint16 {
 	panic("invalid multiplexer value")
 }
 
-// Read reads a byte from the timer controller.
-func (c *Controller) Read(addr uint16) uint8 {
-	switch addr {
-	case DividerRegister:
-		return uint8(c.divider >> 8)
-	case 0xFF05:
-		return c.tima
-	case 0xFF06:
-		return c.tma
-	case 0xFF07:
-		return c.tac | 0xF8
-	}
-	panic(fmt.Sprintf("timer: illegal read from %x", addr))
-}
-
-// Write writes a byte to the timer controller.
-func (c *Controller) Write(addr uint16, val uint8) {
-	switch addr {
-	case DividerRegister:
-		c.divider = 0
-	case 0xFF05:
-		// writes to TIMA are ignored if written the same tick it is
-		// reloading
-		if c.ticksSinceOverflow != 5 {
-			c.tima = val
-			c.overflow = false
-			c.ticksSinceOverflow = 0
-		}
-	case 0xFF06:
-		c.tma = val
-		// if you write to TMA the same tick that TIMA is reloading,
-		// TIMA will be set to the new value of TMA
-		if c.ticksSinceOverflow == 5 {
-			c.tima = val
-		}
-	case 0xFF07:
-		wasEnabled := c.enabled
-		oldBit := c.currentBit
-
-		c.tac = val & 0b111
-		c.currentBit = 1 << bits[c.tac&0b11]
-		c.enabled = (c.tac & 0x4) == 0x4
-
-		c.timaGlitch(wasEnabled, oldBit)
-	default:
-		panic(fmt.Sprintf("timer: illegal write to %x", addr))
-	}
-}
-
 // timaGlitch handles the glitch that occurs when the timer is enabled
 // or disabled.
 func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
@@ -163,8 +158,8 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 		return
 	}
 
-	if c.divider&oldBit != 0 {
-		if !c.enabled || !(c.divider&c.currentBit != 0) {
+	if c.div&oldBit != 0 {
+		if !c.enabled || !(c.div&c.currentBit != 0) {
 			c.tima++
 
 			if c.tima == 0 {

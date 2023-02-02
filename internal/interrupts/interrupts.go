@@ -1,8 +1,7 @@
 package interrupts
 
 import (
-	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 // Address is an address of an interrupt. When an interrupt occurs,
@@ -42,9 +41,9 @@ const (
 // Service represents the current state of the interrupts.
 type Service struct {
 	// Flag is the Interrupt FlagRegister. (0xFF0F)
-	Flag *registers.Hardware
+	Flag uint8
 	// Enable is the Interrupt EnableRegister. (0xFFFF)
-	Enable *registers.Hardware
+	Enable uint8
 
 	// IME is the Interrupt Master Enable flag.
 	IME bool
@@ -52,39 +51,35 @@ type Service struct {
 
 // NewService returns a new Service.
 func NewService() *Service {
-	return &Service{
-		Flag:   registers.NewHardware(registers.IF, registers.Mask(0b11100000)),
-		Enable: registers.NewHardware(registers.IE, registers.IsReadableWritable()),
+	s := &Service{
+		Flag:   0,
+		Enable: 0,
 		IME:    false,
 	}
+	// setup registers
+	types.RegisterHardware(
+		types.IF,
+		func(v uint8) {
+			s.Flag = v & 0x1F // only the first 5 bits are used
+		}, func() uint8 {
+			return s.Flag | 0xE0 // the upper 3 bits are always set
+		},
+	)
+	types.RegisterHardware(
+		types.IE,
+		func(v uint8) {
+			s.Enable = v
+		}, func() uint8 {
+			return s.Enable
+		},
+	)
+
+	return s
 }
 
 // Request requests an interrupt.
 func (s *Service) Request(flag Flag) {
-	s.Flag.Write(s.Flag.Read() | 1<<flag)
-}
-
-// Read returns the value of the register at the given address.
-func (s *Service) Read(address uint16) uint8 {
-	switch address {
-	case registers.IF:
-		return s.Flag.Read()
-	case registers.IE:
-		return s.Enable.Read()
-	}
-	panic(fmt.Sprintf("interrupts\tillegal read from address %04X", address))
-}
-
-// Write writes the given value to the register at the given address.
-func (s *Service) Write(address uint16, value uint8) {
-	switch address {
-	case registers.IF:
-		s.Flag.Write(value)
-	case registers.IE:
-		s.Enable.Write(value)
-	default:
-		panic(fmt.Sprintf("interrupts\tillegal write to address %04X", address))
-	}
+	s.Flag = s.Flag | 1<<flag
 }
 
 // Vector returns the currently serviced interrupt vector,
@@ -92,9 +87,9 @@ func (s *Service) Write(address uint16, value uint8) {
 // will also clear the interrupt flag.
 func (s *Service) Vector() Address {
 	for i := uint8(0); i < 5; i++ {
-		if s.Flag.Read()&(1<<i) != 0 && s.Enable.Read()&(1<<i) != 0 {
+		if s.Flag&(1<<i) != 0 && s.Enable&(1<<i) != 0 {
 			// clear the interrupt flag and return the vector
-			s.Flag.Write(s.Flag.Read() ^ 1<<i)
+			s.Flag = s.Flag ^ 1<<i
 			return Address(0x0040 + i*8)
 		}
 	}

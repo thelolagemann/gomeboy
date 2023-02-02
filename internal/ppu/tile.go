@@ -9,7 +9,7 @@ import (
 // Tile represents a tile. Each tile has a size of 8x8 pixels and a color
 // depth of 4 colors/gray shades. Tiles can be displayed as sprites or as
 // background/window tiles.
-type Tile [8][8]int
+type Tile [8][8]uint8
 
 type TileAttributes struct {
 	// UseBGPriority is the BG Priority bit. When set, the tile is displayed
@@ -28,18 +28,6 @@ type TileAttributes struct {
 	VRAMBank uint8
 }
 
-func NewTile(b [16]uint8) *Tile {
-	t := Tile{}
-	for tileY := 0; tileY < 8; tileY++ {
-		lo, hi := int(b[tileY*2]), int(b[tileY*2+1])
-		for tileX := 0; tileX < 8; tileX++ {
-			t[tileY][tileX] = (lo >> (7 - tileX) & 1) | (hi>>(7-tileX)&1)<<1
-		}
-	}
-
-	return &t
-}
-
 // Read returns the byte of the tile at the given address.
 func (t *Tile) Read(address uint16) uint8 {
 	var tileY = int(address) / 2
@@ -51,7 +39,7 @@ func (t *Tile) Read(address uint16) uint8 {
 func (t *Tile) Write(address uint16, value uint8) {
 	var tileY = int(address) / 2
 	var tileX = int(address) % 2
-	t[tileY][tileX] = int(value)
+	t[tileY][tileX] = uint8(int(value))
 }
 
 // Draw draws the tile to the given image at the given position.
@@ -67,9 +55,42 @@ func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
 	}
 }
 
-type TileMap struct {
-	// The tile map's tiles.
-	Tiles [32][32]Tile
+// TileMap represents a tile map. A tile map is a 32x32 array of tiles,
+// each tile being 8x8 pixels. The tile map is used to determine which
+// tiles are displayed in the background and window. There are two tile
+// maps, located at 0x9800 and 0x9C00, and each tile map can be used for
+// the background or window. In CGB mode, there are two tile maps for
+// each background and window, located at 0x9800 and 0x9C00 for bank 0,
+// and at 0x9C00 and 0xA000 for bank 1.
+type TileMap [32][32]TileMapEntry
+
+// NewTileMap returns a new tile map.
+func NewTileMap() TileMap {
+	var tileMap = TileMap{}
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			tileMap[y][x] = TileMapEntry{
+				TileID:     0,
+				Attributes: &TileAttributes{},
+			}
+		}
+	}
+	return tileMap
+}
+
+type TileMapEntry struct {
+	TileID     uint8
+	Attributes *TileAttributes
+}
+
+func (t *TileMapEntry) GetID(signed bool) int {
+	id := int(t.TileID)
+	if signed {
+		if id < 128 {
+			id += 256
+		}
+	}
+	return id
 }
 
 func (t *TileAttributes) Read(address uint16) uint8 {
@@ -88,12 +109,31 @@ func (t *TileAttributes) Read(address uint16) uint8 {
 	return val
 }
 
-func (t *TileAttributes) Write(address uint16, value uint8) {
+func (t *TileAttributes) Write(value uint8) {
 	t.UseBGPriority = value&0x80 != 0
 	t.YFlip = value&0x40 != 0
 	t.XFlip = value&0x20 != 0
 	t.PaletteNumber = value & 0b111
-	t.VRAMBank = value & 0x8 >> 3
+	t.VRAMBank = value >> 3 & 0x1
+}
 
-	// fmt.Printf("updated tile with attributes: %v %v %v %v %v\n", t.UseBGPriority, t.YFlip, t.XFlip, t.PaletteNumber, t.VRAMBank)
+// Draw draws the bank number over the tile map.
+func (t *TileAttributes) Draw(img *image.RGBA, i int, i2 int) {
+	for tileY := 0; tileY < 8; tileY++ {
+		for tileX := 0; tileX < 8; tileX++ {
+			var x = i + tileX
+			var y = i2 + tileY
+			var colourNum = int(t.VRAMBank)
+			rgb := palette.GetColour(uint8(colourNum))
+
+			// mix with current colour
+			currentColor := img.At(x, y)
+			r, g, b, a := currentColor.RGBA()
+			rgb[0] = uint8((rgb[0] + uint8(r)) / 2)
+			rgb[1] = uint8((rgb[1] + uint8(g)) / 2)
+			rgb[2] = uint8((rgb[2] + uint8(b)) / 2)
+			img.Set(x, y, color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: uint8(a)})
+
+		}
+	}
 }
