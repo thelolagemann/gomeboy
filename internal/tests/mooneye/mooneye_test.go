@@ -102,7 +102,7 @@ func testMooneyeROM(t *testing.T, romFile string) {
 		}()
 		// run until breakpoint
 		for {
-			g.Update(gameboy.CyclesPerFrame)
+			g.Frame()
 			if g.CPU.DebugBreakpoint || takenTooLong {
 				break
 			}

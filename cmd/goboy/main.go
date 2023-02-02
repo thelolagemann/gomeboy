@@ -4,8 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/faiface/pixel/pixelgl"
-	"github.com/thelolagemann/go-gameboy/internal/display"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"net/http"
 	"os"
 
@@ -46,7 +46,7 @@ func main() {
 
 	pixelgl.Run(func() {
 		// create a new pixel binding
-		mon := display.NewDisplay(gb.MMU.Cart.Header().String(), gb.MMU.Cart.MD5)
+		mon := display.NewDisplay(gb.MMU.Cart.Header().String())
 
 		// render boot animation
 		// mon.RenderBootAnimation()
