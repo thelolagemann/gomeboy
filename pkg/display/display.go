@@ -13,7 +13,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"time"
 )
 
 // PixelScale is the multiplier for the pixel size.
@@ -27,64 +26,13 @@ const (
 type Display struct {
 	window  *pixelgl.Window
 	picture *pixel.PictureData
-
-	background *pixel.Sprite
-	button     *pixel.Sprite
-	action     *pixel.Sprite
-	direction  *pixel.Sprite
-	cart       *pixel.Sprite
-	label      *pixel.Sprite
-	rear       *pixel.Sprite
-
-	debounce *buttonDebouncer
 }
 
 func (d *Display) IsClosed() bool {
 	return d.window.Closed()
 }
 
-type buttonDebouncer struct {
-	framesActive map[joypad.Button]uint8
-	isReleased   map[joypad.Button]bool
-}
-
-func (b *buttonDebouncer) update() {
-	for button, frames := range b.framesActive {
-		if b.isReleased[button] {
-			if frames > 0 {
-				b.framesActive[button] = frames - 1
-			}
-			if frames == 0 {
-				b.remove(button)
-				delete(b.isReleased, button)
-			}
-
-		}
-	}
-}
-
-func (b *buttonDebouncer) isDebounced(button joypad.Button) bool {
-	_, ok := b.framesActive[button]
-	return ok
-}
-
-func (b *buttonDebouncer) setDebounced(button joypad.Button, frames uint8) {
-	b.framesActive[button] = frames
-}
-
-func (b *buttonDebouncer) remove(button joypad.Button) {
-	delete(b.framesActive, button)
-}
-
-var (
-	uDotSize    float32 = 1.0
-	uDotSpacing float32 = 1.0
-
-	uWindowWidth  float32 = 0.0
-	uWindowHeight float32 = 0.0
-)
-
-func NewDisplay(title string, md5sum string) *Display {
+func NewDisplay(title string) *Display {
 	cfg := pixelgl.WindowConfig{
 		Title: "GomeBoy | " + title,
 		Bounds: pixel.R(
@@ -101,63 +49,13 @@ func NewDisplay(title string, md5sum string) *Display {
 		panic(err)
 	}
 
-	// load background
-	pic, err := loadPicture("frames/background.png")
-	if err != nil {
-		panic(err)
-	}
-
-	// load rear
-	rear, err := loadPicture("frames/rear.png")
-	if err != nil {
-		panic(err)
-	}
-
-	sprite := pixel.NewSprite(pic, pic.Bounds())
-
-	// load buttons
-	pic, err = loadPicture("frames/button.png")
-	if err != nil {
-		panic(err)
-	}
-
-	button := pixel.NewSprite(pic, pic.Bounds())
-
-	// load action
-	pic, err = loadPicture("frames/action.png")
-	if err != nil {
-		panic(err)
-	}
-
-	action := pixel.NewSprite(pic, pic.Bounds())
-
-	// load direction
-	pic, err = loadPicture("frames/direction.png")
-	if err != nil {
-		panic(err)
-	}
-
-	direction := pixel.NewSprite(pic, pic.Bounds())
-
-	label := createCartImage(md5sum)
-
 	// create a new picture
 	picture := pixel.MakePictureData(pixel.R(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
 
 	// create a new display
 	d := &Display{
-		window:     win,
-		picture:    picture,
-		background: sprite,
-		button:     button,
-		action:     action,
-		direction:  direction,
-		label:      pixel.NewSprite(label, label.Bounds()),
-		rear:       pixel.NewSprite(rear, rear.Bounds()),
-		debounce: &buttonDebouncer{
-			framesActive: make(map[joypad.Button]uint8),
-			isReleased:   make(map[joypad.Button]bool),
-		},
+		window:  win,
+		picture: picture,
 	}
 
 	// update camera and return newly created display
@@ -177,63 +75,8 @@ func (d *Display) ApplyShader(shader string, uniforms map[string]interface{}) {
 	d.window.Canvas().SetFragmentShader(shader)
 }
 
-// RenderBootAnimation renders the boot animation.
-// TODO refactor this to use sprite sheets
-func (d *Display) RenderBootAnimation() {
-	rearCover, err := loadPicture("frames/rear-cover.png")
-	if err != nil {
-		panic(err)
-	}
-
-	rearCoverSprite := pixel.NewSprite(rearCover, rearCover.Bounds())
-	// render the cart sliding in
-	for i := 0; i < 120; i++ {
-		// clear window and draw background
-		d.window.Clear(color.RGBA{0, 0, 0, 255})
-
-		d.rear.Draw(d.window, pixel.IM)
-
-		// draw cart image
-		d.label.Draw(d.window, pixel.IM.Scaled(pixel.ZV, 0.2).Moved(pixel.V(0, 450+float64(-i*2))))
-
-		// draw rear cover
-		rearCoverSprite.Draw(d.window, pixel.IM.Moved(pixel.V(0, 140)))
-
-		// update window and camera
-		d.window.Update()
-
-		// wait for 1/60th of a second
-		time.Sleep(time.Second / 60)
-	}
-
-	// flip the screen, so it looks like the game boy is
-	// being turned over
-	for i := 0; i < 80; i++ {
-		// clear window and draw background
-		d.window.Clear(color.RGBA{0, 0, 0, 255})
-
-		// begin flip
-		if i < 40 {
-			d.rear.Draw(d.window, pixel.IM.ScaledXY(pixel.ZV, pixel.V(1-float64(i*2)*0.0125, 1)))
-			d.label.Draw(d.window, pixel.IM.Scaled(pixel.ZV, 0.2).Moved(pixel.V(0, 210)).ScaledXY(pixel.ZV, pixel.V(1-float64(i*2)*0.0125, 1)))
-			rearCoverSprite.Draw(d.window, pixel.IM.Moved(pixel.V(0, 140)).ScaledXY(pixel.ZV, pixel.V(1-float64(i*2)*0.0125, 1)))
-		} else {
-			d.background.Draw(d.window, pixel.IM.ScaledXY(pixel.ZV, pixel.V(float64((i-40)*2)*0.0125, 1)))
-
-		}
-		d.window.Update()
-
-		// sleep for 1/60th of a second
-		time.Sleep(time.Second / 60)
-	}
-}
-
 // Render renders the given frame to the display.
 func (d *Display) Render(frame [160][144][3]uint8) {
-	// set height and width of the window
-	uWindowWidth = float32(d.window.Bounds().W())
-	uWindowHeight = float32(d.window.Bounds().H())
-
 	for y := 0; y < ppu.ScreenHeight; y++ {
 		for x := 0; x < ppu.ScreenWidth; x++ {
 			r := frame[x][y][0]
@@ -260,69 +103,6 @@ func (d *Display) Render(frame [160][144][3]uint8) {
 	d.updateCamera()
 	d.window.Update()
 
-}
-
-func (d *Display) drawSkin() {
-	// draw background
-	d.background.Draw(d.window, pixel.IM)
-
-	// draw buttons
-	for button := joypad.Button(0); button <= 8; button++ {
-		if !d.debounce.isDebounced(button) {
-			continue
-		}
-		switch button {
-		// Button A is drawn at 462, 568 and has a size of 68x68 pixels.
-		// the button will be drawn to the center of the screen, so needs
-		// to be offset by 949 / 2 = (474) 474 is the center of the screen
-		// and needs to be drawn at 568 so the y coordinate is 568 - 474 + (68/2) = 128
-		// the x coordine is 574 / 2 = (287) 287 is the center of the screen
-		// and needs to be drawn at 462 so the x coordinate is 462 - 287 + (68/2) = 137
-		case joypad.ButtonA:
-			d.button.Draw(d.window, pixel.IM.Moved(pixel.V(209, -128)))
-
-		// Button B is drawn at 369, 610 and has a size of 68x68 pixels.
-		// 949 /2 = 474, 610 - 474 + (68/2) = 170
-		// 574 /2 = 287, 369 - 287 + (68/2) = 95
-		case joypad.ButtonB:
-			d.button.Draw(d.window, pixel.IM.Moved(pixel.V(116, -170)))
-		// 175, 746 and has a size of 65x41 pixels.
-		// 949 /2 = 474, 746 - 474 + (41/2) = 292.5
-		// 574 /2 = 287, 175 - 287 + (65/2) = 79.5
-		case joypad.ButtonSelect:
-			d.action.Draw(d.window, pixel.IM.Moved(pixel.V(-79.5, -292.5)))
-		// 271, 746 and has a size of 65x41 pixels.
-		// 949 /2 = 474, 746 - 474 + (41/2) = 292.5
-		// 574 /2 = 287, 271 - 287 + (65/2) = 16.5
-		case joypad.ButtonStart:
-			d.action.Draw(d.window, pixel.IM.Moved(pixel.V(16.5, -292.5)))
-			// 92, 561 and has a size of 51x45 pixels.
-			// 949 /2 = 474, 561 - 474 + (45/2) = 109.5
-			// 574 /2 = 287, 92 - 287 + (51/2) = -169.5
-		case joypad.ButtonUp:
-			d.direction.Draw(d.window, pixel.IM.Moved(pixel.V(-169.5, -109.5)))
-		// 47, 605 and has a size of 51x45 pixels.
-		// 949 /2 = 474, 605 - 474 + (45/2) = 153.5
-		// 574 /2 = 287, 47 - 287 + (51/2) = -214.5
-		// also rotate left 90 degrees
-		case joypad.ButtonLeft:
-			d.direction.Draw(d.window, pixel.IM.Rotated(pixel.ZV, math.Pi/2).Moved(pixel.V(-214.5, -153.5)))
-			// 143, 605 and has a size of 51x45 pixels.
-			// 949 /2 = 474, 605 - 474 + (45/2) = 153.5
-			// 574 /2 = 287, 143 - 287 + (51/2) = -124.5
-			// also rotate right 90 degrees
-		case joypad.ButtonRight:
-			d.direction.Draw(d.window, pixel.IM.Rotated(pixel.ZV, -math.Pi/2).Moved(pixel.V(-124.5, -153.5)))
-			// 92, 657 and has a size of 51x45 pixels.
-			// 949 /2 = 474, 657 - 474 + (45/2) = 205.5
-			// 574 /2 = 287, 92 - 287 + (51/2) = -169.5
-			// also rotate 180 degrees
-		case joypad.ButtonDown:
-			d.direction.Draw(d.window, pixel.IM.Rotated(pixel.ZV, math.Pi).Moved(pixel.V(-169.5, -205.5)))
-		}
-
-	}
-	d.debounce.update()
 }
 
 // updateCamera updates the camera position.
@@ -376,11 +156,9 @@ func (d *Display) PollKeys() Inputs {
 	for key, button := range keyMap {
 		if d.window.JustPressed(key) {
 			pressed = append(pressed, button)
-			d.debounce.setDebounced(button, 15)
 		}
 		if d.window.JustReleased(key) {
 			released = append(released, button)
-			d.debounce.isReleased[button] = true
 		}
 	}
 

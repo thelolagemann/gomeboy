@@ -19,3 +19,16 @@ type Peripheral interface {
 // Ticker is a function that can be called to advance the state of
 // the peripheral by one tick.
 type Ticker func()
+
+type Address struct {
+	// Read is a function that is called when the CPU reads from
+	// the address.
+	Read func(address uint16) uint8
+	// Write is a function that is called when the CPU writes to
+	// the address.
+	Write func(address uint16, value uint8)
+}
+
+func Unreadable(address uint16) uint8 {
+	return 0xFF
+}

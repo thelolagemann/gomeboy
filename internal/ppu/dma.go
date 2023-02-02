@@ -2,7 +2,6 @@ package ppu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
@@ -15,7 +14,7 @@ type DMA struct {
 	value  uint8
 
 	bus mmu.IOBus
-	oam ram.RAM
+	oam *OAM
 }
 
 func (d *DMA) init() {
@@ -36,7 +35,7 @@ func (d *DMA) init() {
 	)
 }
 
-func NewDMA(bus mmu.IOBus, oam ram.RAM) *DMA {
+func NewDMA(bus mmu.IOBus, oam *OAM) *DMA {
 	d := &DMA{
 		bus: bus,
 		oam: oam,
@@ -70,7 +69,7 @@ func (d *DMA) Tick() {
 				// and instead read from the source address - 0x2000
 				currentSource -= 0x2000
 			}
-			// write directly to OAM to avoid any locking
+			// load the value from the source address
 			d.oam.Write(offset, d.bus.Read(currentSource))
 		}
 	} else {

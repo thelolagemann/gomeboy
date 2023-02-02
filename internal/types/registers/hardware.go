@@ -4,58 +4,16 @@ import "fmt"
 
 // HardwareRegisters is a collection of hardware registers,
 // which allows them to be read and written to.
-var HardwareRegisters = map[HardwareAddress]*Hardware{}
-
-var newAddresses = map[HardwareAddress]struct{}{
-	P1:     {},
-	DIV:    {},
-	TIMA:   {},
-	TMA:    {},
-	TAC:    {},
-	LCDC:   {},
-	STAT:   {},
-	SCY:    {},
-	SCX:    {},
-	LY:     {},
-	LYC:    {},
-	DMA:    {},
-	BGP:    {},
-	OBP0:   {},
-	OBP1:   {},
-	WY:     {},
-	WX:     {},
-	VBK:    {},
-	BCPS:   {},
-	BCPD:   {},
-	OCPS:   {},
-	OCPD:   {},
-	SVBK:   {},
-	HDMA1:  {},
-	HDMA2:  {},
-	HDMA3:  {},
-	HDMA4:  {},
-	HDMA5:  {},
-	KEY0:   {},
-	0xFF0F: {},
-	0xFFFF: {},
-}
-
-// Has returns true if the HardwareRegisters map contains the given
-// address.
-func Has(address HardwareAddress) bool {
-	_, ok := HardwareRegisters[address]
-	_, ok2 := newAddresses[address]
-	return ok && ok2
-}
+var HardwareRegisters = [0x80]*Hardware{}
 
 // Read returns the value of the hardware register at the given address.
 func Read(address uint16) uint8 {
-	return HardwareRegisters[HardwareAddress(address)].Read()
+	return HardwareRegisters[address&0x007F].Read()
 }
 
 // Write writes the given value to the hardware register at the given address.
 func Write(address uint16, value uint8) {
-	HardwareRegisters[HardwareAddress(address)].Write(value)
+	HardwareRegisters[address&0x007F].Write(value)
 }
 
 // Hardware represents a hardware register of the Game
@@ -70,6 +28,10 @@ type Hardware struct {
 	read         func(address uint16) uint8
 	write        func(address uint16, value uint8)
 	writeHandler WriteHandler
+}
+
+func Has(address uint16) bool {
+	return HardwareRegisters[address&0x007F] != nil
 }
 
 // HardwareAddress represents the address of a hardware
@@ -117,6 +79,28 @@ const (
 	//  Bit 3: Serial Interrupt Request (INT 58h)   (1=Request)
 	//  Bit 4: Joypad Interrupt Request (INT 60h)   (1=Request)
 	IF HardwareAddress = 0xFF0F
+	// TODO document the NRXX registers
+	NR10 HardwareAddress = 0xFF10
+	NR11 HardwareAddress = 0xFF11
+	NR12 HardwareAddress = 0xFF12
+	NR13 HardwareAddress = 0xFF13
+	NR14 HardwareAddress = 0xFF14
+	NR21 HardwareAddress = 0xFF16
+	NR22 HardwareAddress = 0xFF17
+	NR23 HardwareAddress = 0xFF18
+	NR24 HardwareAddress = 0xFF19
+	NR30 HardwareAddress = 0xFF1A
+	NR31 HardwareAddress = 0xFF1B
+	NR32 HardwareAddress = 0xFF1C
+	NR33 HardwareAddress = 0xFF1D
+	NR34 HardwareAddress = 0xFF1E
+	NR41 HardwareAddress = 0xFF20
+	NR42 HardwareAddress = 0xFF21
+	NR43 HardwareAddress = 0xFF22
+	NR44 HardwareAddress = 0xFF23
+	NR50 HardwareAddress = 0xFF24
+	NR51 HardwareAddress = 0xFF25
+	NR52 HardwareAddress = 0xFF26
 	// LCDC is the address of the LCDC hardware register. The LCDC
 	// hardware register is used to control the LCD.
 	//
@@ -233,12 +217,12 @@ const (
 	// The register is set as follows:
 	//  Bit 0   - VRAM Bank (0=Bank 0, 1=Bank 1)
 	VBK HardwareAddress = 0xFF4F
-	// BANK is the address of the BANK hardware register. The BANK
+	// BDIS is the address of the BDIS hardware register. The BDIS
 	// hardware register is used only to disable the boot ROM.
 	//
 	// The register is set as follows:
 	//  Bit 0   - Disable boot ROM (0=Enable, 1=Disable)
-	BANK  HardwareAddress = 0xFF50
+	BDIS  HardwareAddress = 0xFF50
 	HDMA1 HardwareAddress = 0xFF51
 	HDMA2 HardwareAddress = 0xFF52
 	HDMA3 HardwareAddress = 0xFF53
@@ -322,7 +306,7 @@ func NewHardware(address HardwareAddress, opts ...HardwareOpt) *Hardware {
 	// TODO - redirect MMU read/write to hardware registers if address is in range of hardware registers
 
 	// add hardware register to global map of hardware registers
-	HardwareRegisters[address] = h
+	HardwareRegisters[address&0x007F] = h
 
 	return h
 }
@@ -347,7 +331,7 @@ func RegisterHardware(address HardwareAddress, set func(v uint8), get func() uin
 	// TODO - redirect MMU read/write to hardware registers if address is in range of hardware registers
 
 	// add hardware register to global map of hardware registers
-	HardwareRegisters[address] = h
+	HardwareRegisters[address&0x007F] = h
 }
 
 // IsReadable allows the hardware register to be read.

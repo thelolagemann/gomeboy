@@ -93,6 +93,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripher
 	c.generateLoadRegisterToRegisterInstructions()
 	c.generateLogicInstructions()
 	c.generateRSTInstructions()
+	c.generateRotateInstructions()
+	c.generateShiftInstructions()
 
 	if len(InstructionSet) != 256 || len(InstructionSetCB) != 256 {
 		panic("invalid instruction set")
@@ -188,7 +190,7 @@ func (c *CPU) Step() uint16 {
 	c.currentTick = 0
 
 	// should we tick HDMA?
-	if c.mmu.IsGBC() && c.mmu.HDMA.IsCopying() {
+	if c.mmu.HDMA.IsCopying() {
 		c.hdmaTick4()
 		return 0
 	}
@@ -204,14 +206,13 @@ func (c *CPU) Step() uint16 {
 		// check for interrupts, in normal mode this requires the IME to be enabled
 		reqInt = c.irq.IME && c.hasInterrupts()
 	case ModeHalt, ModeStop:
-		// in stop mode, the CPU ticks 4 times, but does not execute any instructions
+		// in stop, halt mode, the CPU ticks 4 times, but does not execute any instructions
 		c.ticks(4)
 
 		// check for interrupts, in stop mode the IME is ignored
 		reqInt = c.hasInterrupts()
 	case ModeHaltBug:
 		// TODO implement halt bug
-		fmt.Println("waiting for halt bug")
 		panic("halt bug")
 	case ModeHaltDI:
 		c.ticks(4)
@@ -311,30 +312,30 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 
 func (c *CPU) runInstruction(opcode uint8) {
 	currentPC := c.PC - 1
-	var instruction Instructor
+	var instruction Instruction
 	// do we need to run a CB instruction?
 	if opcode == 0xCB {
 		// read the next instruction
-		cbIns, ok := InstructionSetCB[c.readOperand()]
-		if !ok {
+		cbIns := InstructionSetCB[c.readOperand()]
+		if cbIns.fn == nil {
 			panic(fmt.Sprintf("invalid CB instruction: %x", opcode))
 		}
 
-		instruction = cbIns.Instruction()
+		instruction = cbIns
 	} else {
 		// get the instruction
-		ins, ok := InstructionSet[opcode]
-		if !ok {
+		ins := InstructionSet[opcode]
+		if ins.fn == nil {
 			panic(fmt.Sprintf("invalid instruction: %x", opcode))
 		}
 		instruction = ins
 	}
 
 	// execute the instruction
-	instruction.Execute(c)
+	instruction.fn(c)
 
 	if false {
-		fmt.Printf("%s (%d ticks)", instruction.Name(), c.currentTick)
+		fmt.Printf("%s (%d ticks)", instruction.name, c.currentTick)
 		fmt.Println()
 		fmt.Printf("A: %02x F: %02x B: %02x C: %02x D: %02x E: %02x H: %02x L: %02x SP: %04x PC: %04x\n", c.A, c.F, c.B, c.C, c.D, c.E, c.H, c.L, c.SP, currentPC)
 		time.Sleep(20 * time.Millisecond)
@@ -342,7 +343,7 @@ func (c *CPU) runInstruction(opcode uint8) {
 
 	// check for debug
 	if c.Debug {
-		if instruction.Name() == "LD B, B" {
+		if instruction.name == "LD B, B" {
 			c.DebugBreakpoint = true
 			// panic("debug breakpoint")
 		}

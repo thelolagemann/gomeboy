@@ -110,21 +110,20 @@ func (g *GameBoy) Start(mon *display.Display) {
 	start := time.Now()
 	frameStart := time.Now()
 	frameTimes := make([]time.Duration, 0, FrameRate)
-	pollTimes := make([]time.Duration, 0, FrameRate)
 	renderTimes := make([]time.Duration, 0, FrameRate)
 	g.APU.Play()
+
+	avgRenderTimes := make([]time.Duration, 0, FrameRate)
 
 	// create a ticker to update the display
 	ticker := time.NewTicker(FrameTime)
 
 	for !mon.IsClosed() {
-		frameStart = time.Now()
 		g.frames++
 
 		if !g.paused {
 			// render frame
 			g.ProcessInputs(mon.PollKeys())
-			pollTimes = append(pollTimes, time.Since(frameStart))
 			frameStart = time.Now()
 
 			frame := g.Frame()
@@ -139,19 +138,26 @@ func (g *GameBoy) Start(mon *display.Display) {
 		if time.Since(start) > time.Second {
 			// average frame time
 			avgFrameTime := avgTime(frameTimes)
-			avgPollTime := avgTime(pollTimes)
 			avgRenderTime := avgTime(renderTimes)
 			frameTimes = frameTimes[:0]
-			pollTimes = pollTimes[:0]
 			renderTimes = renderTimes[:0]
 
-			total := avgFrameTime + avgPollTime + avgRenderTime
+			// append to avg render times
+			avgRenderTimes = append(avgRenderTimes, avgRenderTime)
+			total := avgFrameTime + avgRenderTime
 
-			title := fmt.Sprintf("Poll: %v + Render: %v + Frame: %v | FPS: (%v:%s)", avgPollTime.String(), avgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
+			totalAvgRenderTime := avgTime(avgRenderTimes)
+
+			title := fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
 			mon.SetTitle(title)
 
 			g.frames = 0
 			start = time.Now()
+
+			// make sure avg render times doesn't get too big
+			if len(avgRenderTimes) > 144 {
+				avgRenderTimes = avgRenderTimes[1:]
+			}
 		}
 
 		// wait for tick

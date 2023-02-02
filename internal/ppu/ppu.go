@@ -855,7 +855,7 @@ func (p *PPU) renderSprites() {
 			// skip if the sprite doesn't have priority and the background is not transparent
 			if !p.bus.IsGBC() || p.BackgroundEnabled {
 				if !(sprite.Priority && !p.tileBgPriority[pixelPos][p.CurrentScanline]) &&
-					p.ScreenData[pixelPos][p.CurrentScanline] != p.colourPalette.GetColour(0, 0) {
+					(p.ScreenData[pixelPos][p.CurrentScanline] != p.colourPalette.GetColour(0, 0)) {
 					continue
 				}
 			}

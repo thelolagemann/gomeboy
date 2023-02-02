@@ -9,16 +9,6 @@ type Instruction struct {
 	fn   func(*CPU)
 }
 
-// Execute executes the instruction
-func (i Instruction) Execute(cpu *CPU) {
-	i.fn(cpu)
-}
-
-// Name returns the name of the instruction
-func (i Instruction) Name() string {
-	return i.name
-}
-
 // DefineInstruction is similar to NewInstruction, but it defines the instruction in
 // the InstructionSet, with the provided opcode
 func DefineInstruction(opcode uint8, name string, fn func(*CPU)) {
@@ -30,12 +20,13 @@ func DefineInstruction(opcode uint8, name string, fn func(*CPU)) {
 	InstructionSet[opcode] = instruction
 }
 
-// Instructor is an interface that can be implemented by an instruction
-type Instructor interface {
-	Execute(cpu *CPU)
+func DefineInstructionCB(opcode uint8, name string, fn func(*CPU)) {
+	instruction := Instruction{
+		name: name,
+		fn:   fn,
+	}
 
-	// Name returns the name of the instruction
-	Name() string
+	InstructionSetCB[opcode] = instruction
 }
 
 func init() {
@@ -120,7 +111,7 @@ var disallowedOpcodes = []uint8{
 	0xCB, 0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
 }
 
-var InstructionSet = map[uint8]Instructor{}
+var InstructionSet [256]Instruction
 
 func disallowedOpcode(cpu *CPU) {
 	panic(fmt.Sprintf("disallowed opcode %X", cpu.mmu.Read(cpu.PC)))
