@@ -1,7 +1,7 @@
 package interrupts
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 // Address is an address of an interrupt. When an interrupt occurs,
@@ -57,16 +57,16 @@ func NewService() *Service {
 		IME:    false,
 	}
 	// setup registers
-	registers.RegisterHardware(
-		registers.IF,
+	types.RegisterHardware(
+		types.IF,
 		func(v uint8) {
 			s.Flag = v & 0x1F // only the first 5 bits are used
 		}, func() uint8 {
 			return s.Flag | 0xE0 // the upper 3 bits are always set
 		},
 	)
-	registers.RegisterHardware(
-		registers.IE,
+	types.RegisterHardware(
+		types.IE,
 		func(v uint8) {
 			s.Enable = v
 		}, func() uint8 {

@@ -2,7 +2,6 @@ package lcd
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
@@ -35,37 +34,29 @@ type Status struct {
 	// Mode is the current mode of the LCD controller.
 	Mode Mode
 
-	reg *registers.Hardware
+	raw uint8
 }
 
-func (s *Status) init(handler registers.WriteHandler) {
+func (s *Status) init(handler types.WriteHandler) {
 	// setup the register
-	s.reg = registers.NewHardware(
-		registers.STAT,
-		registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
-			val := h.Value() | types.Bit7
-			// set the R_ONLY bits
-			if s.Coincidence {
-				val |= types.Bit2 // set the coincidence flag
-			}
-			val |= uint8(s.Mode) // set the mode
-			return val
-		}),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
-			s.CoincidenceInterrupt = utils.Test(value, 6)
-			s.OAMInterrupt = utils.Test(value, 5)
-			s.VBlankInterrupt = utils.Test(value, 4)
-			s.HBlankInterrupt = utils.Test(value, 3)
+	types.RegisterHardware(
+		types.STAT,
+		func(v uint8) {
+			s.CoincidenceInterrupt = utils.Test(v, 6)
+			s.OAMInterrupt = utils.Test(v, 5)
+			s.VBlankInterrupt = utils.Test(v, 4)
+			s.HBlankInterrupt = utils.Test(v, 3)
 
-			// set raw value
-			h.Set(value & 0xF8)
-		}),
-		registers.WithWriteHandler(handler),
+			s.raw = v & 0xF8
+		}, func() uint8 {
+			return s.raw | uint8(s.Mode) | types.Bit7
+		},
+		types.WithWriteHandler(handler),
 	)
 }
 
 // NewStatus returns a new Status.
-func NewStatus(writeHandler registers.WriteHandler) *Status {
+func NewStatus(writeHandler types.WriteHandler) *Status {
 	s := &Status{
 		CoincidenceInterrupt: false,
 		OAMInterrupt:         false,

@@ -6,7 +6,6 @@ package joypad
 import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
@@ -47,7 +46,7 @@ const (
 type State struct {
 	// Register is the joypad register. It is used to select
 	// either the action or direction buttons.
-	Register *registers.Hardware
+	Register uint8
 	// State is the current state of the joypad. It is used to
 	// hold the state of the buttons, the lower 4 bits are
 	// used for the action buttons, and the upper 4 bits are
@@ -57,27 +56,30 @@ type State struct {
 	irq   *interrupts.Service
 }
 
+func (s *State) init() {
+	// set up the register
+	types.RegisterHardware(
+		types.P1,
+		func(v uint8) {
+			s.Register = v | 0b1100_0000 // bits 6 and 7 are always set
+		}, func() uint8 {
+			if !utils.Test(s.Register, 4) {
+				return s.Register | s.State>>4
+			} else if !utils.Test(s.Register, 5) {
+				return s.Register | s.State&0b0000_1111
+			}
+			return s.Register
+		},
+	)
+}
+
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
 	s := &State{
 		State: 0b1111_1111,
 		irq:   irq,
 	}
-	s.Register = registers.NewHardware(registers.P1, registers.Mask(0b1100_0000), registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
-		value := h.Value() // read value from the register
-
-		// P14 and P15 are set to 1 by default, so if they are set to 0,
-		// we are reading the state of the buttons.
-		if !types.TestBit(value, types.Bit4) {
-			// direction buttons are in the upper 4 bits
-			return value | s.State>>4
-		} else if !types.TestBit(value, types.Bit5) {
-			// action buttons are in the lower 4 bits
-			return value | s.State&0b0000_1111
-		}
-
-		return value
-	}))
+	s.init()
 	return s
 }
 

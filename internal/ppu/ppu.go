@@ -10,7 +10,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 	"image"
 )
 
@@ -36,7 +35,7 @@ type PPU struct {
 	vRAMBank uint8
 
 	oam                 *OAM
-	vRAM                [2]*ram.Ram // Second bank only exists on CGB
+	vRAM                [2]*ram.RAM // Second bank only exists on CGB
 	colourPalette       *palette.CGBPalette
 	colourSpritePalette *palette.CGBPalette
 
@@ -99,8 +98,8 @@ func (p *PPU) init() {
 	})
 
 	// setup registers
-	registers.RegisterHardware(
-		registers.LY,
+	types.RegisterHardware(
+		types.LY,
 		func(v uint8) {
 			// any write to LY resets the value to 0
 			p.CurrentScanline = 0
@@ -109,8 +108,8 @@ func (p *PPU) init() {
 			return p.CurrentScanline
 		},
 	)
-	registers.RegisterHardware(
-		registers.LYC,
+	types.RegisterHardware(
+		types.LYC,
 		func(v uint8) {
 			p.LYCompare = v
 
@@ -123,8 +122,8 @@ func (p *PPU) init() {
 			return p.LYCompare
 		},
 	)
-	registers.RegisterHardware(
-		registers.OBP0,
+	types.RegisterHardware(
+		types.OBP0,
 		func(v uint8) {
 			p.SpritePalettes[0] = palette.ByteToPalette(v)
 		},
@@ -132,8 +131,8 @@ func (p *PPU) init() {
 			return p.SpritePalettes[0].ToByte()
 		},
 	)
-	registers.RegisterHardware(
-		registers.OBP1,
+	types.RegisterHardware(
+		types.OBP1,
 		func(v uint8) {
 			p.SpritePalettes[1] = palette.ByteToPalette(v)
 		},
@@ -141,8 +140,8 @@ func (p *PPU) init() {
 			return p.SpritePalettes[1].ToByte()
 		},
 	)
-	registers.RegisterHardware(
-		registers.WX,
+	types.RegisterHardware(
+		types.WX,
 		func(v uint8) {
 			p.WindowX = v
 		},
@@ -150,8 +149,8 @@ func (p *PPU) init() {
 			return p.WindowX
 		},
 	)
-	registers.RegisterHardware(
-		registers.WY,
+	types.RegisterHardware(
+		types.WY,
 		func(v uint8) {
 			p.WindowY = v
 		},
@@ -162,8 +161,8 @@ func (p *PPU) init() {
 
 	// CGB registers
 	if p.bus.IsGBC() {
-		registers.RegisterHardware(
-			registers.VBK,
+		types.RegisterHardware(
+			types.VBK,
 			func(v uint8) {
 				p.vRAMBank = v & types.Bit0 // only the first bit is used
 			},
@@ -171,8 +170,8 @@ func (p *PPU) init() {
 				return p.vRAMBank
 			},
 		)
-		registers.RegisterHardware(
-			registers.BCPS,
+		types.RegisterHardware(
+			types.BCPS,
 			func(v uint8) {
 				p.colourPalette.SetIndex(v)
 			},
@@ -180,8 +179,8 @@ func (p *PPU) init() {
 				return p.colourPalette.GetIndex()
 			},
 		)
-		registers.RegisterHardware(
-			registers.BCPD,
+		types.RegisterHardware(
+			types.BCPD,
 			func(v uint8) {
 				p.colourPalette.Write(v)
 			},
@@ -190,8 +189,8 @@ func (p *PPU) init() {
 				return p.colourPalette.Read()
 			},
 		)
-		registers.RegisterHardware(
-			registers.OCPS,
+		types.RegisterHardware(
+			types.OCPS,
 			func(v uint8) {
 				p.colourSpritePalette.SetIndex(v)
 			},
@@ -199,8 +198,8 @@ func (p *PPU) init() {
 				return p.colourSpritePalette.GetIndex()
 			},
 		)
-		registers.RegisterHardware(
-			registers.OCPD,
+		types.RegisterHardware(
+			types.OCPD,
 			func(v uint8) {
 				p.colourSpritePalette.Write(v)
 			},
@@ -235,7 +234,7 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 		bus: mmu,
 		irq: irq,
 		oam: oam,
-		vRAM: [2]*ram.Ram{
+		vRAM: [2]*ram.RAM{
 			ram.NewRAM(8192),
 		},
 		DMA: NewDMA(mmu, oam),
@@ -361,48 +360,35 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 	if !p.vramUnlocked() {
 		return
 	}
-	if p.bus.IsGBC() {
-		// write to the current VRAM bank
-		p.vRAM[p.vRAMBank].Write(address, value)
 
-		// are we writing to the tile data?
-		if address <= 0x17FF {
-			p.UpdateTile(address, value)
-			// update the tile data
-		} else if address <= 0x1FFF {
-			if p.vRAMBank == 0 {
-				// which offset are we writing to?
-				if address >= 0x1800 && address <= 0x1BFF {
-					// tilemap 0
-					p.UpdateTileMap(address, 0)
-				}
-				if address >= 0x1C00 && address <= 0x1FFF {
-					// tilemap 1
-					p.UpdateTileMap(address, 1)
-				}
-			}
-			if p.vRAMBank == 1 {
-				// update the tile attributes
-				if address >= 0x1800 && address <= 0x1BFF {
-					// tilemap 0
-					p.UpdateTileAttributes(address, 0, value)
-				}
-				if address >= 0x1C00 && address <= 0x1FFF {
-					// tilemap 1
-					p.UpdateTileAttributes(address, 1, value)
-				}
-			}
-		}
-	} else {
-		p.vRAM[0].Write(address, value)
-		if address <= 0x17FF {
-			p.UpdateTile(address, value)
-		} else if address <= 0x1FFF {
+	// write to the current VRAM bank
+	p.vRAM[p.vRAMBank].Write(address, value)
+
+	// are we writing to the tile data?
+	if address <= 0x17FF {
+		p.UpdateTile(address, value)
+		// update the tile data
+	} else if address <= 0x1FFF {
+		if p.vRAMBank == 0 {
+			// which offset are we writing to?
 			if address >= 0x1800 && address <= 0x1BFF {
+				// tilemap 0
 				p.UpdateTileMap(address, 0)
 			}
 			if address >= 0x1C00 && address <= 0x1FFF {
+				// tilemap 1
 				p.UpdateTileMap(address, 1)
+			}
+		}
+		if p.vRAMBank == 1 {
+			// update the tile attributes
+			if address >= 0x1800 && address <= 0x1BFF {
+				// tilemap 0
+				p.UpdateTileAttributes(address, 0, value)
+			}
+			if address >= 0x1C00 && address <= 0x1FFF {
+				// tilemap 1
+				p.UpdateTileAttributes(address, 1, value)
 			}
 		}
 	}
@@ -509,11 +495,6 @@ func (p *PPU) HasFrame() bool {
 	return p.refreshScreen
 }
 
-// HasDoubleSpeed returns false as the PPU does not respond to double speed.
-func (p *PPU) HasDoubleSpeed() bool {
-	return false
-}
-
 // Tick the PPU by one cycle. This will update the PPU's state and
 // render the current scanline if necessary.
 func (p *PPU) Tick() {
@@ -525,7 +506,7 @@ func (p *PPU) Tick() {
 	// update the current cycle
 	p.currentCycle++
 
-	// step logic
+	// step logic (ordered by number of ticks required to optimize calls)
 	switch p.Status.Mode {
 	case lcd.HBlank:
 		// are we handling the line 0 M-cycle delay?
@@ -542,7 +523,7 @@ func (p *PPU) Tick() {
 			return
 		}
 
-		if p.currentCycle == p.hblankCycles() {
+		if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
 			// reset cycle and increment scanline
 			p.currentCycle = 0
 			p.CurrentScanline++
@@ -575,34 +556,7 @@ func (p *PPU) Tick() {
 				p.checkStatInterrupts(false)
 			}
 		}
-	case lcd.VBlank:
-		if p.currentCycle == 456 {
 
-			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
-			p.currentCycle = 0
-			p.CurrentScanline++
-
-			// check LYC
-			p.checkLYC()
-			p.checkStatInterrupts(false)
-
-			if p.CurrentScanline >= 153 {
-				// reset scanline and enter OAM mode
-				p.SetMode(lcd.OAM)
-				p.CurrentScanline = 0
-				p.WindowYInternal = 0
-
-				// check LYC
-				p.checkLYC()
-				p.checkStatInterrupts(false)
-			}
-		}
-	case lcd.OAM:
-		if p.currentCycle == 80 {
-			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
-			p.currentCycle = 0
-			p.SetMode(lcd.VRAM)
-		}
 	case lcd.VRAM:
 		if p.currentCycle == 172 {
 			//fmt.Println("PPU: Tick", p.currentCycle, p.CurrentScanline, p.Mode)
@@ -628,21 +582,35 @@ func (p *PPU) Tick() {
 				p.renderSprites()
 			}
 		}
+	case lcd.OAM:
+		if p.currentCycle == 80 {
+			p.currentCycle = 0
+			p.SetMode(lcd.VRAM)
+		}
+	case lcd.VBlank:
+		if p.currentCycle == 456 {
+			p.currentCycle = 0
+			p.CurrentScanline++
+
+			// check LYC
+			p.checkLYC()
+			p.checkStatInterrupts(false)
+
+			if p.CurrentScanline >= 153 {
+				// reset scanline and enter OAM mode
+				p.SetMode(lcd.OAM)
+				p.CurrentScanline = 0
+				p.WindowYInternal = 0
+
+				// check LYC
+				p.checkLYC()
+				p.checkStatInterrupts(false)
+			}
+		}
 	}
 }
 
-func (p *PPU) hblankCycles() int16 {
-	switch p.ScrollX & 0x07 {
-	case 0x00:
-		return 204
-	case 0x01, 0x02, 0x03, 0x04:
-		return 200
-	case 0x05, 0x06, 0x07:
-		return 196
-	}
-
-	return 0
-}
+var hblankCycles = [8]int16{204, 200, 200, 200, 200, 196, 196, 196}
 
 func (p *PPU) renderBlank() {
 	for x := 0; x < ScreenWidth; x++ {
@@ -855,7 +823,7 @@ func (p *PPU) renderSprites() {
 			// skip if the sprite doesn't have priority and the background is not transparent
 			if !p.bus.IsGBC() || p.BackgroundEnabled {
 				if !(sprite.Priority && !p.tileBgPriority[pixelPos][p.CurrentScanline]) &&
-					(p.ScreenData[pixelPos][p.CurrentScanline] != p.colourPalette.GetColour(0, 0)) {
+					(p.ScreenData[pixelPos][p.CurrentScanline] != p.Palette.GetColour(0)) {
 					continue
 				}
 			}

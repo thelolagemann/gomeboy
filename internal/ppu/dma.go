@@ -2,7 +2,7 @@ package ppu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 type DMA struct {
@@ -19,8 +19,8 @@ type DMA struct {
 
 func (d *DMA) init() {
 	// setup register
-	registers.RegisterHardware(
-		registers.DMA,
+	types.RegisterHardware(
+		types.DMA,
 		func(v uint8) {
 			d.value = v
 			d.source = uint16(v) << 8
@@ -76,12 +76,6 @@ func (d *DMA) Tick() {
 		d.enabled = false
 		d.timer = 0
 	}
-}
-
-// HasDoubleSpeed returns true as the DMA controller responds to
-// double speed mode.
-func (d *DMA) HasDoubleSpeed() bool {
-	return true
 }
 
 func (d *DMA) IsTransferring() bool {

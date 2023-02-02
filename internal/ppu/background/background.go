@@ -4,7 +4,7 @@ package background
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 // Background represents the background. It is made up of a 256x256 pixel map
@@ -21,9 +21,9 @@ type Background struct {
 }
 
 func (b *Background) init() {
-	// setup the registers
-	registers.RegisterHardware(
-		registers.BGP,
+	// setup the types
+	types.RegisterHardware(
+		types.BGP,
 		func(v uint8) {
 			b.Palette = palette.ByteToPalette(v)
 		},
@@ -31,8 +31,8 @@ func (b *Background) init() {
 			return b.Palette.ToByte()
 		},
 	)
-	registers.RegisterHardware(
-		registers.SCX,
+	types.RegisterHardware(
+		types.SCX,
 		func(v uint8) {
 			b.ScrollX = v
 		},
@@ -40,8 +40,8 @@ func (b *Background) init() {
 			return b.ScrollX
 		},
 	)
-	registers.RegisterHardware(
-		registers.SCY,
+	types.RegisterHardware(
+		types.SCY,
 		func(v uint8) {
 			b.ScrollY = v
 		},

@@ -2,9 +2,11 @@ package cpu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"time"
 )
 
@@ -52,7 +54,11 @@ type CPU struct {
 	Debug           bool
 	DebugBreakpoint bool
 
-	peripherals []types.Peripheral
+	// components that need to be ticked
+	dma   *ppu.DMA
+	timer *timer.Controller
+	ppu   *ppu.PPU
+	sound *apu.APU
 
 	currentTick uint16
 	mode        mode
@@ -60,7 +66,7 @@ type CPU struct {
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripheral) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Controller, ppu *ppu.PPU, sound *apu.APU) *CPU {
 	c := &CPU{
 		PC:    0,
 		SP:    0,
@@ -75,12 +81,15 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, peripherals ...types.Peripher
 			H: 0xB0,
 			L: 0x7C,
 		},
-		mmu:         mmu,
-		Speed:       1,
-		stopped:     false,
-		Halted:      false,
-		irq:         irq,
-		peripherals: peripherals,
+		mmu:     mmu,
+		Speed:   1,
+		stopped: false,
+		Halted:  false,
+		irq:     irq,
+		dma:     dma,
+		timer:   timer,
+		ppu:     ppu,
+		sound:   sound,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -190,7 +199,7 @@ func (c *CPU) Step() uint16 {
 	c.currentTick = 0
 
 	// should we tick HDMA?
-	if c.mmu.HDMA.IsCopying() {
+	if c.mmu.HDMA != nil && c.mmu.HDMA.IsCopying() {
 		c.hdmaTick4()
 		return 0
 	}
@@ -211,9 +220,6 @@ func (c *CPU) Step() uint16 {
 
 		// check for interrupts, in stop mode the IME is ignored
 		reqInt = c.hasInterrupts()
-	case ModeHaltBug:
-		// TODO implement halt bug
-		panic("halt bug")
 	case ModeHaltDI:
 		c.ticks(4)
 
@@ -231,6 +237,9 @@ func (c *CPU) Step() uint16 {
 
 		// check for interrupts
 		reqInt = c.irq.IME && c.hasInterrupts()
+	case ModeHaltBug:
+		// TODO implement halt bug
+		panic("halt bug")
 	}
 
 	// did we get an interrupt?
@@ -244,11 +253,8 @@ func (c *CPU) Step() uint16 {
 // tickDoubleSpeed ticks the CPU components twice as
 // fast, if they respond to the double speed flag.
 func (c *CPU) tickDoubleSpeed() {
-	for _, p := range c.peripherals {
-		if p.HasDoubleSpeed() {
-			p.Tick()
-		}
-	}
+	c.dma.Tick()
+	c.timer.Tick()
 }
 
 func (c *CPU) hdmaTick4() {
@@ -377,10 +383,10 @@ func (c *CPU) executeInterrupt() {
 
 // tick the various components of the CPU.
 func (c *CPU) tick() {
-	//c.dma.Tick()
-	for _, p := range c.peripherals {
-		p.Tick()
-	}
+	c.dma.Tick()
+	c.timer.Tick()
+	c.ppu.Tick()
+	c.sound.Tick()
 	c.currentTick++
 }
 

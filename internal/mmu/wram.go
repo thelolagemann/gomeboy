@@ -1,6 +1,8 @@
 package mmu
 
-import "github.com/thelolagemann/go-gameboy/internal/types/registers"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type WRAM struct {
 	bank uint8
@@ -9,8 +11,8 @@ type WRAM struct {
 
 func (w *WRAM) init() {
 	// setup registers
-	registers.RegisterHardware(
-		registers.SVBK,
+	types.RegisterHardware(
+		types.SVBK,
 		func(v uint8) {
 			v &= 0x07 // only 3 bits are used
 			if v == 0 {

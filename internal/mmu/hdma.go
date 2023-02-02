@@ -2,7 +2,6 @@ package mmu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
 )
 
 type Mode = uint8
@@ -26,37 +25,37 @@ type HDMA struct {
 }
 
 func (h *HDMA) init() {
-	// setup registers
-	registers.RegisterHardware(
-		registers.HDMA1,
+	// setup types
+	types.RegisterHardware(
+		types.HDMA1,
 		func(v uint8) {
 			h.source = (h.source & 0x00FF) | (uint16(v) << 8)
 		},
-		registers.NoRead,
+		types.NoRead,
 	)
-	registers.RegisterHardware(
-		registers.HDMA2,
+	types.RegisterHardware(
+		types.HDMA2,
 		func(v uint8) {
 			h.source = (h.source & 0xFF00) | uint16(v&0xF0)
 		},
-		registers.NoRead,
+		types.NoRead,
 	)
-	registers.RegisterHardware(
-		registers.HDMA3,
+	types.RegisterHardware(
+		types.HDMA3,
 		func(v uint8) {
 			h.destination = (h.destination & 0x00FF) | (uint16(v&0x1F) << 8)
 		},
-		registers.NoRead,
+		types.NoRead,
 	)
-	registers.RegisterHardware(
-		registers.HDMA4,
+	types.RegisterHardware(
+		types.HDMA4,
 		func(v uint8) {
 			h.destination = (h.destination & 0xFF00) | uint16(v&0xF0)
 		},
-		registers.NoRead,
+		types.NoRead,
 	)
-	registers.RegisterHardware(
-		registers.HDMA5,
+	types.RegisterHardware(
+		types.HDMA5,
 		func(v uint8) {
 			// is HDMA copying?
 			if h.mode == HDMAMode && h.transferring {

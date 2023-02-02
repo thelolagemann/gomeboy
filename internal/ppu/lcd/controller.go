@@ -1,7 +1,7 @@
 package lcd
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
@@ -56,43 +56,41 @@ type Controller struct {
 	BackgroundEnabled bool
 
 	cleared  bool
-	reg      *registers.Hardware
+	reg      *types.Hardware
 	isSigned bool
 }
 
-func (c *Controller) init(onWrite registers.WriteHandler) {
-	c.reg = registers.NewHardware(
-		registers.LCDC,
-		registers.WithWriteHandler(onWrite),
-		registers.WithWriteFunc(func(h *registers.Hardware, address uint16, value uint8) {
+func (c *Controller) init(onWrite types.WriteHandler) {
+	types.RegisterHardware(
+		types.LCDC,
+		func(v uint8) {
 			// detect a rising edge on the LCD enable bit
-			if !c.Enabled && utils.Test(value, 7) {
+			if !c.Enabled && utils.Test(v, 7) {
 				c.cleared = false
 			}
-			c.Enabled = utils.Test(value, 7)
-			if utils.Test(value, 6) {
+			c.Enabled = utils.Test(v, 7)
+			if utils.Test(v, 6) {
 				c.WindowTileMapAddress = 0x9C00
 			} else {
 				c.WindowTileMapAddress = 0x9800
 			}
-			c.WindowEnabled = utils.Test(value, 5)
-			if utils.Test(value, 4) {
+			c.WindowEnabled = utils.Test(v, 5)
+			if utils.Test(v, 4) {
 				c.TileDataAddress = 0x8000
 				c.isSigned = false
 			} else {
 				c.TileDataAddress = 0x8800
 				c.isSigned = true
 			}
-			if utils.Test(value, 3) {
+			if utils.Test(v, 3) {
 				c.BackgroundTileMapAddress = 0x9C00
 			} else {
 				c.BackgroundTileMapAddress = 0x9800
 			}
-			c.SpriteSize = 8 + uint8(utils.Val(value, 2))*8
-			c.SpriteEnabled = utils.Test(value, 1)
-			c.BackgroundEnabled = utils.Test(value, 0)
-		}),
-		registers.WithReadFunc(func(h *registers.Hardware, address uint16) uint8 {
+			c.SpriteSize = 8 + uint8(utils.Val(v, 2))*8
+			c.SpriteEnabled = utils.Test(v, 1)
+			c.BackgroundEnabled = utils.Test(v, 0)
+		}, func() uint8 {
 			var value uint8
 			if c.Enabled {
 				value |= 1 << 7
@@ -119,12 +117,13 @@ func (c *Controller) init(onWrite registers.WriteHandler) {
 				value |= 1 << 0
 			}
 			return value
-		}),
+		},
+		types.WithWriteHandler(onWrite),
 	)
 }
 
 // NewController returns a new LCD controller.
-func NewController(writeHandler registers.WriteHandler) *Controller {
+func NewController(writeHandler types.WriteHandler) *Controller {
 	c := &Controller{
 		WindowTileMapAddress:     0x9800,
 		BackgroundTileMapAddress: 0x9800,

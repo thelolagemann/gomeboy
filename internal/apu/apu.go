@@ -3,7 +3,7 @@ package apu
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2/audio"
-	"github.com/thelolagemann/go-gameboy/internal/types/registers"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"math"
 )
 
@@ -31,7 +31,7 @@ func init() {
 
 // APU represents the GameBoy's audio processing unit. It comprises 4
 // channels: 2 pulse channels, a wave channel and a noise channel. Each
-// channel has is controlled by a set of registers.
+// channel has is controlled by a set of addresses.
 //
 // Channel 1 and 2 are both square channels. They can be used to play
 // tones of different frequencies. Channel 3 is an arbitrary waveform
@@ -81,7 +81,7 @@ var orMasks = []byte{
 }
 
 func (a *APU) registerHardware(address uint16, w func(value uint8)) {
-	registers.RegisterHardware(
+	types.RegisterHardware(
 		address,
 		func(v uint8) {
 			a.memory[address-0xFF00] = v
@@ -94,34 +94,34 @@ func (a *APU) registerHardware(address uint16, w func(value uint8)) {
 }
 
 func (a *APU) init() {
-	// setup registers
+	// setup addresses
 
 	// Channel 1 (NR10 - NR14)
-	a.registerHardware(registers.NR10, func(v uint8) {
+	a.registerHardware(types.NR10, func(v uint8) {
 		// Sweep period, negate, shift
 		a.chan1.sweepStepLen = (a.memory[0x10] & 0b111_0000) >> 4
 		a.chan1.sweepSteps = a.memory[0x10] & 0b111
 		a.chan1.sweepIncrease = a.memory[0x10]&0b1000 == 0
 	})
-	a.registerHardware(registers.NR11, func(v uint8) {
+	a.registerHardware(types.NR11, func(v uint8) {
 		// Sound length, wave pattern duty
 		duty := (v & 0b1100_0000) >> 6
 		a.chan1.generator = Square(squareLimits[duty])
 		a.chan1.length = int(v & 0b0011_1111)
 	})
-	a.registerHardware(registers.NR12, func(v uint8) {
+	a.registerHardware(types.NR12, func(v uint8) {
 		// Envelope initial volume, direction, sweep length
 		envVolume, envDirection, envSweep := a.extractEnvelope(v)
 		a.chan1.envVolume = int(envVolume)
 		a.chan1.envSamples = int(envSweep) * sampleRate / 64
 		a.chan1.envIncrease = envDirection == 1
 	})
-	a.registerHardware(registers.NR13, func(v uint8) {
+	a.registerHardware(types.NR13, func(v uint8) {
 		// Frequency low
 		frequencyValue := uint16(a.memory[0x14]&0b111)<<8 | uint16(v)
 		a.chan1.frequency = 131072 / (2048 - float64(frequencyValue))
 	})
-	a.registerHardware(registers.NR14, func(v uint8) {
+	a.registerHardware(types.NR14, func(v uint8) {
 		// Frequency high, initial, counter/consecutive
 		frequencyValue := uint16(v&0b111)<<8 | uint16(a.memory[0x13])
 		a.chan1.frequency = 131072 / (2048 - float64(frequencyValue))
@@ -139,27 +139,28 @@ func (a *APU) init() {
 			a.chan1.envStepsInit = a.chan1.envVolume
 		}
 	})
+	a.registerHardware(0xFF15, types.NoWrite)
 
 	// Channel 2 (NR20 - NR24)
-	a.registerHardware(registers.NR21, func(v uint8) {
+	a.registerHardware(types.NR21, func(v uint8) {
 		// Sound length, wave pattern duty
 		duty := (v & 0b1100_0000) >> 6
 		a.chan2.generator = Square(squareLimits[duty])
 		a.chan2.length = int(v & 0b11_1111)
 	})
-	a.registerHardware(registers.NR22, func(v uint8) {
+	a.registerHardware(types.NR22, func(v uint8) {
 		// Envelope initial volume, direction, sweep length
 		envVolume, envDirection, envSweep := a.extractEnvelope(v)
 		a.chan2.envVolume = int(envVolume)
 		a.chan2.envSamples = int(envSweep) * sampleRate / 64
 		a.chan2.envIncrease = envDirection == 1
 	})
-	a.registerHardware(registers.NR23, func(v uint8) {
+	a.registerHardware(types.NR23, func(v uint8) {
 		// Frequency low
 		frequencyValue := uint16(a.memory[0x19]&0b111)<<8 | uint16(v)
 		a.chan2.frequency = 131072 / (2048 - float64(frequencyValue))
 	})
-	a.registerHardware(registers.NR24, func(v uint8) {
+	a.registerHardware(types.NR24, func(v uint8) {
 		// Frequency high, initial, counter/consecutive
 		if v&0b1000_0000 != 0 {
 			if a.chan2.length == 0 {
@@ -179,24 +180,24 @@ func (a *APU) init() {
 	})
 
 	// Channel 3 (NR30 - NR34)
-	a.registerHardware(registers.NR30, func(v uint8) {
+	a.registerHardware(types.NR30, func(v uint8) {
 		// DAC power
 		a.chan3.envStepsInit = int((v & 0b1000_0000) >> 7)
 	})
-	a.registerHardware(registers.NR31, func(v uint8) {
+	a.registerHardware(types.NR31, func(v uint8) {
 		// Sound length
 		a.chan3.length = int(v)
 	})
-	a.registerHardware(registers.NR32, func(v uint8) {
+	a.registerHardware(types.NR32, func(v uint8) {
 		selection := (v & 0b110_0000) >> 5
 		a.chan3.amplitude = channel3Volume[selection]
 	})
-	a.registerHardware(registers.NR33, func(v uint8) {
+	a.registerHardware(types.NR33, func(v uint8) {
 		// Frequency low
 		frequencyValue := uint16(a.memory[0x1E]&0b111)<<8 | uint16(v)
 		a.chan3.frequency = 65536 / (2048 - float64(frequencyValue))
 	})
-	a.registerHardware(registers.NR34, func(v uint8) {
+	a.registerHardware(types.NR34, func(v uint8) {
 		// Frequency high, initial, counter/consecutive
 		if v&0b1000_0000 != 0 {
 			if a.chan3.length == 0 {
@@ -215,18 +216,18 @@ func (a *APU) init() {
 	})
 
 	// Channel 4 (NR40 - NR44)
-	a.registerHardware(registers.NR41, func(v uint8) {
+	a.registerHardware(types.NR41, func(v uint8) {
 		// Sound length
 		a.chan4.length = int(v & 0b11_1111)
 	})
-	a.registerHardware(registers.NR42, func(v uint8) {
+	a.registerHardware(types.NR42, func(v uint8) {
 		// Envelope initial volume, direction, sweep length
 		envVolume, envDirection, envSweep := a.extractEnvelope(v)
 		a.chan4.envVolume = int(envVolume)
 		a.chan4.envSamples = int(envSweep) * sampleRate / 64
 		a.chan4.envIncrease = envDirection == 1
 	})
-	a.registerHardware(registers.NR43, func(v uint8) {
+	a.registerHardware(types.NR43, func(v uint8) {
 		// Polynomial counter, shift clock frequency
 		shiftClock := float64((v & 0b1111_0000) >> 4)
 		divRation := float64(v & 0b111)
@@ -235,7 +236,7 @@ func (a *APU) init() {
 		}
 		a.chan4.frequency = 524288 / divRation / math.Pow(2, shiftClock+1)
 	})
-	a.registerHardware(registers.NR44, func(v uint8) {
+	a.registerHardware(types.NR44, func(v uint8) {
 		// Counter/consecutive, initial
 		if v&0x80 == 0x80 {
 			duration := -1
@@ -250,12 +251,12 @@ func (a *APU) init() {
 	})
 
 	// Channel control (NR50 - NR52)
-	a.registerHardware(registers.NR50, func(v uint8) {
+	a.registerHardware(types.NR50, func(v uint8) {
 		// Channel control / ON-OFF / Volume
 		a.lVol = float64((a.memory[0x24]&0x70)>>4) / 7
 		a.rVol = float64(a.memory[0x24]&0x7) / 7
 	})
-	a.registerHardware(registers.NR51, func(v uint8) {
+	a.registerHardware(types.NR51, func(v uint8) {
 		a.chan1.onR = v&0x1 != 0
 		a.chan2.onR = v&0x2 != 0
 		a.chan3.onR = v&0x4 != 0
@@ -265,7 +266,7 @@ func (a *APU) init() {
 		a.chan3.onL = v&0x40 != 0
 		a.chan4.onL = v&0x80 != 0
 	})
-	a.registerHardware(registers.NR52, func(v uint8) {
+	a.registerHardware(types.NR52, func(v uint8) {
 		// Sound on/off
 		a.playing = v&0x80 != 0
 	})
@@ -348,12 +349,6 @@ var channel3Volume = map[byte]float64{
 	1: 1,
 	2: 0.5,
 	3: 0.25,
-}
-
-// HasDoubleSpeed returns false as the APU does not respond
-// to double speed mode.
-func (a *APU) HasDoubleSpeed() bool {
-	return false
 }
 
 // Read returns the value at the given address.
