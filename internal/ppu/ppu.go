@@ -47,7 +47,7 @@ type PPU struct {
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
-	scanlineData [63]uint8
+	scanlineData [84]uint8
 
 	currentCycle       uint16
 	bus                *mmu.MMU
@@ -715,11 +715,11 @@ func (p *PPU) renderWindow() {
 		}
 
 		// copy the tile data to the scanline
-		p.scanlineData[i*3] = b1
-		p.scanlineData[i*3+1] = b2
+		p.scanlineData[i*4] = b1
+		p.scanlineData[i*4+1] = b2
 
 		// copy the tile info to the scanline
-		p.scanlineData[i*3+2] = tileEntry.Attributes.PaletteNumber << 4
+		p.scanlineData[i*4+2] = tileEntry.Attributes.PaletteNumber << 4
 	}
 
 	/*for i := uint8(0); i < ScreenWidth; i++ {
@@ -766,11 +766,11 @@ func (p *PPU) renderBackground() {
 		}
 
 		// copy the 2 bytes of tile data into the scanline
-		p.scanlineData[i*3] = b1
-		p.scanlineData[i*3+1] = b2
+		p.scanlineData[i*4] = b1
+		p.scanlineData[i*4+1] = b2
 
 		// copy the byte of tile info into the scanline
-		p.scanlineData[i*3+2] = tileEntry.Attributes.PaletteNumber << 4
+		p.scanlineData[i*4+2] = tileEntry.Attributes.PaletteNumber << 4
 	}
 
 	/*
@@ -810,8 +810,8 @@ func (p *PPU) renderSprites() {
 		}
 		spriteCount++
 		// determine which byte of the scanline to start writing to
-		startByte := (sprite.GetX() / 8) * 3
-		if startByte > 60 {
+		startByte := (sprite.GetX() / 8) * 4
+		if startByte > 80 {
 			continue
 		}
 
@@ -852,14 +852,126 @@ func (p *PPU) renderSprites() {
 			b2 = bits.Reverse8(b2)
 		}
 
-		// fmt.Println("startTile", startTile)
+		// TODO merge with existing tile data
+
+		var e1, e2, e3 uint8
+		e1 = p.scanlineData[startByte]
+		e2 = p.scanlineData[startByte+1]
+		e3 = p.scanlineData[startByte+2]
+
+		// determine where in the tile(s) the pixel is
+		// for example, if the sprite x position is an exact multiple of 8, then the pixel is exactly aligned
+		// to a tile, otherwise it is in the middle of a tile and we need to write to both tiles
+		// e.g.
+		// xPos = 18, offset by 2 bits
+		// xPos = 31, offset by 7 bits
+		tileOffset := sprite.GetX() % 8
+
+		var n1, n2, n3, nSpriteBG uint8
+		// if the sprite is not aligned to a tile, we need to write to the next tile as well
+		if tileOffset != 0 {
+			n1 = p.scanlineData[startByte+4]
+			n2 = p.scanlineData[startByte+5]
+			n3 = p.scanlineData[startByte+6]
+			nSpriteBG = p.scanlineData[startByte+7]
+		}
+
+		var spriteOrBG uint8
+
+		// merge the tile data with the existing tile data
+		for i := uint8(0); i < 8; i++ {
+			// determine bit of tile to use
+			tileBitIndex := 7 - i
+
+			// determine the color
+			low := 0
+			high := 0
+
+			if b1&(1<<tileBitIndex) != 0 {
+				low = 1
+			}
+			if b2&(1<<tileBitIndex) != 0 {
+				high = 2
+			}
+
+			color := uint8(low + high)
+			if color == 0 {
+				continue // transparent
+			}
+
+			// when the sprite is not aligned to a tile, we need to write to part of the tile and part of the next tile
+			// e.g. offset by 3
+			// 0b0000_0000 0b0000_0000
+			//      ^ ^^^^   ^^^
+			if tileOffset != 0 {
+				// is the pixel in the first tile?
+				/*if i < (7 - tileOffset) {
+					// determine the bit to use
+					bitIndex := 7 - (tileOffset - i)
+
+					// write to the first tile
+					e1 = e1 & ^(1 << bitIndex)       // clear the bit
+					e1 = e1 | (b1 & (1 << bitIndex)) // set the bit
+
+					e2 = e2 & ^(1 << bitIndex)       // clear the bit
+					e2 = e2 | (b2 & (1 << bitIndex)) // set the bit
+
+					spriteOrBG |= 1 << bitIndex
+				} else {
+					// write to the second tile
+
+					// determine the bit to use
+					bitIndex := 7 - (tileOffset - i)
+
+					// write to the second tile
+					n1 = n1 & ^(1 << bitIndex)       // clear the bit
+					n1 = n1 | (b1 & (1 << bitIndex)) // set the bit
+
+					n2 = n2 & ^(1 << bitIndex)       // clear the bit
+					n2 = n2 | (b2 & (1 << bitIndex)) // set the bit
+
+					nSpriteBG |= 1 << bitIndex
+				}*/
+			} else {
+				// we are aligned to a tile, so we can just write to the tile
+
+				// write to the first tile
+				e1 = e1 & ^(1 << tileBitIndex)       // clear the bit
+				e1 = e1 | (b1 & (1 << tileBitIndex)) // set the bit
+
+				e2 = e2 & ^(1 << tileBitIndex)       // clear the bit
+				e2 = e2 | (b2 & (1 << tileBitIndex)) // set the bit
+
+				spriteOrBG |= 1 << tileBitIndex
+			}
+
+			// overwrite bit i of e1, e2 with bit i of b1, b2
+			/*e1 = e1 & ^(1 << tileBitIndex)       // clear bit
+			e1 = e1 | (b1 & (1 << tileBitIndex)) // set bit
+
+			e2 = e2 & ^(1 << tileBitIndex)       // clear bit
+			e2 = e2 | (b2 & (1 << tileBitIndex)) // set bit
+
+			spriteOrBG |= 1 << (7 - i)*/
+		}
+
+		// rewrite the existing tile data
 
 		// copy the tile data to the scanline
-		p.scanlineData[startByte] = b1
-		p.scanlineData[startByte+1] = b2
+		p.scanlineData[startByte] = e1
+		p.scanlineData[startByte+1] = e2
 
 		// copy the tile info to the scanline
-		p.scanlineData[startByte+2] = sprite.CGBPalette<<4 | sprite.UseSecondPalette<<3 | types.Bit2
+		p.scanlineData[startByte+2] = e3 | sprite.CGBPalette
+		p.scanlineData[startByte+3] = spriteOrBG
+
+		// if the sprite is not aligned to a tile, we need to write to the next tile as well
+		if tileOffset != 0 {
+			p.scanlineData[startByte+4] = n1
+			p.scanlineData[startByte+5] = n2
+			p.scanlineData[startByte+6] = n3 | sprite.CGBPalette
+			p.scanlineData[startByte+7] = nSpriteBG
+		}
 
 		/*
 			tilerowIndex := p.CurrentScanline - sprite.GetY()

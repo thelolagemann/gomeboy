@@ -2,10 +2,9 @@ package ppu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
-const ScanlineSize = 63
+const ScanlineSize = 84
 
 // Pixel represents a single pixel on the screen. The PPU
 // renders the screen with 2bit color depth, so that a single byte
@@ -82,6 +81,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 			b1 := job.Scanline[0]
 			b2 := job.Scanline[1]
 			tileInfo := job.Scanline[2]
+			spriteOrBG := job.Scanline[3]
 			currentTile := 0
 
 			// iterate over the pixels in the scanline
@@ -90,9 +90,10 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 				if x != 0 && (x+tileOffset)%8 == 0 {
 					currentTile++
 					// load the next tile
-					b1 = job.Scanline[currentTile*3]
-					b2 = job.Scanline[currentTile*3+1]
-					tileInfo = job.Scanline[currentTile*3+2]
+					b1 = job.Scanline[currentTile*4]
+					b2 = job.Scanline[currentTile*4+1]
+					tileInfo = job.Scanline[currentTile*4+2]
+					spriteOrBG = job.Scanline[currentTile*4+3]
 				}
 				// get the pixel data (bit x of b1 and b2)
 				low := 0
@@ -109,15 +110,11 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 					high = 2
 				}
 				colorNum := low + high
-				if tileInfo&types.Bit2 == 0 {
+				if spriteOrBG&bitIndex == 0 {
 					// background pixel
 					scanline.Scanline[x] = job.palettes.GetColour(tileInfo>>4&0x07, uint8(colorNum))
 				} else {
-					if colorNum == 0 {
-						// render the background pixel
-						scanline.Scanline[x] = job.palettes.GetColour(tileInfo>>4&0x07, uint8(colorNum))
-					}
-					scanline.Scanline[x] = job.objPalette.GetColour(tileInfo>>4, uint8(low+high))
+					scanline.Scanline[x] = job.objPalette.GetColour(tileInfo&0x07, uint8(low+high))
 				}
 
 			}
@@ -188,7 +185,7 @@ func NewRendererCGB(jobs chan RenderJobCGB, output chan<- *RenderOutput) *Render
 	}
 
 	// start a few goroutines to render the scanlines
-	for i := 0; i < ScreenHeight; i++ {
+	for i := 0; i < 16; i++ {
 		go RenderScanlineCGB(jobs, output)
 	}
 
