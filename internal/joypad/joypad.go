@@ -56,31 +56,32 @@ type State struct {
 	irq   *interrupts.Service
 }
 
-func (s *State) init() {
-	// set up the register
-	types.RegisterHardware(
-		types.P1,
-		func(v uint8) {
-			s.Register = v | 0b1100_0000 // bits 6 and 7 are always set
-		}, func() uint8 {
-			if !utils.Test(s.Register, 4) {
-				return s.Register | s.State>>4
-			} else if !utils.Test(s.Register, 5) {
-				return s.Register | s.State&0b0000_1111
-			}
-			return s.Register
-		},
-	)
-}
-
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
 	s := &State{
 		State: 0b1111_1111,
 		irq:   irq,
 	}
-	s.init()
+	// set up the register
+	types.RegisterHardware(
+		types.P1,
+		s.Set,
+		s.Get,
+	)
 	return s
+}
+
+func (s *State) Get() uint8 {
+	if !utils.Test(s.Register, 4) {
+		return s.Register | s.State>>4
+	} else if !utils.Test(s.Register, 5) {
+		return s.Register | s.State&0b0000_1111
+	}
+	return s.Register
+}
+
+func (s *State) Set(v uint8) {
+	s.Register = v | 0b1100_0000
 }
 
 // Press presses a button.

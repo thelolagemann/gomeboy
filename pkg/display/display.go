@@ -76,12 +76,12 @@ func (d *Display) ApplyShader(shader string, uniforms map[string]interface{}) {
 }
 
 // Render renders the given frame to the display.
-func (d *Display) Render(frame [160][144][3]uint8) {
-	for y := 0; y < ppu.ScreenHeight; y++ {
-		for x := 0; x < ppu.ScreenWidth; x++ {
-			r := frame[x][y][0]
-			g := frame[x][y][1]
-			b := frame[x][y][2]
+func (d *Display) Render(frame [144][160][3]uint8) {
+	for x := 0; x < ppu.ScreenWidth; x++ {
+		for y := 0; y < ppu.ScreenHeight; y++ {
+			r := frame[y][x][0]
+			g := frame[y][x][1]
+			b := frame[y][x][2]
 			d.picture.Pix[(ppu.ScreenHeight-1-y)*ppu.ScreenWidth+x] = color.RGBA{R: r, G: g, B: b, A: 255}
 		}
 	}

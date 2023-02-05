@@ -9,7 +9,7 @@ import (
 // Tile represents a tile. Each tile has a size of 8x8 pixels and a color
 // depth of 4 colors/gray shades. Tiles can be displayed as sprites or as
 // background/window tiles.
-type Tile [8][8]uint8
+type Tile [8][2]uint8
 
 type TileAttributes struct {
 	// UseBGPriority is the BG Priority bit. When set, the tile is displayed
@@ -26,20 +26,6 @@ type TileAttributes struct {
 	// VRAMBank is the VRAM Bank bit. It specifies the VRAM bank (0-1) that
 	// is used to store the tile's data.
 	VRAMBank uint8
-}
-
-// Read returns the byte of the tile at the given address.
-func (t *Tile) Read(address uint16) uint8 {
-	var tileY = int(address) / 2
-	var tileX = int(address) % 2
-	return uint8(t[tileY][tileX])
-}
-
-// Write writes the given value to the tile at the given address.
-func (t *Tile) Write(address uint16, value uint8) {
-	var tileY = int(address) / 2
-	var tileX = int(address) % 2
-	t[tileY][tileX] = uint8(int(value))
 }
 
 // Draw draws the tile to the given image at the given position.

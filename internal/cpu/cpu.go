@@ -133,44 +133,6 @@ func (c *CPU) registerIndex(index uint8) *Register {
 	panic(fmt.Sprintf("invalid register index: %d", index))
 }
 
-// registerMap maps a Register name to a Register pointer.
-func (c *CPU) registerMap(name string) *Register {
-	switch name {
-	case "A":
-		return &c.A
-	case "B":
-		return &c.B
-	case "C":
-		return &c.C
-	case "D":
-		return &c.D
-	case "E":
-		return &c.E
-	case "F":
-		return &c.F
-	case "H":
-		return &c.H
-	case "L":
-		return &c.L
-	}
-	return nil
-}
-
-// registerPairMap maps a RegisterPair name to a RegisterPair pointer.
-func (c *CPU) registerPairMap(name string) *RegisterPair {
-	switch name {
-	case "AF":
-		return c.AF
-	case "BC":
-		return c.BC
-	case "DE":
-		return c.DE
-	case "HL":
-		return c.HL
-	}
-	return nil
-}
-
 // registerName returns the name of a Register.
 func (c *CPU) registerName(reg *Register) string {
 	switch reg {
@@ -205,41 +167,42 @@ func (c *CPU) Step() uint16 {
 	}
 
 	reqInt := false
-
-	// execute step based on mode
-	switch c.mode {
-	case ModeNormal:
+	if c.mode == ModeNormal {
 		// execute step normally
 		c.runInstruction(c.readInstruction())
 
 		// check for interrupts, in normal mode this requires the IME to be enabled
 		reqInt = c.irq.IME && c.hasInterrupts()
-	case ModeHalt, ModeStop:
-		// in stop, halt mode, the CPU ticks 4 times, but does not execute any instructions
-		c.ticks(4)
+	} else {
+		// execute step based on mode
+		switch c.mode {
+		case ModeHalt, ModeStop:
+			// in stop, halt mode, the CPU ticks 4 times, but does not execute any instructions
+			c.tickCycle()
 
-		// check for interrupts, in stop mode the IME is ignored
-		reqInt = c.hasInterrupts()
-	case ModeHaltDI:
-		c.ticks(4)
+			// check for interrupts, in stop mode the IME is ignored
+			reqInt = c.hasInterrupts()
+		case ModeHaltDI:
+			c.tickCycle()
 
-		// check for interrupts
-		if c.hasInterrupts() {
+			// check for interrupts
+			if c.hasInterrupts() {
+				c.mode = ModeNormal
+			}
+		case ModeEnableIME:
+			// Enabling IME, and set mode to normal
+			c.irq.IME = true
 			c.mode = ModeNormal
+
+			// run one instruction
+			c.runInstruction(c.readInstruction())
+
+			// check for interrupts
+			reqInt = c.irq.IME && c.hasInterrupts()
+		case ModeHaltBug:
+			// TODO implement halt bug
+			panic("halt bug")
 		}
-	case ModeEnableIME:
-		// Enabling IME, and set mode to normal
-		c.irq.IME = true
-		c.mode = ModeNormal
-
-		// run one instruction
-		c.runInstruction(c.readInstruction())
-
-		// check for interrupts
-		reqInt = c.irq.IME && c.hasInterrupts()
-	case ModeHaltBug:
-		// TODO implement halt bug
-		panic("halt bug")
 	}
 
 	// did we get an interrupt?
@@ -277,12 +240,12 @@ func (c *CPU) hdmaTick4() {
 }
 
 func (c *CPU) hasInterrupts() bool {
-	return c.irq.Enable&c.irq.Flag&0x1F != 0
+	return c.irq.Enable&c.irq.Flag != 0
 }
 
 // readInstruction reads the next instruction from memory.
 func (c *CPU) readInstruction() uint8 {
-	c.ticks(4)
+	c.tickCycle()
 	value := c.mmu.Read(c.PC)
 	c.PC++
 	return value
@@ -291,7 +254,7 @@ func (c *CPU) readInstruction() uint8 {
 // readOperand reads the next operand from memory. The same as
 // readInstruction, but will allow future optimizations.
 func (c *CPU) readOperand() uint8 {
-	c.ticks(4)
+	c.tickCycle()
 	value := c.mmu.Read(c.PC)
 	c.PC++
 	// fmt.Println("readOperand", value)
@@ -299,20 +262,20 @@ func (c *CPU) readOperand() uint8 {
 }
 
 func (c *CPU) skipOperand() {
-	c.ticks(4)
-	c.mmu.Read(c.PC)
+	c.tickCycle()
+	//c.mmu.Read(c.PC)
 	c.PC++
 }
 
 // readByte reads a byte from memory.
 func (c *CPU) readByte(addr uint16) uint8 {
-	c.ticks(4)
+	c.tickCycle()
 	return c.mmu.Read(addr)
 }
 
 // writeByte writes the given value to the given address.
 func (c *CPU) writeByte(addr uint16, val uint8) {
-	c.ticks(4)
+	c.tickCycle()
 	c.mmu.Write(addr, val)
 }
 
@@ -374,7 +337,9 @@ func (c *CPU) executeInterrupt() {
 		c.irq.IME = false
 
 		// tick 12 times
-		c.ticks(12)
+		c.tickCycle()
+		c.tickCycle()
+		c.tickCycle()
 	}
 
 	// set the mode to normal
@@ -390,27 +355,17 @@ func (c *CPU) tick() {
 	c.currentTick++
 }
 
-func (c *CPU) ticks(n uint) {
+func (c *CPU) tickCycle() {
 	if c.doubleSpeed {
-		// double tick every other tick
-		for i := uint(0); i < n; i++ {
-			if i%2 == 0 {
-				c.tick()
-			} else {
-				c.tickDoubleSpeed()
-			}
-		}
+		c.tick()
+		c.tickDoubleSpeed()
+		c.tick()
+		c.tickDoubleSpeed()
 	} else {
-		for i := uint(0); i < n; i++ {
-			c.tick()
-		}
-	}
-}
-
-// setFlags sets the given flags to the given values.
-func (c *CPU) setFlags(flags ...Flag) {
-	for _, flag := range flags {
-		c.setFlag(flag)
+		c.tick()
+		c.tick()
+		c.tick()
+		c.tick()
 	}
 }
 

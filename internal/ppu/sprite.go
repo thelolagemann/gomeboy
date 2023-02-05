@@ -1,7 +1,5 @@
 package ppu
 
-import "fmt"
-
 // Sprite is the 8x8 default sprite.
 type Sprite struct {
 	X      uint8
@@ -81,7 +79,7 @@ func (s *Sprite) Read(address uint16) uint8 {
 	case 3:
 		return s.SpriteAttributes.Read()
 	default:
-		panic(fmt.Sprintf("sprite: illegal write: %04x", address))
+		return 0xFF
 	}
 }
 

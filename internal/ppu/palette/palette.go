@@ -69,7 +69,7 @@ func ByteToPalette(b byte) Palette {
 
 // ToByte converts a palette to a byte, using the
 // selected palette as a base.
-func (p Palette) ToByte() byte {
+func (p *Palette) ToByte() byte {
 	var b byte
 
 	b |= p[0]
@@ -80,7 +80,7 @@ func (p Palette) ToByte() byte {
 	return b
 }
 
-func (p Palette) GetColour(index uint8) [3]uint8 {
+func (p *Palette) GetColour(index uint8) [3]uint8 {
 	// map provided index to the current palette
 	return GetColour(p[index])
 }

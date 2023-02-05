@@ -21,7 +21,6 @@ type Controller struct {
 	enabled    bool
 	currentBit uint16
 	lastBit    bool
-	newBit     bool
 
 	overflow           bool
 	ticksSinceOverflow uint8
@@ -29,9 +28,12 @@ type Controller struct {
 	irq *interrupts.Service
 }
 
-// init initializes the timer controller, it should be called
-// before the controller is returned to the caller.
-func (c *Controller) init() {
+// NewController returns a new timer controller.
+func NewController(irq *interrupts.Service) *Controller {
+	c := &Controller{
+		irq:        irq,
+		currentBit: bits[0],
+	}
 	// set up types
 	types.RegisterHardware(
 		types.DIV,
@@ -40,7 +42,7 @@ func (c *Controller) init() {
 		},
 		func() uint8 {
 			// return bits 6-13 of divider register
-			return uint8(c.div >> 8) // TODO actually return bits 6-13
+			return uint8(c.div >> 6) // TODO actually return bits 6-13
 		},
 	)
 	types.RegisterHardware(
@@ -75,9 +77,13 @@ func (c *Controller) init() {
 		func(v uint8) {
 			wasEnabled := c.enabled
 			oldBit := c.currentBit
+			// 00 = shift by 9 bits
+			// 01 = shift by 3 bits
+			// 10 = shift by 5 bits
+			// 11 = shift by 7 bits
 
-			c.tac = v & 0b111
-			c.currentBit = 1 << bits[v&0b11]
+			c.tac = v
+			c.currentBit = bits[v&0b11]
 			c.enabled = (v & 0x4) == 0x4
 
 			c.timaGlitch(wasEnabled, oldBit)
@@ -85,15 +91,6 @@ func (c *Controller) init() {
 			return c.tac | 0b11111000 // bits 3-7 are always 1
 		},
 	)
-}
-
-// NewController returns a new timer controller.
-func NewController(irq *interrupts.Service) *Controller {
-	c := &Controller{
-		irq:        irq,
-		currentBit: 1 << bits[0],
-	}
-	c.init()
 
 	return c
 }
@@ -103,10 +100,15 @@ func (c *Controller) Tick() {
 	// increment internalDivider register
 	c.div++
 
-	c.newBit = c.enabled && (c.div&c.currentBit) == 0
+	// check if timer is enabled
+	if !c.enabled {
+		return
+	}
+
+	newBit := (c.div & c.currentBit) != 0
 
 	// detect a falling edge
-	if c.lastBit && !c.newBit {
+	if c.lastBit && !newBit {
 		// increment timer
 		c.tima++
 
@@ -118,7 +120,7 @@ func (c *Controller) Tick() {
 	}
 
 	// update last bit
-	c.lastBit = c.newBit
+	c.lastBit = newBit
 
 	// check for overflow
 	if c.overflow {
@@ -134,21 +136,6 @@ func (c *Controller) Tick() {
 			c.ticksSinceOverflow = 0
 		}
 	}
-}
-
-func (c *Controller) multiplexer() uint16 {
-	switch c.tac & 0x03 {
-	case 0:
-		return 1024
-	case 1:
-		return 16
-	case 2:
-		return 64
-	case 3:
-		return 256
-	}
-
-	panic("invalid multiplexer value")
 }
 
 // timaGlitch handles the glitch that occurs when the timer is enabled
@@ -172,4 +159,4 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 	}
 }
 
-var bits = [4]uint8{9, 3, 5, 7}
+var bits = [4]uint16{1024, 16, 64, 256}
