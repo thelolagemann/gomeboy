@@ -9,7 +9,7 @@ import (
 
 const (
 	// sampleRate is the sample rate of the audio.
-	sampleRate = 44100
+	sampleRate = 48000
 	// twoPi is 2 * Pi.
 	twoPi = 2 * math.Pi
 	// perSample is the number of samples per second.
@@ -47,23 +47,45 @@ type APU struct {
 	tickCounter                float64
 	lVol, rVol                 float64
 
-	audioBuffer *buffer
-	player      *audio.Player
+	audioBuffer  *buffer
+	player       *audio.Player
+	currentIndex uint32
+	preBuffer    chan [2]uint16
 }
 
 type buffer struct {
-	data []byte
+	data           []byte
+	readPosition   int
+	writePosition  int
+	size           int
+	bytesCollected int
 }
 
 func (b *buffer) Read(p []byte) (int, error) {
-	if len(b.data) > 0 {
-		n := copy(p, b.data)
-		b.data = b.data[n:]
-		return n, nil
+	var n int
+	if b.bytesCollected > 0 {
+		n = copy(p, b.data[b.readPosition:])
+		if n < len(p) {
+			m := copy(p[n:], b.data[:b.readPosition])
+			n += m
+		}
+		b.bytesCollected -= n
+	} else {
+		n = copy(p, make([]byte, len(p)))
 	}
+	b.readPosition = (b.readPosition + n) % len(b.data)
+	return n, nil
+}
 
-	emptyBuf := make([]byte, len(p))
-	return copy(p, emptyBuf), nil
+func (b *buffer) Write(p []byte) (int, error) {
+	b.data[b.writePosition] = p[0]
+	b.data[b.writePosition+1] = p[1]
+	b.data[b.writePosition+2] = p[2]
+	b.data[b.writePosition+3] = p[3]
+	b.writePosition = (b.writePosition + 4) % b.size
+	b.bytesCollected += 4
+	return 4, nil
+
 }
 
 var orMasks = []byte{
@@ -277,7 +299,7 @@ func NewAPU() *APU {
 	a := &APU{
 		playing:     false,
 		waveformRam: make([]byte, 0x20),
-		audioBuffer: &buffer{data: make([]byte, 0)},
+		audioBuffer: &buffer{data: make([]byte, 512*1024), size: 512 * 1024},
 	}
 	a.init()
 
@@ -334,17 +356,19 @@ func (a *APU) Tick() {
 	valL := uint16((chn1l+chn2l+chn3l+chn4l)/4) * 128
 	valR := uint16((chn1r+chn2r+chn3r+chn4r)/4) * 128
 
-	a.audioBuffer.data = append(a.audioBuffer.data, byte(valL), byte(valL>>8), byte(valR), byte(valR>>8))
+	if _, err := a.audioBuffer.Write([]byte{byte(valL), byte(valL >> 8), byte(valR), byte(valR >> 8)}); err != nil {
+		panic(err)
+	}
 }
 
-var squareLimits = map[byte]float64{
+var squareLimits = []float64{
 	0: -0.25,
 	1: -0.5,
 	2: 0,
 	3: 0.5,
 }
 
-var channel3Volume = map[byte]float64{
+var channel3Volume = []float64{
 	0: 0,
 	1: 1,
 	2: 0.5,
