@@ -263,6 +263,15 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 
 		},
+		11: func() {
+			g.ppu.Debug.BackgroundDisabled = !g.ppu.Debug.BackgroundDisabled
+		},
+		12: func() {
+			g.ppu.Debug.WindowDisabled = !g.ppu.Debug.WindowDisabled
+		},
+		13: func() {
+			g.ppu.Debug.SpritesDisabled = !g.ppu.Debug.SpritesDisabled
+		},
 	}
 }
 
