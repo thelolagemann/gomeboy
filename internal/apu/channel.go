@@ -87,7 +87,7 @@ func (c *Channel) updateEnvelope() {
 	}
 }
 
-var sweepTimes = map[byte]float64{
+var sweepTimes = []float64{
 	1: 7.8,
 	2: 15.6,
 	3: 23.4,
