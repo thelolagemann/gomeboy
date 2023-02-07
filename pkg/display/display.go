@@ -134,6 +134,9 @@ var keyMap = map[pixelgl.Button]Input{
 	pixelgl.KeyC:           CyclePalette,
 	pixelgl.KeyP:           Pause,
 	pixelgl.KeyLeftControl: DumpTilemap,
+	pixelgl.Key1:           ToggleBackground,
+	pixelgl.Key2:           ToggleWindow,
+	pixelgl.Key3:           ToggleSprites,
 }
 
 type Inputs struct {
@@ -147,6 +150,9 @@ const (
 	CyclePalette Input = iota + 8
 	Pause
 	DumpTilemap
+	ToggleBackground
+	ToggleWindow
+	ToggleSprites
 )
 
 // PollKeys polls the keys and returns the pressed and released keys.
