@@ -53,7 +53,9 @@ type PPU struct {
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
-	scanlineData [84]uint8
+	scanlineData    [ScanlineSize]uint8
+	spriteData      [30]uint8 // 10 sprites, 3 bytes each. byte 1 and 2 are tile data, byte 3 is attributes
+	spritePositions [10]uint8 // 10 sprites, 1 byte each. byte 1 is x position
 
 	currentCycle       uint16
 	bus                *mmu.MMU
@@ -65,7 +67,7 @@ type PPU struct {
 	DMA                *DMA
 	delayedTick        bool
 
-	tileBgPriority [ScreenWidth][ScreenHeight]bool
+	tileBgPriority [160]bool
 	renderer       *Renderer
 	rendererCGB    *RendererCGB
 }
@@ -633,11 +635,14 @@ func (p *PPU) renderScanline() {
 	// send job to the renderer
 	if p.bus.IsGBC() {
 		p.rendererCGB.QueueJob(RenderJobCGB{
-			XStart:     p.ScrollX,
-			Scanline:   p.scanlineData,
-			palettes:   p.colourPalette,
-			objPalette: p.colourSpritePalette,
-			Line:       p.CurrentScanline,
+			XStart:          p.ScrollX,
+			Scanline:        p.scanlineData,
+			Sprites:         p.spriteData,
+			SpritePositions: p.spritePositions,
+			TilePriority:    p.tileBgPriority,
+			palettes:        p.colourPalette,
+			objPalette:      p.colourSpritePalette,
+			Line:            p.CurrentScanline,
 		})
 	} else {
 		p.renderer.AddJob(RenderJob{
@@ -650,6 +655,9 @@ func (p *PPU) renderScanline() {
 
 	// clear scanline data
 	p.scanlineData = [ScanlineSize]uint8{}
+	p.spritePositions = [10]uint8{}
+	p.spriteData = [30]uint8{}
+	p.tileBgPriority = [ScreenWidth]bool{}
 }
 
 func (p *PPU) renderBlank() {
@@ -690,6 +698,8 @@ func (p *PPU) renderWindow() {
 		mapOffset = 0x1C00
 	}
 
+	tileOffset := p.ScrollX % 8
+
 	// iterate over the 21 (20 if exactly aligned) tiles that make up the scanline
 	for i := uint8(0); i < 21; i++ {
 		if (i * 8) < p.WindowX-7 {
@@ -720,19 +730,18 @@ func (p *PPU) renderWindow() {
 		}
 
 		// copy the tile data to the scanline
-		p.scanlineData[i*4] = b1
-		p.scanlineData[i*4+1] = b2
+		p.scanlineData[i*TileSizeInBytes] = b1
+		p.scanlineData[i*TileSizeInBytes+1] = b2
+		p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.PaletteNumber << 4
 
-		// copy the tile info to the scanline
-		p.scanlineData[i*4+2] = tileEntry.Attributes.PaletteNumber << 4
-
+		p.tileBgPriority[i] = tileEntry.Attributes.UseBGPriority
 		if tileEntry.Attributes.UseBGPriority {
 			// update the tile priority array
-			for x := xPos; x < xPos+8; x++ {
+			for x := (i * 8) + tileOffset; x < (i*8)+tileOffset+8; x++ {
 				if x >= ScreenWidth {
 					continue
 				}
-				p.tileBgPriority[x][p.CurrentScanline] = tileEntry.Attributes.UseBGPriority
+				p.tileBgPriority[x] = tileEntry.Attributes.UseBGPriority
 			}
 		}
 	}
@@ -781,12 +790,9 @@ func (p *PPU) renderBackground() {
 		}
 
 		// copy the 2 bytes of tile data into the scanline
-		p.scanlineData[i*4] = b1
-		p.scanlineData[i*4+1] = b2
-
-		// copy the byte of tile info into the scanline
-		p.scanlineData[i*4+2] = tileEntry.Attributes.PaletteNumber << 4
-		p.scanlineData[i*4+3] = 0
+		p.scanlineData[i*TileSizeInBytes] = b1
+		p.scanlineData[i*TileSizeInBytes+1] = b2
+		p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.PaletteNumber << 4
 
 		if tileEntry.Attributes.UseBGPriority {
 			// update the tile priority array
@@ -794,7 +800,7 @@ func (p *PPU) renderBackground() {
 				if x >= ScreenWidth {
 					continue
 				}
-				p.tileBgPriority[x][p.CurrentScanline] = tileEntry.Attributes.UseBGPriority
+				p.tileBgPriority[x] = tileEntry.Attributes.UseBGPriority
 
 			}
 		}
@@ -824,11 +830,9 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint16)
 
 // renderSprites renders the sprites on the current scanline.
 func (p *PPU) renderSprites() {
-	spriteXPerScreen := [ScreenWidth]uint8{}
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
-sprite:
-	for x, sprite := range p.oam.Sprites {
+	for _, sprite := range p.oam.Sprites {
 		spriteY := sprite.GetY()
 		spriteX := sprite.GetX()
 
@@ -838,29 +842,6 @@ sprite:
 		if spriteCount >= 10 {
 			break
 		}
-		spriteCount++
-
-		// determine where in the tile(s) the pixel is
-		// for example, if the sprite x position is an exact multiple of 8, then the pixel is exactly aligned
-		// to a tile, otherwise it is in the middle of a tile and we need to write to both tiles
-		// e.g.
-		// xPos = 18, offset by 2 bits
-		// xPos = 31, offset by 7 bits
-
-		// determine which byte of the scanline data to write to
-		// if the sprite is aligned to a tile, then we only need to write to one byte
-		// otherwise we need to write to two bytes
-		// e.g.
-		// xPos =
-		if spriteX%8 != 0 {
-			continue
-		}
-		startByte := spriteX / 8 * 4
-		if startByte > 80 {
-			continue
-		}
-
-		// TODO account for sprite tile offset + background tile offset
 
 		// get the row of the sprite to render
 		tileRow := p.CurrentScanline - spriteY
@@ -900,191 +881,25 @@ sprite:
 			b2 = bits.Reverse8(b2)
 		}
 
-		// TODO merge with existing tile data
-
-		var e1, e2, e3 uint8
-		e1 = p.scanlineData[startByte]
-		e2 = p.scanlineData[startByte+1]
-		e3 = p.scanlineData[startByte+2]
-
-		// determine offset according to sprite x position and background scroll
-		// e.g.
-		// ScrollX = (146) % 8 = 2
-		// SpriteX = (148) % 8 = 4
-		// then the sprite is offset by 2 bits
-		// e.g.
-		// ScrollX = (144) % 8 = 0
-		// SpriteX = (148) % 8 = 4
-		// then the sprite is offset by 4 bits
-		// e.g.
-		// ScrollX = (146) % 8 = 2
-		// SpriteX = (144) % 8 = 0
-		// then the sprite is offset by 6 bits
-		tileOffset := (spriteX + p.ScrollX) % 8
-
-		// is the sprite aligned to a tile?
-		//var n1, n2, n3 uint8
-		// if the sprite is not aligned to a tile, we need to write to the next tile as well
-		if tileOffset != 0 && startByte < 76 {
-			//n1 = p.scanlineData[startByte+4]
-			//n2 = p.scanlineData[startByte+5]
-			//n3 = p.scanlineData[startByte+6]
+		// copy the sprite data to the sprite data
+		p.spriteData[spriteCount*TileSizeInBytes] = b1
+		p.spriteData[spriteCount*TileSizeInBytes+1] = b2
+		p.spriteData[spriteCount*TileSizeInBytes+2] = sprite.CGBPalette << 4
+		if sprite.Priority {
+			p.spriteData[spriteCount*TileSizeInBytes+2] |= 0x01 // set the priority bit
 		}
 
-		var spriteOrBG uint8
-		//var nSpriteOrBG uint8
+		// set the sprite x position for the current scanline
+		p.spritePositions[spriteCount] = spriteX
 
-		// merge the tile data with the existing tile data
-		for i := uint8(0); i < 8; i++ {
-			// determine bit of sprite to use
-			spriteBitIndex := uint8(1 << (7 - i))
-
-			// determine the color
-			low := 0
-			high := 0
-
-			if b1&spriteBitIndex != 0 {
-				low = 1
-			}
-			if b2&spriteBitIndex != 0 {
-				high = 2
-			}
-
-			color := uint8(low + high)
-			if color == 0 {
-				continue // transparent
-			}
-
-			// determine bit of tile to use
-			tileBitIndex := uint8(1 << (7 - (i + tileOffset)))
-
-			// get existing color // TODO fix issue when background doesnt fill entire screen
-			existingColor := uint8(0)
-			if e1&tileBitIndex != 0 {
-				existingColor |= 1
-			}
-			if e2&tileBitIndex != 0 {
-				existingColor |= 2
-			}
-			xPos := spriteX + i
-
-			if xPos >= ScreenWidth {
-				continue sprite
-			}
-
-			// skip pixel if the sprite doesn't have priority and the background is not transparent
-			if !p.bus.IsGBC() || p.BackgroundEnabled {
-				if !(sprite.Priority && !p.tileBgPriority[xPos][p.CurrentScanline]) &&
-					existingColor != 0 {
-					continue
-				}
-			}
-
-			if p.bus.IsGBC() {
-				if spriteXPerScreen[xPos] != 0 {
-					continue sprite
-				}
-			}
-
-			// when the sprite is not aligned to a tile, we need to write to part of the tile and part of the next tile
-			// e.g. offset by 3
-			// 0b0000_0000 0b0000_0000
-			//      ^ ^^^^   ^^^
-			if tileOffset != 0 {
-				// determine which bit to write to according to the offset
-				// e.g. offset by 3
-				// 0b0000_0000 0b0000_0000
-				//      ^ ^^^^   ^^^
-
-				// determine which tile to write to
-				// e.g. offset by 3
-				// 0b0000_0000 0b0000_0000
-				//      ^ ^^^^   ^^^
-				// then we start writing from bit 4 of the first tile, up to bit 7 of the first tile
-				// and then from bit 0 of the second til up to bit 2 of the second tile
-
-				// we are writing to the second tile
-
-				// we are writing to the first tile
-
-				// determine which bit to write to
-				// e.g. offset by 3
-				// 0b0000_0000 0b0000_0000
-				//      ^ ^^^^   ^^^
-				// then we start writing from bit 4 of the first tile, up to bit 7 of the first tile
-				// and then from bit 0 of the second til up to bit 2 of the second tile
-
-			} else {
-				// we are aligned to a tile, so we can just write to the tile
-				e1 = e1 & ^(spriteBitIndex)       // clear the bit
-				e1 = e1 | (b1 & (spriteBitIndex)) // set the bit
-
-				e2 = e2 & ^(spriteBitIndex)       // clear the bit
-				e2 = e2 | (b2 & (spriteBitIndex)) // set the bit
-
-				spriteOrBG |= spriteBitIndex
-			}
-
-			// mark pixel as occupied
-			spriteXPerScreen[xPos] = spriteX
-		}
-
-		// copy the tile data to the scanline
-		p.scanlineData[startByte] = e1
-		p.scanlineData[startByte+1] = e2
-
-		// copy the tile info to the scanline
-		p.scanlineData[startByte+2] = e3 | sprite.CGBPalette
-		fmt.Printf("e3: %08b, sprite.CGBPalette: %08b, e3|sprite.CGBPalette: %08b start: %d xPos: %d, sprite: %d\n", e3, sprite.CGBPalette, e3|sprite.CGBPalette, startByte+2, spriteX, x)
-		p.scanlineData[startByte+3] = spriteOrBG
-
-		// if the sprite is not aligned to a tile, we need to write to the next tile as well
-		if tileOffset != 0 && startByte < 76 {
-			//p.scanlineData[startByte+4] = n1
-			//p.scanlineData[startByte+5] = n2
-			//p.scanlineData[startByte+6] = n3 | sprite.CGBPalette
-			//p.scanlineData[startByte+7] = nSpriteOrBG
-		}
-
+		spriteCount++
 		/*
-			tilerowIndex := p.CurrentScanline - sprite.GetY()
-			if sprite.FlipY {
-				tilerowIndex = p.SpriteSize - tilerowIndex - 1
-			}
-			tilerowIndex %= 8
-			tileID := uint16(sprite.TileID)
-			if p.SpriteSize == 16 {
-				if p.CurrentScanline-sprite.GetY() < 8 {
-					if sprite.FlipY {
-						tileID |= 0x01
-					} else {
-						tileID &= 0xFE
-					}
-				} else {
-					if sprite.FlipY {
-						tileID &= 0xFE
-					} else {
-						tileID |= 0x01
-					}
-				}
-			}
-			tilerow := p.tileData[sprite.VRAMBank][tileID][tilerowIndex]
+
 
 			for x := uint8(0); x < 8; x++ {
 				// skip if the sprite is out of bounds
 				pixelPos := sprite.GetX() + x
 				if pixelPos < 0 || pixelPos >= ScreenWidth {
-					continue
-				}
-
-				// get the color of the pixel using the sprite palette
-				color := tilerow[x]
-				if sprite.FlipX {
-					color = tilerow[7-x]
-				}
-
-				// skip if the color is transparent
-				if color == 0 {
 					continue
 				}
 

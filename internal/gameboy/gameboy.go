@@ -121,9 +121,9 @@ func (g *GameBoy) Start(mon *display.Display) {
 	for !mon.IsClosed() {
 		g.frames++
 
+		g.ProcessInputs(mon.PollKeys())
 		if !g.paused {
 			// render frame
-			g.ProcessInputs(mon.PollKeys())
 			frameStart = time.Now()
 
 			frame := g.Frame()
@@ -134,6 +134,9 @@ func (g *GameBoy) Start(mon *display.Display) {
 
 			// update frametime
 			frameTimes = append(frameTimes, time.Since(frameStart))
+		} else {
+			// render last frame
+			mon.Render(g.previousFrame)
 		}
 		if time.Since(start) > time.Second {
 			// average frame time
@@ -166,6 +169,9 @@ func (g *GameBoy) Start(mon *display.Display) {
 }
 
 func avgTime(t []time.Duration) time.Duration {
+	if len(t) == 0 {
+		return 0
+	}
 	var avg time.Duration
 	for _, d := range t {
 		avg += d

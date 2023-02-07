@@ -4,7 +4,8 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 )
 
-const ScanlineSize = 84
+const ScanlineSize = 63
+const TileSizeInBytes = 3
 
 // Pixel represents a single pixel on the screen. The PPU
 // renders the screen with 2bit color depth, so that a single byte
@@ -60,6 +61,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 	for {
 		select {
 		case job := <-jobs:
+			spriteXPerScreen := [ScreenWidth]uint8{}
 			scanline.Line = job.Line
 			// determine tile offset
 
@@ -81,7 +83,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 			b1 := job.Scanline[0]
 			b2 := job.Scanline[1]
 			tileInfo := job.Scanline[2]
-			spriteOrBG := job.Scanline[3]
+			// spriteOrBG := job.Scanline[3]
 			currentTile := 0
 
 			// iterate over the pixels in the scanline
@@ -90,10 +92,9 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 				if x != 0 && (x+tileOffset)%8 == 0 {
 					currentTile++
 					// load the next tile
-					b1 = job.Scanline[currentTile*4]
-					b2 = job.Scanline[currentTile*4+1]
-					tileInfo = job.Scanline[currentTile*4+2]
-					spriteOrBG = job.Scanline[currentTile*4+3]
+					b1 = job.Scanline[currentTile*TileSizeInBytes]
+					b2 = job.Scanline[currentTile*TileSizeInBytes+1]
+					tileInfo = job.Scanline[currentTile*TileSizeInBytes+2]
 				}
 				// get the pixel data (bit x of b1 and b2)
 				low := 0
@@ -110,13 +111,62 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 					high = 2
 				}
 				colorNum := low + high
-				if spriteOrBG&bitIndex == 0 {
-					// background pixel
-					scanline.Scanline[x] = job.palettes.GetColour(tileInfo>>4&0x07, uint8(colorNum))
-				} else {
-					scanline.Scanline[x] = job.objPalette.GetColour(tileInfo&0x07, uint8(low+high))
-				}
 
+				scanline.Scanline[x] = job.palettes.GetColour(tileInfo>>4&0x07, uint8(colorNum))
+			}
+			// get palette index of the background tile
+			// draw sprites
+			for i := 0; i < (len(job.Sprites))/3; i++ {
+				// where to start drawing the sprite
+				startX := job.SpritePositions[i]
+
+				for x := uint8(0); x < 8; x++ {
+					// get the pixel data (bit x of b1 and b2)
+					low := 0
+					high := 0
+
+					// determine the bit to get according to the tile offset
+					bitIndex := uint8(1 << (7 - x))
+
+					if job.Sprites[i*3]&bitIndex != 0 {
+						low = 1
+					}
+
+					if job.Sprites[i*3+1]&bitIndex != 0 {
+						high = 2
+					}
+
+					colorNum := low + high
+					if colorNum == 0 {
+						continue
+					}
+
+					// is the sprite out of bounds?
+					if startX+x >= ScreenWidth {
+						break
+					}
+
+					// determine priority
+					if !(job.Sprites[i*3+2]&0x01 == 1 && !job.TilePriority[startX+x]) {
+
+						// get the bits for the tile palette number
+						//paletteNum := job.Scanline[startX+x] >> 4 & 0x07
+
+						if scanline.Scanline[startX+x] != job.palettes.GetColour(1, 0) {
+							//continue
+						}
+					}
+
+					// is the pixel occupied by a sprite already?
+					if spriteXPerScreen[startX+x] != 0 {
+						continue
+					}
+
+					scanline.Scanline[startX+x] = job.objPalette.GetColour(job.Sprites[i*3+2]>>4&0x07, uint8(colorNum))
+
+					// mark pixel as occupied by sprite
+					spriteXPerScreen[startX+x] = startX
+				}
 			}
 
 			output <- scanline
@@ -137,11 +187,14 @@ type RenderOutput struct {
 }
 
 type RenderJobCGB struct {
-	XStart     uint8
-	Scanline   [ScanlineSize]Pixel
-	Line       uint8
-	palettes   *palette.CGBPalette
-	objPalette *palette.CGBPalette
+	XStart          uint8
+	Scanline        [ScanlineSize]Pixel
+	TilePriority    [ScreenWidth]bool
+	Sprites         [30]uint8
+	SpritePositions [10]uint8
+	Line            uint8
+	palettes        *palette.CGBPalette
+	objPalette      *palette.CGBPalette
 }
 
 // Renderer is used to render the pixel data into a format that can be
