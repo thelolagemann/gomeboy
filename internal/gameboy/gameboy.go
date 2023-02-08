@@ -52,7 +52,7 @@ type GameBoy struct {
 	paused        bool
 	frames        int
 	ticks         uint16
-	previousFrame [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8
+	previousFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 	frameQueue    bool
 }
 
@@ -121,9 +121,9 @@ func (g *GameBoy) Start(mon *display.Display) {
 	for !mon.IsClosed() {
 		g.frames++
 
+		g.ProcessInputs(mon.PollKeys())
 		if !g.paused {
 			// render frame
-			g.ProcessInputs(mon.PollKeys())
 			frameStart = time.Now()
 
 			frame := g.Frame()
@@ -134,6 +134,9 @@ func (g *GameBoy) Start(mon *display.Display) {
 
 			// update frametime
 			frameTimes = append(frameTimes, time.Since(frameStart))
+		} else {
+			// render last frame
+			mon.Render(g.previousFrame)
 		}
 		if time.Since(start) > time.Second {
 			// average frame time
@@ -166,6 +169,9 @@ func (g *GameBoy) Start(mon *display.Display) {
 }
 
 func avgTime(t []time.Duration) time.Duration {
+	if len(t) == 0 {
+		return 0
+	}
 	var avg time.Duration
 	for _, d := range t {
 		avg += d
@@ -176,7 +182,7 @@ func avgTime(t []time.Duration) time.Duration {
 // Frame will step the emulation until the PPU has finished
 // rendering the current frame. It will then prepare the frame
 // for display, and return it.
-func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
+func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	// was the last frame rendered? (by the PPU)
 	if g.frameQueue {
 		// if so, tick until the next frame is ready
@@ -185,7 +191,6 @@ func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
 		}
 
 		// prepare the frame for display
-		g.ppu.PrepareFrame()
 		g.ppu.ClearRefresh()
 
 		// return the frame and reset the frame queue
@@ -201,14 +206,13 @@ func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
 
 	// did the PPU render a frame?
 	if g.ppu.HasFrame() {
-		g.ppu.PrepareFrame()
 		g.ppu.ClearRefresh()
 		g.previousFrame = g.ppu.PreparedFrame
 		return g.ppu.PreparedFrame
 	} else {
 		// if not, create a smoothed frame from the last frame
 		// and the current frame (which is not yet finished)
-		var smoothedFrame [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8
+		var smoothedFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 		for x := uint8(0); x < ppu.ScreenWidth; x++ {
 			for y := uint8(0); y < ppu.ScreenHeight; y++ {
 				// is the pixel on the current frame black?
@@ -216,9 +220,8 @@ func (g *GameBoy) Frame() [ppu.ScreenWidth][ppu.ScreenHeight][3]uint8 {
 				// interpolate the current frame
 				for c := 0; c < 3; c++ {
 					// smooth by averaging the current and previous frame
-					smoothedFrame[x][y][c] = uint8((uint16(g.previousFrame[x][y][c]) + uint16(g.ppu.PreparedFrame[x][y][c])) / 2)
+					smoothedFrame[y][x][c] = uint8((uint16(g.previousFrame[y][x][c]) + uint16(g.ppu.PreparedFrame[y][x][c])) / 2)
 				}
-
 			}
 		}
 		// flag that the frame is not finished
@@ -265,6 +268,15 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 				panic(err)
 			}
 
+		},
+		11: func() {
+			g.ppu.Debug.BackgroundDisabled = !g.ppu.Debug.BackgroundDisabled
+		},
+		12: func() {
+			g.ppu.Debug.WindowDisabled = !g.ppu.Debug.WindowDisabled
+		},
+		13: func() {
+			g.ppu.Debug.SpritesDisabled = !g.ppu.Debug.SpritesDisabled
 		},
 	}
 }

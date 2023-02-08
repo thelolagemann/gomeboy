@@ -14,11 +14,10 @@ func (w *WRAM) init() {
 	types.RegisterHardware(
 		types.SVBK,
 		func(v uint8) {
-			v &= 0x07 // only 3 bits are used
-			if v == 0 {
-				v = 1
+			w.bank = v & 0x07
+			if w.bank == 0 {
+				w.bank = 1
 			}
-			w.bank = v
 		}, func() uint8 {
 			return w.bank
 		},

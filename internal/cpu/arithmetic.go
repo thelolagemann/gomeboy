@@ -38,7 +38,7 @@ func (c *CPU) increment(value uint8) uint8 {
 //	C - Not affected.
 func (c *CPU) incrementNN(register *RegisterPair) {
 	register.SetUint16(register.Uint16() + 1)
-	c.ticks(4)
+	c.tickCycle()
 }
 
 // decrement the given value and set the flags accordingly.
@@ -80,7 +80,7 @@ func (c *CPU) decrementNN(register *RegisterPair) {
 	value--
 	*register.High = uint8(value >> 8)
 	*register.Low = uint8(value & 0xFF)
-	c.ticks(4)
+	c.tickCycle()
 }
 
 // addHLRR adds the given RegisterPair to the HL RegisterPair.
@@ -96,7 +96,7 @@ func (c *CPU) decrementNN(register *RegisterPair) {
 //	C - Set if carry from bit 15.
 func (c *CPU) addHL(register *RegisterPair) {
 	c.HL.SetUint16(c.addUint16(c.HL.Uint16(), register.Uint16()))
-	c.ticks(4)
+	c.tickCycle()
 }
 
 // add is a helper function for adding two bytes together and
@@ -226,7 +226,7 @@ func (c *CPU) sub(a, b uint8, shouldCarry bool) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) pushNN(h, l Register) {
-	c.ticks(4)
+	c.tickCycle()
 	c.push(h, l)
 }
 
@@ -252,7 +252,7 @@ func (c *CPU) addSPSigned() uint16 {
 	value := c.readOperand()
 	result := c.addUint16Signed(c.SP, int8(value))
 
-	c.ticks(4)
+	c.tickCycle()
 	return result
 }
 
@@ -278,15 +278,15 @@ func init() {
 	DefineInstruction(0x2B, "DEC HL", func(c *CPU) { c.decrementNN(c.HL) })
 	DefineInstruction(0x2C, "INC L", func(c *CPU) { c.L = c.increment(c.L) })
 	DefineInstruction(0x2D, "DEC L", func(c *CPU) { c.L = c.decrement(c.L) })
-	DefineInstruction(0x33, "INC SP", func(c *CPU) { c.SP++; c.ticks(4) })
+	DefineInstruction(0x33, "INC SP", func(c *CPU) { c.SP++; c.tickCycle() })
 	DefineInstruction(0x34, "INC (HL)", func(c *CPU) {
 		c.writeByte(c.HL.Uint16(), c.increment(c.readByte(c.HL.Uint16())))
 	})
 	DefineInstruction(0x35, "DEC (HL)", func(c *CPU) {
 		c.writeByte(c.HL.Uint16(), c.decrement(c.readByte(c.HL.Uint16())))
 	})
-	DefineInstruction(0x39, "ADD HL, SP", func(c *CPU) { c.HL.SetUint16(c.addUint16(c.HL.Uint16(), c.SP)); c.ticks(4) })
-	DefineInstruction(0x3B, "DEC SP", func(c *CPU) { c.SP--; c.ticks(4) })
+	DefineInstruction(0x39, "ADD HL, SP", func(c *CPU) { c.HL.SetUint16(c.addUint16(c.HL.Uint16(), c.SP)); c.tickCycle() })
+	DefineInstruction(0x3B, "DEC SP", func(c *CPU) { c.SP--; c.tickCycle() })
 	DefineInstruction(0x3C, "INC A", func(c *CPU) { c.A = c.increment(c.A) })
 	DefineInstruction(0x3D, "DEC A", func(c *CPU) { c.A = c.decrement(c.A) })
 	DefineInstruction(0xC1, "POP BC", func(c *CPU) { c.popNN(&c.B, &c.C) })
@@ -302,6 +302,6 @@ func init() {
 	DefineInstruction(0xF5, "PUSH AF", func(c *CPU) { c.pushNN(c.A, c.F) })
 	DefineInstruction(0xE8, "ADD SP, r8", func(c *CPU) {
 		c.SP = c.addSPSigned()
-		c.ticks(4)
+		c.tickCycle()
 	})
 }

@@ -6,7 +6,7 @@ import (
 
 // pushStack pushes a 16 bit value onto the stack.
 func (c *CPU) pushStack(high, low uint8) {
-	c.ticks(4)
+	c.tickCycle()
 
 	c.push(high, low)
 }
@@ -60,7 +60,7 @@ func (c *CPU) jumpRelative() {
 	value := int8(c.readOperand())
 	c.PC = uint16(int16(c.PC) + int16(value))
 
-	c.ticks(4)
+	c.tickCycle()
 }
 
 // jumpRelativeConditional jumps to the address relative to the current PC if
@@ -86,7 +86,7 @@ func (c *CPU) jumpAbsolute() {
 	high := c.readOperand()
 
 	c.PC = uint16(high)<<8 | uint16(low)
-	c.ticks(4)
+	c.tickCycle()
 }
 
 // jumpAbsoluteConditional jumps to the given address if the given condition is
@@ -111,7 +111,7 @@ func (c *CPU) ret() {
 	var high, low uint8
 	c.popStack(&high, &low)
 	c.PC = uint16(high)<<8 | uint16(low)
-	c.ticks(4)
+	c.tickCycle()
 }
 
 // retConditional pops the top two bytes off the stack and jumps to that
@@ -149,7 +149,7 @@ func init() {
 	DefineInstruction(0x38, "JR C, n", func(c *CPU) {
 		c.jumpRelativeConditional(c.isFlagSet(FlagCarry))
 	})
-	DefineInstruction(0xC0, "RET NZ", func(c *CPU) { c.ticks(4); c.retConditional(!c.isFlagSet(FlagZero)) })
+	DefineInstruction(0xC0, "RET NZ", func(c *CPU) { c.tickCycle(); c.retConditional(!c.isFlagSet(FlagZero)) })
 	DefineInstruction(0xC2, "JP NZ, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(!c.isFlagSet(FlagZero))
 	})
@@ -159,7 +159,7 @@ func init() {
 	DefineInstruction(0xC4, "CALL NZ, nn", func(c *CPU) {
 		c.callConditional(!c.isFlagSet(FlagZero))
 	})
-	DefineInstruction(0xC8, "RET Z", func(c *CPU) { c.ticks(4); c.retConditional(c.isFlagSet(FlagZero)) })
+	DefineInstruction(0xC8, "RET Z", func(c *CPU) { c.tickCycle(); c.retConditional(c.isFlagSet(FlagZero)) })
 	DefineInstruction(0xC9, "RET", func(c *CPU) { c.ret() })
 	DefineInstruction(0xCA, "JP Z, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(c.isFlagSet(FlagZero))
@@ -170,14 +170,14 @@ func init() {
 	DefineInstruction(0xCD, "CALL nn", func(c *CPU) {
 		c.call()
 	})
-	DefineInstruction(0xD0, "RET NC", func(c *CPU) { c.ticks(4); c.retConditional(!c.isFlagSet(FlagCarry)) })
+	DefineInstruction(0xD0, "RET NC", func(c *CPU) { c.tickCycle(); c.retConditional(!c.isFlagSet(FlagCarry)) })
 	DefineInstruction(0xD2, "JP NC, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(!c.isFlagSet(FlagCarry))
 	})
 	DefineInstruction(0xD4, "CALL NC, nn", func(c *CPU) {
 		c.callConditional(!c.isFlagSet(FlagCarry))
 	})
-	DefineInstruction(0xD8, "RET C", func(c *CPU) { c.ticks(4); c.retConditional(c.isFlagSet(FlagCarry)) })
+	DefineInstruction(0xD8, "RET C", func(c *CPU) { c.tickCycle(); c.retConditional(c.isFlagSet(FlagCarry)) })
 	DefineInstruction(0xD9, "RETI", func(c *CPU) { c.retInterrupt() })
 	DefineInstruction(0xDA, "JP C, nn", func(c *CPU) {
 		c.jumpAbsoluteConditional(c.isFlagSet(FlagCarry))

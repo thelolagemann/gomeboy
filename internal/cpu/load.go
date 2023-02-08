@@ -132,7 +132,7 @@ func init() {
 	DefineInstruction(0xF8, "LD HL, SP+r8", func(c *CPU) {
 		c.HL.SetUint16(c.addSPSigned())
 	})
-	DefineInstruction(0xF9, "LD SP, HL", func(c *CPU) { c.SP = c.HL.Uint16(); c.ticks(4) })
+	DefineInstruction(0xF9, "LD SP, HL", func(c *CPU) { c.SP = c.HL.Uint16(); c.tickCycle() })
 	DefineInstruction(0xFA, "LD A, (a16)", func(c *CPU) {
 		low := c.readOperand()
 		high := c.readOperand()

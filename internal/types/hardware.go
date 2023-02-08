@@ -18,7 +18,6 @@ type HardwareRegisters [0x80]*Hardware
 // readable, it returns 0xFF.
 func (h HardwareRegisters) Read(address uint16) uint8 {
 	if h[address&0x007F] == nil {
-		fmt.Printf("hardware: no hardware register at address 0x%04X\n", address)
 		return 0xFF
 	}
 	return h[address&0x007F].Read()
@@ -29,7 +28,6 @@ func (h HardwareRegisters) Read(address uint16) uint8 {
 // writable, it does nothing.
 func (h HardwareRegisters) Write(address uint16, value uint8) {
 	if h[address&0x007F] == nil {
-		fmt.Printf("hardware: no hardware register at address 0x%04X\n", address)
 		return
 	}
 	h[address&0x007F].Write(value)

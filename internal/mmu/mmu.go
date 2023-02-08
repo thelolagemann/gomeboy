@@ -90,48 +90,45 @@ func (m *MMU) init() {
 	}
 
 	// setup raw memory
+	addresses := []types.Address{
+		{Read: m.readCart, Write: m.Cart.Write},
+		{Read: m.Cart.Read, Write: m.Cart.Write},
+		{Read: m.wRAM.Read, Write: m.wRAM.Write},
+		{Read: readOffset(m.zRAM.Read, 0xFF80), Write: writeOffset(m.zRAM.Write, 0xFF80)},
+		{Read: func(address uint16) uint8 {
+			return 0xff
+		}},
+	}
 
 	// 0x0000 - 0x7FFF - ROM (16kB)
 	for i := 0x0000; i < 0x8000; i++ {
 		if i <= 0x900 {
-			m.raw[i] = &types.Address{Read: m.readCart, Write: m.Cart.Write}
+			m.raw[i] = &addresses[0]
 		} else {
-			m.raw[i] = &types.Address{Read: m.Cart.Read, Write: m.Cart.Write}
+			m.raw[i] = &addresses[1]
 		}
 	}
 
 	// 0xA000 - 0xBFFF - external RAM (8kB)
 	for i := 0xA000; i < 0xC000; i++ {
-		m.raw[i] = &types.Address{
-			Read:  m.Cart.Read,
-			Write: m.Cart.Write,
-		}
+		m.raw[i] = &addresses[1]
 	}
 
 	// 0xC000 - 0xDFFF - internal RAM (8kB)
 	for i := 0xC000; i < 0xFE00; i++ {
-		m.raw[i] = &types.Address{
-			Read:  m.wRAM.Read,
-			Write: m.wRAM.Write,
-		}
+		m.raw[i] = &addresses[2]
 	}
 
 	// 0xFEA0 - 0xFEFF - unusable memory (96B)
 	for i := 0xFEA0; i < 0xFF00; i++ {
-		m.raw[i] = &types.Address{
-			Read: func(address uint16) uint8 {
-				return 0xFF
-			},
-		}
+		m.raw[i] = &addresses[2]
 	}
 
 	// 0xFF80 - 0xFFFE - Zero Page RAM (127B)
 	for i := 0xFF80; i < 0xFFFF; i++ {
-		m.raw[i] = &types.Address{
-			Read:  readOffset(m.zRAM.Read, 0xFF80),
-			Write: writeOffset(m.zRAM.Write, 0xFF80),
-		}
+		m.raw[i] = &addresses[3]
 	}
+
 }
 
 func readOffset(read func(uint16) uint8, offset uint16) func(uint16) uint8 {
@@ -196,12 +193,15 @@ func (m *MMU) AttachVideo(video IOBus) {
 	// collect hardware registers
 	m.registers = types.CollectHardwareRegisters()
 
+	addresses := []types.Address{
+		{Read: m.Video.Read, Write: m.Video.Write},
+		{Read: m.registers.Read, Write: m.registers.Write},
+		{Read: m.Sound.Read, Write: m.Sound.Write},
+	}
+
 	// 0xFF00 - 0xFF7F - I/O (128B)
 	for i := 0xFF00; i < 0xFF80; i++ {
-		m.raw[i] = &types.Address{
-			Read:  m.registers.Read,
-			Write: m.registers.Write,
-		}
+		m.raw[i] = &addresses[1]
 	}
 	// 0xFFFF - interrupt enable register
 	m.raw[0xFFFF] = &types.Address{
@@ -211,26 +211,17 @@ func (m *MMU) AttachVideo(video IOBus) {
 
 	// 0x8000 - 0x9FFF - VRAM (8kB)
 	for i := 0x8000; i < 0xA000; i++ {
-		m.raw[i] = &types.Address{
-			Read:  m.Video.Read,
-			Write: m.Video.Write,
-		}
+		m.raw[i] = &addresses[0]
 	}
 
 	// 0xFE00 - 0xFE9F - sprite attribute table (OAM) (160B)
 	for i := 0xFE00; i < 0xFEA0; i++ {
-		m.raw[i] = &types.Address{
-			Read:  m.Video.Read,
-			Write: m.Video.Write,
-		}
+		m.raw[i] = &addresses[0]
 	}
 
 	// 0xFF30 - 0xFF3F - Wave Pattern RAM (16B)
 	for i := 0xFF30; i < 0xFF40; i++ {
-		m.raw[i] = &types.Address{
-			Read:  m.Sound.Read,
-			Write: m.Sound.Write,
-		}
+		m.raw[i] = &addresses[2]
 	}
 }
 
@@ -258,8 +249,5 @@ func (m *MMU) Read(address uint16) uint8 {
 }
 
 func (m *MMU) Write(address uint16, value uint8) {
-	if m.raw[address].Write == nil {
-		return
-	}
 	m.raw[address].Write(address, value)
 }
