@@ -26,6 +26,9 @@ type TileAttributes struct {
 	// VRAMBank is the VRAM Bank bit. It specifies the VRAM bank (0-1) that
 	// is used to store the tile's data.
 	VRAMBank uint8
+
+	// the raw value of the attributes to be easily read
+	value uint8
 }
 
 // Draw draws the tile to the given image at the given position.
@@ -101,6 +104,7 @@ func (t *TileAttributes) Write(value uint8) {
 	t.XFlip = value&0x20 != 0
 	t.PaletteNumber = value & 0b111
 	t.VRAMBank = value >> 3 & 0x1
+	t.value = value
 }
 
 // Draw draws the bank number over the tile map.

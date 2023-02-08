@@ -15,7 +15,7 @@ func (o *OAM) init() {
 	// setup sprites
 	for i := len(o.Sprites) - 1; i >= 0; i-- {
 		o.Sprites[i] = &Sprite{
-			SpriteAttributes: &SpriteAttributes{},
+			SpriteAttributes: SpriteAttributes{},
 		}
 	}
 }

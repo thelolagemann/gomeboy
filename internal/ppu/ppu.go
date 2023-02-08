@@ -11,7 +11,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
-	"math/bits"
 )
 
 const (
@@ -674,7 +673,7 @@ func (p *PPU) renderBlankLine() {
 
 func (p *PPU) renderWindow() {
 	// setup variables
-	var xPos, yPos, row, tileInfo uint8
+	var xPos, yPos, row uint8
 
 	// do nothing if window is out of bounds
 	if p.CurrentScanline < p.WindowY {
@@ -701,7 +700,6 @@ func (p *PPU) renderWindow() {
 		if (i * 8) < p.WindowX-7 {
 			continue
 		}
-		tileInfo = 0
 		xPos = (i * 8) - (p.WindowX - 7)
 
 		// get the tile
@@ -718,27 +716,14 @@ func (p *PPU) renderWindow() {
 		// copy the tile data to the scanline
 		p.scanlineData[i*TileSizeInBytes] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
 		p.scanlineData[i*TileSizeInBytes+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
-		tileInfo = tileEntry.Attributes.PaletteNumber << 4
-
-		if tileEntry.Attributes.UseBGPriority {
-			tileInfo |= types.Bit0
-		}
-		if tileEntry.Attributes.XFlip {
-			tileInfo |= types.Bit1
-		}
-		p.scanlineData[i*TileSizeInBytes+2] = tileInfo
+		p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.value
 	}
 
 	p.WindowYInternal++
 }
 
 func (p *PPU) renderBackground() {
-	// setup variables
-	var xPos, yPos, scanlineByte, row, tileInfo uint8
-	var tileID int16
-	var tileEntry TileMapEntry
-
-	yPos = p.CurrentScanline + p.ScrollY
+	yPos := p.CurrentScanline + p.ScrollY
 	tileYIndex := yPos / 8
 
 	var mapOffset uint16
@@ -748,17 +733,17 @@ func (p *PPU) renderBackground() {
 		mapOffset = 0x1C00
 	}
 
+	var tileEntry TileMapEntry
 	// iterate over the 21 (20 if exactly aligned) tiles that make up a scanline
 	for i := uint8(0); i < 21; i++ {
 		// reset variables
-		tileInfo = 0
-		scanlineByte = i * TileSizeInBytes
-		xPos = i*8 + p.ScrollX
-		row = yPos % 8
+		scanlineByte := i * TileSizeInBytes
+		xPos := i*8 + p.ScrollX
+		row := yPos % 8
 
 		// get the tile
 		tileEntry = p.calculateTileID(tileYIndex, xPos/8, mapOffset)
-		tileID = tileEntry.GetID(p.UsingSignedTileData())
+		tileID := tileEntry.GetID(p.UsingSignedTileData())
 
 		// should we flip the tile?
 		if tileEntry.Attributes.YFlip {
@@ -768,17 +753,7 @@ func (p *PPU) renderBackground() {
 		// copy the 2 bytes of tile data into the scanline
 		p.scanlineData[scanlineByte] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
 		p.scanlineData[scanlineByte+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
-		tileInfo = tileEntry.Attributes.PaletteNumber << 4
-
-		// determine tileInfo flags
-		if tileEntry.Attributes.UseBGPriority {
-			// update the tile priority
-			tileInfo |= types.Bit0 // set the priority bit
-		}
-		if tileEntry.Attributes.XFlip {
-			tileInfo |= types.Bit1 // set the X flip bit
-		}
-		p.scanlineData[scanlineByte+2] = tileInfo
+		p.scanlineData[scanlineByte+2] = tileEntry.Attributes.value
 	}
 }
 
@@ -803,8 +778,8 @@ func (p *PPU) renderSprites() {
 
 	for _, sprite := range p.oam.Sprites {
 		byteIndex := spriteCount * SpriteSizeInBytes
-		spriteY := sprite.GetY()
-		spriteX := sprite.GetX()
+		spriteY := sprite.Y - 16
+		spriteX := sprite.X - 8
 
 		if spriteY > p.CurrentScanline || spriteY+p.SpriteSize <= p.CurrentScanline {
 			continue
@@ -840,24 +815,10 @@ func (p *PPU) renderSprites() {
 			}
 		}
 
-		// get the tile data
-		var b1, b2 uint8
-		b1 = p.tileData[sprite.VRAMBank][tileID][tileRow][0]
-		b2 = p.tileData[sprite.VRAMBank][tileID][tileRow][1]
-
-		// should we flip the sprite horizontally?
-		if sprite.FlipX {
-			b1 = bits.Reverse8(b1)
-			b2 = bits.Reverse8(b2)
-		}
-
 		// copy the sprite data to the sprite data
-		p.spriteData[byteIndex] = b1
-		p.spriteData[byteIndex+1] = b2
-		p.spriteData[byteIndex+2] = sprite.CGBPalette<<4 | sprite.UseSecondPalette<<3
-		if sprite.Priority {
-			p.spriteData[byteIndex+2] |= 0x01 // set the priority bit
-		}
+		p.spriteData[byteIndex] = p.tileData[sprite.VRAMBank][tileID][tileRow][0]
+		p.spriteData[byteIndex+1] = p.tileData[sprite.VRAMBank][tileID][tileRow][1]
+		p.spriteData[byteIndex+2] = sprite.SpriteAttributes.value
 
 		// set the sprite x position for the current scanline
 		p.spriteData[byteIndex+3] = spriteX

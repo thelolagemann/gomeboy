@@ -54,10 +54,6 @@ type Hardware struct {
 	writeHandler WriteHandler
 }
 
-func (h HardwareRegisters) Has(address uint16) bool {
-	return h[address&0x007F] != nil
-}
-
 // HardwareOpt is a function that configures a hardware register,
 // such as making it readable, writable, or both.
 type HardwareOpt func(*Hardware)

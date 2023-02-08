@@ -167,15 +167,23 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 	if cart.Header().Hardware() == "CGB" {
 		// load boot depending on cartridge type
 		m.HDMA = NewHDMA(m)
-		m.bootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
+		// m.bootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
 	} else {
 		// load dmg boot
-		m.bootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
+		// m.bootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
 	}
 
 	m.init()
 
 	return m
+}
+
+func (m *MMU) SetBootROM(rom []byte) {
+	m.bootROM = boot.LoadBootROM(rom)
+	if len(rom) == 0x900 {
+		m.isGBC = true
+		m.HDMA = NewHDMA(m)
+	}
 }
 
 func (m *MMU) Key() uint8 {
@@ -230,7 +238,8 @@ func (m *MMU) IsGBC() bool {
 }
 
 func (m *MMU) readCart(address uint16) uint8 {
-	if !m.bootROMDone {
+	// handle the boot ROM (if enabled)
+	if m.bootROM != nil && !m.bootROMDone {
 		if address < 0x100 {
 			return m.bootROM.Read(address)
 		}

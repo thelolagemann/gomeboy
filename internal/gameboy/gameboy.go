@@ -71,6 +71,28 @@ func NoBios() GameBoyOpt {
 	}
 }
 
+// WithBootROM sets the boot ROM for the emulator.
+func WithBootROM(rom []byte) GameBoyOpt {
+	return func(gb *GameBoy) {
+		gb.MMU.SetBootROM(rom)
+
+		// if we have a boot ROM, we need to reset the CPU
+		// otherwise the emulator will start at 0x100 with
+		// the registers set to the values upon completion
+		// of the boot ROM
+		gb.CPU.PC = 0x0000
+		gb.CPU.SP = 0x0000
+		gb.CPU.A = 0x00
+		gb.CPU.F = 0x00
+		gb.CPU.B = 0x00
+		gb.CPU.C = 0x00
+		gb.CPU.D = 0x00
+		gb.CPU.E = 0x00
+		gb.CPU.H = 0x00
+		gb.CPU.L = 0x00
+	}
+}
+
 // NewGameBoy returns a new GameBoy.
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	cart := cartridge.NewCartridge(rom)
@@ -95,6 +117,29 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Serial:     serial,
 	}
 
+	// setup initial cpu state
+	g.CPU.PC = 0x100
+	g.CPU.SP = 0xFFFE
+	if memBus.IsGBC() {
+		g.CPU.A = 0x11
+		g.CPU.F = 0x80
+		g.CPU.B = 0x00
+		g.CPU.C = 0x00
+		g.CPU.D = 0xFF
+		g.CPU.E = 0x56
+		g.CPU.H = 0x00
+		g.CPU.L = 0x0D
+	} else {
+		g.CPU.A = 0x01
+		g.CPU.F = 0xB0
+		g.CPU.B = 0x00
+		g.CPU.C = 0x13
+		g.CPU.D = 0x00
+		g.CPU.E = 0xD8
+		g.CPU.H = 0x01
+		g.CPU.L = 0x4D
+	}
+
 	for _, opt := range opts {
 		opt(g)
 	}
@@ -104,7 +149,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 
 // Start starts the Game Boy emulation. It will run until the game is closed.
 func (g *GameBoy) Start(mon *display.Display) {
-	fmt.Println("Starting emulation")
 	// setup fps counter
 	g.frames = 0
 	start := time.Now()

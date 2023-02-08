@@ -89,6 +89,11 @@ func RenderScanline(jobs <-chan RenderJob, output chan<- *RenderOutput) {
 				// which bit of the byte do we need to read?
 				bitIndex := uint8(1 << (7 - x))
 
+				// are we flipping the sprite?
+				if job.Sprites[i*SpriteSizeInBytes+2]&types.Bit5 == types.Bit5 {
+					bitIndex = uint8(1 << x)
+				}
+
 				if job.Sprites[i*SpriteSizeInBytes]&bitIndex != 0 {
 					low = 1
 				}
@@ -107,7 +112,7 @@ func RenderScanline(jobs <-chan RenderJob, output chan<- *RenderOutput) {
 					break
 				}
 
-				if !(job.Sprites[i*SpriteSizeInBytes+2]&0x01 == 1 && !(job.Scanline[((tileOffset+startX+x)/4)*TileSizeInBytes+2]&0x01 == 1)) {
+				if !(job.Sprites[i*SpriteSizeInBytes+2]&types.Bit7 == 0 && !(job.Scanline[((tileOffset+startX+x)/8)*TileSizeInBytes+2]&types.Bit7 == types.Bit7)) {
 					// we need to determine which palette number that the background tile is using
 					// we can do this by looking at the tile info byte
 					// first we need to determine which of the 20/21 tiles the pixel is in
@@ -122,7 +127,7 @@ func RenderScanline(jobs <-chan RenderJob, output chan<- *RenderOutput) {
 					continue
 				}
 
-				scanline.Scanline[startX+x] = job.objPalette[job.Sprites[i*SpriteSizeInBytes+2]>>3&0x1].GetColour(colourNum)
+				scanline.Scanline[startX+x] = job.objPalette[job.Sprites[i*SpriteSizeInBytes+2]>>4&0x1].GetColour(colourNum)
 
 				// mark the pixel as occupied by a sprite
 				spriteXPerScreen[startX+x] = startX
@@ -180,7 +185,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 				bitIndex := uint8(1 << (7 - ((x + tileOffset) % 8)))
 
 				// are we flipping the tile horizontally?
-				if tileInfo&types.Bit1 != 0 {
+				if tileInfo&types.Bit5 != 0 {
 					bitIndex = uint8(1 << ((x + tileOffset) % 8))
 				}
 
@@ -193,7 +198,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 				}
 				colorNum := low + high
 
-				scanline.Scanline[x] = job.palettes.GetColour(tileInfo>>4&0x07, uint8(colorNum))
+				scanline.Scanline[x] = job.palettes.GetColour(tileInfo&0x07, uint8(colorNum))
 			}
 			// get palette index of the background tile
 			// draw sprites
@@ -208,6 +213,11 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 
 					// determine the bit to get according to the tile offset
 					bitIndex := uint8(1 << (7 - x))
+
+					// are we flipping the tile horizontally?
+					if job.Sprites[i*SpriteSizeInBytes+2]&types.Bit5 != 0 {
+						bitIndex = uint8(1 << x)
+					}
 
 					if job.Sprites[i*SpriteSizeInBytes]&bitIndex != 0 {
 						low = 1
@@ -229,7 +239,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 
 					// determine priority
 					if job.BackgroundEnabled {
-						if !(job.Sprites[i*SpriteSizeInBytes+2]&0x01 == 1 && !(job.Scanline[((tileOffset+startX+x)/8)*TileSizeInBytes+2]&0x01 == 1)) {
+						if !(job.Sprites[i*SpriteSizeInBytes+2]&types.Bit7 == 0 && !(job.Scanline[((tileOffset+startX+x)/8)*TileSizeInBytes+2]&types.Bit7 == types.Bit7)) {
 							// we need to determine which palette number that the background tile is using
 							// we can do this by looking at the tile info byte
 							// first we need to determine which of the 20/21 tiles the pixel is in
@@ -238,7 +248,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 							// then we need to get the tile info byte
 							eTileInfo := job.Scanline[tileNum*TileSizeInBytes+2]
 
-							if scanline.Scanline[startX+x] != job.palettes.GetColour(eTileInfo>>4&0x07, 0) {
+							if scanline.Scanline[startX+x] != job.palettes.GetColour(eTileInfo&0x07, 0) {
 								continue
 							}
 						}
@@ -249,7 +259,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 						continue
 					}
 
-					scanline.Scanline[startX+x] = job.objPalette.GetColour(job.Sprites[i*SpriteSizeInBytes+2]>>4&0x07, uint8(colorNum))
+					scanline.Scanline[startX+x] = job.objPalette.GetColour(job.Sprites[i*SpriteSizeInBytes+2]&0x07, uint8(colorNum))
 
 					// mark pixel as occupied by sprite
 					spriteXPerScreen[startX+x] = startX

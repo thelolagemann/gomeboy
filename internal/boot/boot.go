@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"os"
 )
 
 // ROM is a boot rom for the Game Boy. When the Game Boy first
@@ -60,6 +59,17 @@ func NewBootROM(raw []byte, md5Checksum string) *ROM {
 	}
 }
 
+func LoadBootROM(raw []byte) *ROM {
+	// ensure correct lengths
+	if len(raw) != 256 && len(raw) != 2304 { // 256 bytes for DMG/MGB/SGB, 2304 bytes for CGB
+		panic(fmt.Sprintf("boot: invalid boot rom length: %d", len(raw)))
+	}
+
+	return &ROM{
+		raw: raw,
+	}
+}
+
 // Read implements the mmu.IOBus interface. This method
 // simply returns the byte at the provided address.
 func (b *ROM) Read(addr uint16) byte {
@@ -103,19 +113,3 @@ var DMGBootROM = [0x100]byte{}
 // should be 2304 bytes in length, and will be used to
 // initialize the CGB hardware.
 var CGBBootROM = [0x900]byte{}
-
-func init() {
-	// load the boot roms from local files // TODO - make this configurable/ load from sameboy repo
-
-	dmgBootRom, err := os.ReadFile("boot/dmg_boot.bin")
-	if err != nil {
-		panic(err)
-	}
-	copy(DMGBootROM[:], dmgBootRom)
-
-	cgbBootRom, err := os.ReadFile("boot/cgb_boot.bin")
-	if err != nil {
-		panic(err)
-	}
-	copy(CGBBootROM[:], cgbBootRom)
-}
