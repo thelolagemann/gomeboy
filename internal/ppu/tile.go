@@ -69,8 +69,8 @@ type TileMapEntry struct {
 	Attributes *TileAttributes
 }
 
-func (t *TileMapEntry) GetID(signed bool) int {
-	id := int(t.TileID)
+func (t *TileMapEntry) GetID(signed bool) int16 {
+	id := int16(t.TileID)
 	if signed {
 		if id < 128 {
 			id += 256

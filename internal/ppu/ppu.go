@@ -53,9 +53,8 @@ type PPU struct {
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
-	scanlineData    [ScanlineSize]uint8
-	spriteData      [30]uint8 // 10 sprites, 3 bytes each. byte 1 and 2 are tile data, byte 3 is attributes
-	spritePositions [10]uint8 // 10 sprites, 1 byte each. byte 1 is x position
+	scanlineData [ScanlineSize]uint8
+	spriteData   [40]uint8 // 10 sprites, 4 bytes each. byte 1 and 2 are tile data, byte 3 is attributes, byte 4 is x position
 
 	currentCycle       uint16
 	bus                *mmu.MMU
@@ -67,9 +66,8 @@ type PPU struct {
 	DMA                *DMA
 	delayedTick        bool
 
-	tileBgPriority [160]bool
-	renderer       *Renderer
-	rendererCGB    *RendererCGB
+	renderer    *Renderer
+	rendererCGB *RendererCGB
 }
 
 func (p *PPU) init() {
@@ -89,7 +87,7 @@ func (p *PPU) init() {
 			p.renderBlank()
 
 			// enter hblank
-			p.Mode = (lcd.HBlank)
+			p.Mode = lcd.HBlank
 
 			// reset the scanline
 			p.CurrentScanline = 0
@@ -638,31 +636,25 @@ func (p *PPU) renderScanline() {
 			XStart:            p.ScrollX,
 			Scanline:          p.scanlineData,
 			Sprites:           p.spriteData,
-			SpritePositions:   p.spritePositions,
 			BackgroundEnabled: p.BackgroundEnabled,
-			TilePriority:      p.tileBgPriority,
 			palettes:          p.colourPalette,
 			objPalette:        p.colourSpritePalette,
 			Line:              p.CurrentScanline,
 		})
 	} else {
 		p.renderer.AddJob(RenderJob{
-			XStart:          p.ScrollX,
-			Scanline:        p.scanlineData,
-			Sprites:         p.spriteData,
-			SpritePositions: p.spritePositions,
-			TilePriority:    p.tileBgPriority,
-			palettes:        p.Palette,
-			objPalette:      p.SpritePalettes,
-			Line:            p.CurrentScanline,
+			XStart:     p.ScrollX,
+			Scanline:   p.scanlineData,
+			Sprites:    p.spriteData,
+			palettes:   p.Palette,
+			objPalette: p.SpritePalettes,
+			Line:       p.CurrentScanline,
 		})
 	}
 
 	// clear scanline data
 	p.scanlineData = [ScanlineSize]uint8{}
-	p.spritePositions = [10]uint8{}
-	p.spriteData = [30]uint8{}
-	p.tileBgPriority = [ScreenWidth]bool{}
+	p.spriteData = [40]uint8{}
 }
 
 func (p *PPU) renderBlank() {
@@ -681,7 +673,8 @@ func (p *PPU) renderBlankLine() {
 }
 
 func (p *PPU) renderWindow() {
-	var xPos, yPos uint8
+	// setup variables
+	var xPos, yPos, row, tileInfo uint8
 
 	// do nothing if window is out of bounds
 	if p.CurrentScanline < p.WindowY {
@@ -703,65 +696,47 @@ func (p *PPU) renderWindow() {
 		mapOffset = 0x1C00
 	}
 
-	tileOffset := p.ScrollX % 8
-
 	// iterate over the 21 (20 if exactly aligned) tiles that make up the scanline
 	for i := uint8(0); i < 21; i++ {
 		if (i * 8) < p.WindowX-7 {
 			continue
 		}
-
+		tileInfo = 0
 		xPos = (i * 8) - (p.WindowX - 7)
 
 		// get the tile
 		tileEntry := p.calculateTileID(tileYIndex, xPos/8, mapOffset)
 		tileID := tileEntry.GetID(p.UsingSignedTileData())
 
-		// get the tile data
-		var b1, b2 uint8
-		b1 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][yPos%8][0]
-		b2 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][yPos%8][1]
+		row = yPos % 8
 
 		// should we flip the tile vertically?
 		if tileEntry.Attributes.YFlip {
-			b1 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][7-(yPos%8)][0]
-			b2 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][7-(yPos%8)][1]
-		}
-
-		// should we flip the tile horizontally?
-		if tileEntry.Attributes.XFlip {
-			b1 = bits.Reverse8(b1)
-			b2 = bits.Reverse8(b2)
+			row = 7 - row
 		}
 
 		// copy the tile data to the scanline
-		p.scanlineData[i*TileSizeInBytes] = b1
-		p.scanlineData[i*TileSizeInBytes+1] = b2
-		p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.PaletteNumber << 4
+		p.scanlineData[i*TileSizeInBytes] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+		p.scanlineData[i*TileSizeInBytes+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+		tileInfo = tileEntry.Attributes.PaletteNumber << 4
 
-		p.tileBgPriority[i] = tileEntry.Attributes.UseBGPriority
 		if tileEntry.Attributes.UseBGPriority {
-			// update the tile priority array
-			for x := (i * 8) + tileOffset; x < (i*8)+tileOffset+8; x++ {
-				if x >= ScreenWidth {
-					continue
-				}
-				p.tileBgPriority[x] = tileEntry.Attributes.UseBGPriority
-			}
+			tileInfo |= types.Bit0
 		}
+		if tileEntry.Attributes.XFlip {
+			tileInfo |= types.Bit1
+		}
+		p.scanlineData[i*TileSizeInBytes+2] = tileInfo
 	}
 
-	/*for i := uint8(0); i < ScreenWidth; i++ {
-		// set BG priority
-		p.tileBgPriority[i][p.CurrentScanline] = tileEntry.Attributes.UseBGPriority
-
-	}*/
 	p.WindowYInternal++
 }
 
 func (p *PPU) renderBackground() {
 	// setup variables
-	var xPos, yPos uint8
+	var xPos, yPos, scanlineByte, row, tileInfo uint8
+	var tileID int16
+	var tileEntry TileMapEntry
 
 	yPos = p.CurrentScanline + p.ScrollY
 	tileYIndex := yPos / 8
@@ -775,47 +750,36 @@ func (p *PPU) renderBackground() {
 
 	// iterate over the 21 (20 if exactly aligned) tiles that make up a scanline
 	for i := uint8(0); i < 21; i++ {
+		// reset variables
+		tileInfo = 0
+		scanlineByte = i * TileSizeInBytes
 		xPos = i*8 + p.ScrollX
-		// get the tile
-		tileEntry := p.calculateTileID(tileYIndex, xPos/8, mapOffset)
-		tileID := tileEntry.GetID(p.UsingSignedTileData())
+		row = yPos % 8
 
-		var b1, b2 uint8
-		b1 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][yPos%8][0]
-		b2 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][yPos%8][1]
+		// get the tile
+		tileEntry = p.calculateTileID(tileYIndex, xPos/8, mapOffset)
+		tileID = tileEntry.GetID(p.UsingSignedTileData())
 
 		// should we flip the tile?
 		if tileEntry.Attributes.YFlip {
-			b1 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][7-(yPos%8)][0]
-			b2 = p.tileData[tileEntry.Attributes.VRAMBank][tileID][7-(yPos%8)][1]
-		}
-		if tileEntry.Attributes.XFlip {
-			b1 = bits.Reverse8(b1)
-			b2 = bits.Reverse8(b2)
+			row = 7 - row
 		}
 
 		// copy the 2 bytes of tile data into the scanline
-		p.scanlineData[i*TileSizeInBytes] = b1
-		p.scanlineData[i*TileSizeInBytes+1] = b2
-		p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.PaletteNumber << 4
+		p.scanlineData[scanlineByte] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+		p.scanlineData[scanlineByte+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+		tileInfo = tileEntry.Attributes.PaletteNumber << 4
 
+		// determine tileInfo flags
 		if tileEntry.Attributes.UseBGPriority {
-			// update the tile priority array
-			for x := xPos; x < xPos+8; x++ {
-				if x >= ScreenWidth {
-					continue
-				}
-				p.tileBgPriority[x] = tileEntry.Attributes.UseBGPriority
-
-			}
+			// update the tile priority
+			tileInfo |= types.Bit0 // set the priority bit
 		}
+		if tileEntry.Attributes.XFlip {
+			tileInfo |= types.Bit1 // set the X flip bit
+		}
+		p.scanlineData[scanlineByte+2] = tileInfo
 	}
-
-	/*
-		for i := uint8(0); i < ScreenWidth; i++ {
-			// set BG priority
-			p.tileBgPriority[i][p.CurrentScanline] = tileEntry.Attributes.UseBGPriority
-		}*/
 }
 
 // calculateTileID calculates the tile ID for the current scanline
@@ -838,6 +802,7 @@ func (p *PPU) renderSprites() {
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
 	for _, sprite := range p.oam.Sprites {
+		byteIndex := spriteCount * SpriteSizeInBytes
 		spriteY := sprite.GetY()
 		spriteX := sprite.GetX()
 
@@ -887,52 +852,18 @@ func (p *PPU) renderSprites() {
 		}
 
 		// copy the sprite data to the sprite data
-		p.spriteData[spriteCount*TileSizeInBytes] = b1
-		p.spriteData[spriteCount*TileSizeInBytes+1] = b2
-		p.spriteData[spriteCount*TileSizeInBytes+2] = sprite.CGBPalette<<4 | sprite.UseSecondPalette<<3
+		p.spriteData[byteIndex] = b1
+		p.spriteData[byteIndex+1] = b2
+		p.spriteData[byteIndex+2] = sprite.CGBPalette<<4 | sprite.UseSecondPalette<<3
 		if sprite.Priority {
-			p.spriteData[spriteCount*TileSizeInBytes+2] |= 0x01 // set the priority bit
+			p.spriteData[byteIndex+2] |= 0x01 // set the priority bit
 		}
 
 		// set the sprite x position for the current scanline
-		p.spritePositions[spriteCount] = spriteX
+		p.spriteData[byteIndex+3] = spriteX
 
+		// increment the sprite count
 		spriteCount++
-		/*
-
-
-			for x := uint8(0); x < 8; x++ {
-				// skip if the sprite is out of bounds
-				pixelPos := sprite.GetX() + x
-				if pixelPos < 0 || pixelPos >= ScreenWidth {
-					continue
-				}
-
-				// skip if the sprite doesn't have priority and the background is not transparent
-				if !p.bus.IsGBC() || p.BackgroundEnabled {
-					if !(sprite.Priority && !p.tileBgPriority[pixelPos][p.CurrentScanline]) &&
-						(p.scanlineData[pixelPos] != 0) {
-						continue
-					}
-				}
-
-				if p.bus.IsGBC() {
-					// skip if the sprite doesn't have priority and the background is not transparent
-					if spriteXPerScreen[pixelPos] != 0 {
-						continue
-					}
-				} else {
-					// skip if pixel is occupied by sprite with lower x coordinate
-					if spriteXPerScreen[pixelPos] != 0 && spriteXPerScreen[pixelPos] <= sprite.GetX()+10 {
-						continue
-					}
-				}
-
-				p.scanlineData[pixelPos] = sprite.CGBPalette<<4 | sprite.UseSecondPalette<<3 | types.Bit2 | color
-
-				// mark the pixel as occupied
-				spriteXPerScreen[pixelPos] = sprite.GetX() + 10
-			}*/
 	}
 }
 
