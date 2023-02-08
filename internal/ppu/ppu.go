@@ -635,21 +635,26 @@ func (p *PPU) renderScanline() {
 	// send job to the renderer
 	if p.bus.IsGBC() {
 		p.rendererCGB.QueueJob(RenderJobCGB{
+			XStart:            p.ScrollX,
+			Scanline:          p.scanlineData,
+			Sprites:           p.spriteData,
+			SpritePositions:   p.spritePositions,
+			BackgroundEnabled: p.BackgroundEnabled,
+			TilePriority:      p.tileBgPriority,
+			palettes:          p.colourPalette,
+			objPalette:        p.colourSpritePalette,
+			Line:              p.CurrentScanline,
+		})
+	} else {
+		p.renderer.AddJob(RenderJob{
 			XStart:          p.ScrollX,
 			Scanline:        p.scanlineData,
 			Sprites:         p.spriteData,
 			SpritePositions: p.spritePositions,
 			TilePriority:    p.tileBgPriority,
-			palettes:        p.colourPalette,
-			objPalette:      p.colourSpritePalette,
+			palettes:        p.Palette,
+			objPalette:      p.SpritePalettes,
 			Line:            p.CurrentScanline,
-		})
-	} else {
-		p.renderer.AddJob(RenderJob{
-			Scanline:   p.scanlineData,
-			palettes:   p.Palette,
-			objPalette: p.SpritePalettes,
-			Line:       p.CurrentScanline,
 		})
 	}
 
@@ -884,7 +889,7 @@ func (p *PPU) renderSprites() {
 		// copy the sprite data to the sprite data
 		p.spriteData[spriteCount*TileSizeInBytes] = b1
 		p.spriteData[spriteCount*TileSizeInBytes+1] = b2
-		p.spriteData[spriteCount*TileSizeInBytes+2] = sprite.CGBPalette << 4
+		p.spriteData[spriteCount*TileSizeInBytes+2] = sprite.CGBPalette<<4 | sprite.UseSecondPalette<<3
 		if sprite.Priority {
 			p.spriteData[spriteCount*TileSizeInBytes+2] |= 0x01 // set the priority bit
 		}
