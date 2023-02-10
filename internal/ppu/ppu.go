@@ -322,7 +322,7 @@ func (p *PPU) DumpTileMap() image.Image {
 	// draw tilemap (0x9800 - 0x9BFF)
 	for i := uint8(0); i < 32; i++ {
 		for j := uint8(0); j < 32; j++ {
-			tileEntry := p.calculateTileID(j, i, 0x1800)
+			tileEntry := p.calculateTileID(j, i, 0)
 			// get tile data
 			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
 			tile.Draw(img, int(i*8), int(j*8))
@@ -332,7 +332,7 @@ func (p *PPU) DumpTileMap() image.Image {
 	// draw tilemap (0x9C00 - 0x9FFF)
 	for i := uint8(0); i < 32; i++ {
 		for j := uint8(0); j < 32; j++ {
-			tileEntry := p.calculateTileID(j, i, 0x1C00)
+			tileEntry := p.calculateTileID(j, i, 1)
 
 			// get tile data
 			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
@@ -539,37 +539,42 @@ func (p *PPU) Tick() {
 				p.Mode = lcd.VRAM
 				return
 			}
-		} else if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
-			// reset cycle and increment scanline
-			p.currentCycle = 0
-			p.CurrentScanline++
+		}
 
-			// check LYC
-			p.checkLYC()
+		// have we reached the cycle threshold for the next scanline?
+		if p.currentCycle >= 196 { // avoid expensive AND operation if possible
+			if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
+				// reset cycle and increment scanline
+				p.currentCycle = 0
+				p.CurrentScanline++
 
-			// check if we've reached the end of the visible screen
-			// and need to enter VBlank
-			if p.CurrentScanline == 144 {
-				// enter VBBlank mode and trigger VBlank interrupt
-				p.Mode = lcd.VBlank
-				p.checkStatInterrupts(true)
+				// check LYC
+				p.checkLYC()
 
-				p.irq.Request(interrupts.VBlankFlag)
+				// check if we've reached the end of the visible screen
+				// and need to enter VBlank
+				if p.CurrentScanline == 144 {
+					// enter VBBlank mode and trigger VBlank interrupt
+					p.Mode = lcd.VBlank
+					p.checkStatInterrupts(true)
 
-				// flag that the screen needs to be refreshed
-				p.refreshScreen = true
+					p.irq.Request(interrupts.VBlankFlag)
 
-				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
-				if !p.Cleared() {
-					p.renderBlank()
+					// flag that the screen needs to be refreshed
+					p.refreshScreen = true
+
+					// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
+					if !p.Cleared() {
+						p.renderBlank()
+					}
+
+					// update palette
+					//palette.UpdatePalette()
+				} else {
+					// enter OAM mode
+					p.Mode = lcd.OAM
+					p.checkStatInterrupts(false)
 				}
-
-				// update palette
-				//palette.UpdatePalette()
-			} else {
-				// enter OAM mode
-				p.Mode = lcd.OAM
-				p.checkStatInterrupts(false)
 			}
 		}
 
@@ -687,13 +692,7 @@ func (p *PPU) renderWindow() {
 	yPos = p.WindowYInternal
 	tileYIndex := (yPos) / 8
 
-	var mapOffset uint16
-
-	if p.WindowTileMapAddress == 0x9800 {
-		mapOffset = 0x1800
-	} else {
-		mapOffset = 0x1C00
-	}
+	mapOffset := uint8(p.WindowTileMapAddress / 0x9C00)
 
 	// iterate over the 21 (20 if exactly aligned) tiles that make up the scanline
 	for i := uint8(0); i < 21; i++ {
@@ -723,21 +722,20 @@ func (p *PPU) renderWindow() {
 }
 
 func (p *PPU) renderBackground() {
+	// determine the y pos and index of the tile
 	yPos := p.CurrentScanline + p.ScrollY
 	tileYIndex := yPos / 8
 
-	var mapOffset uint16
-	if p.BackgroundTileMapAddress == 0x9800 {
-		mapOffset = 0x1800
-	} else {
-		mapOffset = 0x1C00
-	}
+	// determine map offset
+	mapOffset := uint8(p.BackgroundTileMapAddress / 0x9C00) // 0x9800 = 0, 0x9c00 = 1
 
-	var tileEntry TileMapEntry
 	// iterate over the 21 (20 if exactly aligned) tiles that make up a scanline
+	var tileEntry TileMapEntry
 	for i := uint8(0); i < 21; i++ {
-		// reset variables
+		// which byte is this tile in the scanline?
 		scanlineByte := i * TileSizeInBytes
+
+		// get the x pos and row of the tile
 		xPos := i*8 + p.ScrollX
 		row := yPos % 8
 
@@ -750,7 +748,7 @@ func (p *PPU) renderBackground() {
 			row = 7 - row
 		}
 
-		// copy the 2 bytes of tile data into the scanline
+		// copy the 3 bytes of tile data into the scanline
 		p.scanlineData[scanlineByte] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
 		p.scanlineData[scanlineByte+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
 		p.scanlineData[scanlineByte+2] = tileEntry.Attributes.value
@@ -758,16 +756,9 @@ func (p *PPU) renderBackground() {
 }
 
 // calculateTileID calculates the tile ID for the current scanline
-func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint16) TileMapEntry {
-	// determine which tilemap to use
-	var tilemapNumber uint8
-	if mapOffset == 0x1800 {
-		tilemapNumber = 0
-	} else {
-		tilemapNumber = 1
-	}
+func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) TileMapEntry {
 	// get the tile entry from the tilemap
-	tileEntry := p.tileMaps[tilemapNumber][tilemapOffset][lineOffset]
+	tileEntry := p.tileMaps[mapOffset][tilemapOffset][lineOffset]
 
 	return tileEntry
 }
