@@ -32,7 +32,7 @@ type Controller struct {
 func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
 		irq:        irq,
-		currentBit: bits[0],
+		currentBit: 1 << bits[0],
 	}
 	// set up types
 	types.RegisterHardware(
@@ -83,12 +83,12 @@ func NewController(irq *interrupts.Service) *Controller {
 			// 11 = shift by 7 bits
 
 			c.tac = v
-			c.currentBit = bits[v&0b11]
+			c.currentBit = 1 << bits[v&0b11]
 			c.enabled = (v & 0x4) == 0x4
 
 			c.timaGlitch(wasEnabled, oldBit)
 		}, func() uint8 {
-			return c.tac | 0b11111000 // bits 3-7 are always 1
+			return c.tac | 0b11111000
 		},
 	)
 
@@ -159,4 +159,4 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 	}
 }
 
-var bits = [4]uint16{1024, 16, 64, 256}
+var bits = [4]uint8{9, 3, 5, 7}
