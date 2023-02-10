@@ -91,8 +91,14 @@ func testMooneyeROM(t *testing.T, romFile string) {
 			panic(err)
 		}
 
+		// load boot rom
+		boot, err := os.ReadFile("boot/dmg_boot.bin")
+		if err != nil {
+			panic(err)
+		}
+
 		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug())
+		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.WithBootROM(boot))
 
 		takenTooLong := false
 		go func() {

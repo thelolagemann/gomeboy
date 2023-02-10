@@ -54,12 +54,9 @@ func (d *DMA) Tick() {
 
 	// every 4 ticks, transfer a byte to OAM
 	// takes 4 ticks to turn on, 640 ticks to transfer
-	if d.timer < 4 {
-		// do nothing on the first 4 ticks
-		return
-	} else if d.timer < 644 {
+	if d.timer > 4 {
 		d.restarting = false
-		if d.timer%4 == 0 {
+		if d.timer < 644 {
 			offset := uint16(d.timer-4) >> 2
 			currentSource := d.source + (offset)
 
@@ -71,13 +68,16 @@ func (d *DMA) Tick() {
 			}
 			// load the value from the source address
 			d.oam.Write(offset, d.bus.Read(currentSource))
+
 		}
-	} else {
+
+	}
+	if d.timer > 644 {
 		d.enabled = false
 		d.timer = 0
 	}
 }
 
 func (d *DMA) IsTransferring() bool {
-	return d.timer >= 4 || d.restarting
+	return d.timer > 4 || d.restarting
 }

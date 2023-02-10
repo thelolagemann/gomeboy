@@ -822,7 +822,3 @@ func (p *PPU) renderSprites() {
 func (p *PPU) ClearRefresh() {
 	p.refreshScreen = false
 }
-
-func (p *PPU) getObjectColourFromPalette(paletteNumber uint8, colour uint8) [3]uint8 {
-	return p.SpritePalettes[paletteNumber].GetColour(colour)
-}
