@@ -1,4 +1,4 @@
-package mooneye
+package tests
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
@@ -8,58 +8,104 @@ import (
 	"time"
 )
 
-func TestMooneye_Bits(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/bits/mem_oam.gb")
-	testMooneyeROM(t, "roms/acceptance/bits/reg_f.gb")
-	testMooneyeROM(t, "roms/acceptance/bits/unused_hwio-GS.gb")
+const (
+	romPath = "roms/mooneye/acceptance"
+)
+
+type mooneyeTest struct {
+	romPath string
+	name    string
+	passed  bool
 }
 
-func TestMooneye_Instr(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/instr/daa.gb")
+func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
+	romDir := filepath.Join(romPath, dir)
+	tc := suite.NewTestCollection(dir)
+	if dir == "misc" {
+		romDir = romPath
+		dir = ""
+	}
+
+	// read the directory
+	files, err := os.ReadDir(romDir)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		tc.Add(&mooneyeTest{
+			romPath: filepath.Join(dir, file.Name()),
+			name:    file.Name(),
+		})
+	}
+
+	return tc
+}
+func (m *mooneyeTest) Name() string {
+	return m.name
 }
 
-func TestMooneye_Interrupts(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/interrupts/ie_push.gb")
+func (m *mooneyeTest) Run(t *testing.T) {
+	if pass := testMooneyeROM(t, m.romPath); pass {
+		m.passed = true
+	}
 }
 
-func TestMooneye_OAM_DMA(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/oam_dma/basic.gb")
-	testMooneyeROM(t, "roms/acceptance/oam_dma/reg_read.gb")
-	testMooneyeROM(t, "roms/acceptance/oam_dma/sources-GS.gb")
+func (m *mooneyeTest) Passed() bool {
+	return m.passed
 }
 
-func TestMooneye_PPU(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/ppu/hblank_ly_scx_timing-GS.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/intr_1_2_timing-GS.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/intr_2_0_timing.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/intr_2_mode0_timing.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/intr_2_mode0_timing_sprites.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/intr_2_mode3_timing.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/intr_2_oam_ok_timing.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/lcdon_timing-GS.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/stat_irq_blocking.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/stat_lyc_onoff.gb")
-	testMooneyeROM(t, "roms/acceptance/ppu/vblank_stat_intr-GS.gb")
+func testMooneye(t *testing.T, roms *TestTable) {
+	// create top level test
+	tS := roms.NewTestSuite("mooneye")
+
+	// bits
+	newMooneyeTestCollectionFromDir(tS, "bits")
+
+	// instr
+	newMooneyeTestCollectionFromDir(tS, "instr")
+
+	// interrupts
+	newMooneyeTestCollectionFromDir(tS, "interrupts")
+
+	// oam_dma
+	newMooneyeTestCollectionFromDir(tS, "oam_dma")
+
+	// ppu
+	newMooneyeTestCollectionFromDir(tS, "ppu")
+
+	// serial
+	newMooneyeTestCollectionFromDir(tS, "serial")
+
+	// timer
+	newMooneyeTestCollectionFromDir(tS, "timer")
+
+	// individual
+	newMooneyeTestCollectionFromDir(tS, "misc")
 }
 
 func TestMooneye_Serial(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/serial/boot_sclk_align-dmgABCmgb.gb")
+	testMooneyeROM(t, "serial/boot_sclk_align-dmgABCmgb.gb")
 }
 
 func TestMooneye_Timer(t *testing.T) {
-	testMooneyeROM(t, "roms/acceptance/timer/div_write.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/rapid_toggle.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim00.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim00_div_trigger.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim01.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim01_div_trigger.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim10.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim10_div_trigger.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim11.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tim11_div_trigger.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tima_reload.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tima_write_reloading.gb")
-	testMooneyeROM(t, "roms/acceptance/timer/tma_write_reloading.gb")
+	testMooneyeROM(t, "timer/div_write.gb")
+	testMooneyeROM(t, "timer/rapid_toggle.gb")
+	testMooneyeROM(t, "timer/tim00.gb")
+	testMooneyeROM(t, "timer/tim00_div_trigger.gb")
+	testMooneyeROM(t, "timer/tim01.gb")
+	testMooneyeROM(t, "timer/tim01_div_trigger.gb")
+	testMooneyeROM(t, "timer/tim10.gb")
+	testMooneyeROM(t, "timer/tim10_div_trigger.gb")
+	testMooneyeROM(t, "timer/tim11.gb")
+	testMooneyeROM(t, "timer/tim11_div_trigger.gb")
+	testMooneyeROM(t, "timer/tima_reload.gb")
+	testMooneyeROM(t, "timer/tima_write_reloading.gb")
+	testMooneyeROM(t, "timer/tma_write_reloading.gb")
 }
 
 func TestMooneye_Individual(t *testing.T) {
@@ -82,8 +128,9 @@ func TestMooneye_Individual(t *testing.T) {
 // and writes the fibonacci sequence 3/5/8/13/21/34 to the
 // registers B, C, D, E, H, L. The test will then compare the
 // registers to the expected values.
-func testMooneyeROM(t *testing.T, romFile string) {
-
+func testMooneyeROM(t *testing.T, romFile string) bool {
+	romFile = filepath.Join(romPath, romFile)
+	passed := true
 	t.Run(filepath.Base(romFile), func(t *testing.T) {
 		// load the rom
 		b, err := os.ReadFile(romFile)
@@ -91,14 +138,8 @@ func testMooneyeROM(t *testing.T, romFile string) {
 			panic(err)
 		}
 
-		// load boot rom
-		boot, err := os.ReadFile("boot/dmg_boot.bin")
-		if err != nil {
-			panic(err)
-		}
-
 		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.WithBootROM(boot))
+		g := gameboy.NewGameBoy(b, gameboy.Debug())
 
 		takenTooLong := false
 		go func() {
@@ -114,24 +155,13 @@ func testMooneyeROM(t *testing.T, romFile string) {
 			}
 		}
 
-		// check the registers
-		if g.CPU.B != 3 {
-			t.Errorf("B register is %d, expected 3", g.CPU.B)
-		}
-		if g.CPU.C != 5 {
-			t.Errorf("C register is %d, expected 5", g.CPU.C)
-		}
-		if g.CPU.D != 8 {
-			t.Errorf("D register is %d, expected 8", g.CPU.D)
-		}
-		if g.CPU.E != 13 {
-			t.Errorf("E register is %d, expected 13", g.CPU.E)
-		}
-		if g.CPU.H != 21 {
-			t.Errorf("H register is %d, expected 21", g.CPU.H)
-		}
-		if g.CPU.L != 34 {
-			t.Errorf("L register is %d, expected 34", g.CPU.L)
+		expectedRegisters := []uint8{3, 5, 8, 13, 21, 34}
+		for i, r := range []uint8{g.CPU.B, g.CPU.C, g.CPU.D, g.CPU.E, g.CPU.H, g.CPU.L} {
+			if r != expectedRegisters[i] {
+				t.Errorf("expected register %d to be %d, got %d", i, expectedRegisters[i], r)
+				passed = false
+			}
 		}
 	})
+	return passed
 }
