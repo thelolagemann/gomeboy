@@ -186,6 +186,16 @@ func (m *MMU) SetBootROM(rom []byte) {
 	}
 }
 
+func (m *MMU) SetModel(model uint8) {
+	switch model {
+	case 1:
+		m.isGBC = false
+	case 2:
+		m.isGBC = true
+		m.HDMA = NewHDMA(m)
+	}
+}
+
 func (m *MMU) Key() uint8 {
 	return m.key1
 }

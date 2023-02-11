@@ -32,12 +32,20 @@ const (
 	TicksPerFrame = ClockSpeed / FrameRate
 )
 
+type Model = uint8
+
+const (
+	ModelAutomatic Model = iota
+	ModelDMG
+	ModelCGB
+)
+
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
 // It is the main entry point for the emulator.
 type GameBoy struct {
 	CPU *cpu.CPU
 	MMU *mmu.MMU
-	ppu *ppu.PPU
+	PPU *ppu.PPU
 
 	APU        *apu.APU
 	Joypad     *joypad.State
@@ -61,6 +69,12 @@ type GameBoyOpt func(gb *GameBoy)
 func Debug() GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.CPU.Debug = true
+	}
+}
+
+func AsModel(m Model) func(gb *GameBoy) {
+	return func(gb *GameBoy) {
+		gb.SetModel(m)
 	}
 }
 
@@ -108,7 +122,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	g := &GameBoy{
 		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound),
 		MMU: memBus,
-		ppu: video,
+		PPU: video,
 
 		APU:        sound,
 		Joypad:     pad,
@@ -143,6 +157,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	for _, opt := range opts {
 		opt(g)
 	}
+
+	video.StartRendering()
 
 	return g
 }
@@ -230,16 +246,16 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	// was the last frame rendered? (by the PPU)
 	if g.frameQueue {
 		// if so, tick until the next frame is ready
-		for !g.ppu.HasFrame() {
+		for !g.PPU.HasFrame() {
 			g.CPU.Step()
 		}
 
 		// prepare the frame for display
-		g.ppu.ClearRefresh()
+		g.PPU.ClearRefresh()
 
 		// return the frame and reset the frame queue
 		g.frameQueue = false
-		g.previousFrame = g.ppu.PreparedFrame
+		g.previousFrame = g.PPU.PreparedFrame
 		return g.previousFrame
 	}
 	ticks := uint32(0)
@@ -249,10 +265,10 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	}
 
 	// did the PPU render a frame?
-	if g.ppu.HasFrame() {
-		g.ppu.ClearRefresh()
-		g.previousFrame = g.ppu.PreparedFrame
-		return g.ppu.PreparedFrame
+	if g.PPU.HasFrame() {
+		g.PPU.ClearRefresh()
+		g.previousFrame = g.PPU.PreparedFrame
+		return g.PPU.PreparedFrame
 	} else {
 		// if not, create a smoothed frame from the last frame
 		// and the current frame (which is not yet finished)
@@ -264,7 +280,7 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 				// interpolate the current frame
 				for c := 0; c < 3; c++ {
 					// smooth by averaging the current and previous frame
-					smoothedFrame[y][x][c] = uint8((uint16(g.previousFrame[y][x][c]) + uint16(g.ppu.PreparedFrame[y][x][c])) / 2)
+					smoothedFrame[y][x][c] = uint8((uint16(g.previousFrame[y][x][c]) + uint16(g.PPU.PreparedFrame[y][x][c])) / 2)
 				}
 			}
 		}
@@ -289,7 +305,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 		},
 		10: func() {
-			img := g.ppu.DumpTileMap()
+			img := g.PPU.DumpTileMap()
 
 			f, err := os.Create("tilemap.png")
 			if err != nil {
@@ -300,7 +316,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 				panic(err)
 			}
 
-			img = g.ppu.DumpTiledata()
+			img = g.PPU.DumpTiledata()
 
 			f, err = os.Create("tiledata.png")
 			if err != nil {
@@ -314,13 +330,13 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 
 		},
 		11: func() {
-			g.ppu.Debug.BackgroundDisabled = !g.ppu.Debug.BackgroundDisabled
+			g.PPU.Debug.BackgroundDisabled = !g.PPU.Debug.BackgroundDisabled
 		},
 		12: func() {
-			g.ppu.Debug.WindowDisabled = !g.ppu.Debug.WindowDisabled
+			g.PPU.Debug.WindowDisabled = !g.PPU.Debug.WindowDisabled
 		},
 		13: func() {
-			g.ppu.Debug.SpritesDisabled = !g.ppu.Debug.SpritesDisabled
+			g.PPU.Debug.SpritesDisabled = !g.PPU.Debug.SpritesDisabled
 		},
 	}
 }
@@ -343,4 +359,8 @@ func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 			g.Joypad.Release(key)
 		}
 	}
+}
+
+func (g *GameBoy) SetModel(m Model) {
+	g.MMU.SetModel(m)
 }

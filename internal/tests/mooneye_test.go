@@ -103,7 +103,7 @@ func testMooneyeROM(t *testing.T, romFile string) bool {
 		}
 
 		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug())
+		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(gameboy.ModelDMG))
 
 		takenTooLong := false
 		go func() {

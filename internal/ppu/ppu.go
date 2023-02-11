@@ -231,12 +231,20 @@ func (p *PPU) init() {
 			p.tileMaps[i] = NewTileMap()
 		}
 	}
+}
 
+func (p *PPU) StartRendering() {
 	output := make(chan *RenderOutput, ScreenHeight)
 	// setup renderer
 	if p.bus.IsGBC() {
 		renderJobs := make(chan RenderJobCGB, ScreenHeight)
 		p.rendererCGB = NewRendererCGB(renderJobs, output)
+
+		// initialize CGB features
+		p.colourPalette = palette.NewCGBPallette()
+		p.colourSpritePalette = palette.NewCGBPallette()
+		p.vRAM[1] = ram.NewRAM(0x2000)
+		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
 	} else {
 		renderJobs := make(chan RenderJob, 20)
 		p.renderer = NewRenderer(renderJobs, output)
@@ -271,14 +279,6 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 			ram.NewRAM(8192),
 		},
 		DMA: NewDMA(mmu, oam),
-	}
-
-	// initialize CGB features
-	if mmu.IsGBC() {
-		p.colourPalette = palette.NewCGBPallette()
-		p.colourSpritePalette = palette.NewCGBPallette()
-		p.vRAM[1] = ram.NewRAM(0x2000)
-		mmu.HDMA.AttachVRAM(p.WriteVRAM)
 	}
 
 	p.init()
