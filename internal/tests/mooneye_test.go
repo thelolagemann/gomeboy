@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	romPath = "roms/mooneye/acceptance"
+	mooneyeROMPath = "roms/mooneye/acceptance"
 )
 
 type mooneyeTest struct {
@@ -19,10 +19,10 @@ type mooneyeTest struct {
 }
 
 func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
-	romDir := filepath.Join(romPath, dir)
+	romDir := filepath.Join(mooneyeROMPath, dir)
 	tc := suite.NewTestCollection(dir)
 	if dir == "misc" {
-		romDir = romPath
+		romDir = mooneyeROMPath
 		dir = ""
 	}
 
@@ -38,7 +38,7 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 		}
 
 		tc.Add(&mooneyeTest{
-			romPath: filepath.Join(dir, file.Name()),
+			romPath: filepath.Join(romDir, file.Name()),
 			name:    file.Name(),
 		})
 	}
@@ -88,48 +88,12 @@ func testMooneye(t *testing.T, roms *TestTable) {
 	newMooneyeTestCollectionFromDir(tS, "misc")
 }
 
-func TestMooneye_Serial(t *testing.T) {
-	testMooneyeROM(t, "serial/boot_sclk_align-dmgABCmgb.gb")
-}
-
-func TestMooneye_Timer(t *testing.T) {
-	testMooneyeROM(t, "timer/div_write.gb")
-	testMooneyeROM(t, "timer/rapid_toggle.gb")
-	testMooneyeROM(t, "timer/tim00.gb")
-	testMooneyeROM(t, "timer/tim00_div_trigger.gb")
-	testMooneyeROM(t, "timer/tim01.gb")
-	testMooneyeROM(t, "timer/tim01_div_trigger.gb")
-	testMooneyeROM(t, "timer/tim10.gb")
-	testMooneyeROM(t, "timer/tim10_div_trigger.gb")
-	testMooneyeROM(t, "timer/tim11.gb")
-	testMooneyeROM(t, "timer/tim11_div_trigger.gb")
-	testMooneyeROM(t, "timer/tima_reload.gb")
-	testMooneyeROM(t, "timer/tima_write_reloading.gb")
-	testMooneyeROM(t, "timer/tma_write_reloading.gb")
-}
-
-func TestMooneye_Individual(t *testing.T) {
-	// test all of the loose files in acceptance folder
-	files, err := os.ReadDir("roms/acceptance")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-		testMooneyeROM(t, filepath.Join("roms/acceptance", file.Name()))
-	}
-}
-
 // testMooneyeROM tests a mooneye rom. A passing test will
 // execute the rom until the breakpoint is reached (LD B, B),
 // and writes the fibonacci sequence 3/5/8/13/21/34 to the
 // registers B, C, D, E, H, L. The test will then compare the
 // registers to the expected values.
 func testMooneyeROM(t *testing.T, romFile string) bool {
-	romFile = filepath.Join(romPath, romFile)
 	passed := true
 	t.Run(filepath.Base(romFile), func(t *testing.T) {
 		// load the rom

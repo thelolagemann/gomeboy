@@ -11,6 +11,8 @@ func Test_All(t *testing.T) {
 		testSuites: make([]*TestSuite, 0),
 	}
 	testMooneye(t, testTable)
+	testSamesuite(t, testTable)
+
 	// execute tests
 	for _, top := range testTable.testSuites {
 		t.Run(top.name, func(t *testing.T) {
