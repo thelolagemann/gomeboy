@@ -80,6 +80,8 @@ func NewCartridge(rom []byte) *Cartridge {
 		cart.MemoryBankController = NewROMCartridge(rom)
 	case MBC1, MBC1RAM, MBC1RAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge1(rom, header)
+	case MBC2, MBC2BATT:
+		cart.MemoryBankController = NewMemoryBankedCartridge2(rom, header)
 	case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge3(rom, header)
 	case MBC5, MBC5RAM, MBC5RAMBATT:

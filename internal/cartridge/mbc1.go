@@ -163,7 +163,6 @@ var logo = [48]byte{
 
 func (m *MemoryBankedCartridge1) checkMultiCart() {
 	// heuristics to detect multicart
-	fmt.Println("checking multicart")
 	if m.header.ROMSize == (1024 * 1024) {
 		count := 0
 		compare := true
@@ -182,7 +181,6 @@ func (m *MemoryBankedCartridge1) checkMultiCart() {
 		}
 		if count > 1 {
 			m.isMultiCart = true
-			fmt.Println("MultiCart detected")
 		}
 	}
 }
