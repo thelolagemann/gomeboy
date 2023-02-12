@@ -18,9 +18,9 @@ func Test_All(t *testing.T) {
 	testTable := &TestTable{
 		testSuites: make([]*TestSuite, 0),
 	}
-	//testAcid2(t, testTable)
-	//testBlarrg(t, testTable)
-	testMooneye(t, testTable)
+	testAcid2(t, testTable)
+	testBlarrg(t, testTable)
+	//testMooneye(t, testTable)
 	//testSamesuite(t, testTable)
 
 	// execute tests
@@ -186,13 +186,20 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 		// create the emulator
 		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel))
 
-		// run for 60 seconds
-		for i := 0; i < 60*60; i++ {
-			g.Frame()
+		// custom test loop
+		for frame := 0; frame < 60*60; frame++ {
+			for i := uint32(0); i < gameboy.TicksPerFrame; {
+				i += uint32(g.CPU.Step())
+			}
+
+			// wait until frame is done
+			for !g.PPU.HasFrame() {
+				g.CPU.Step()
+			}
+			g.PPU.ClearRefresh()
 		}
 
-		// get the current frame
-		img := g.Frame()
+		img := g.PPU.PreparedFrame
 
 		// create image.Image from the byte array
 		img1 := image.NewRGBA(image.Rect(0, 0, 160, 144))
