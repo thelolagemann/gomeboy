@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	mooneyeROMPath = "roms/mooneye/acceptance"
+	mooneyeROMPath = "roms/mooneye"
 )
 
 type mooneyeTest struct {
@@ -33,7 +33,7 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 	}
 
 	for _, file := range files {
-		if file.IsDir() {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".gb" {
 			continue
 		}
 
@@ -64,28 +64,33 @@ func testMooneye(t *testing.T, roms *TestTable) {
 	tS := roms.NewTestSuite("mooneye")
 
 	// bits
-	newMooneyeTestCollectionFromDir(tS, "bits")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/bits")
 
 	// instr
-	newMooneyeTestCollectionFromDir(tS, "instr")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/instr")
 
 	// interrupts
-	newMooneyeTestCollectionFromDir(tS, "interrupts")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/interrupts")
 
 	// oam_dma
-	newMooneyeTestCollectionFromDir(tS, "oam_dma")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/oam_dma")
 
 	// ppu
-	newMooneyeTestCollectionFromDir(tS, "ppu")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/ppu")
 
 	// serial
-	newMooneyeTestCollectionFromDir(tS, "serial")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/serial")
 
 	// timer
-	newMooneyeTestCollectionFromDir(tS, "timer")
+	newMooneyeTestCollectionFromDir(tS, "acceptance/timer")
 
 	// individual
 	newMooneyeTestCollectionFromDir(tS, "misc")
+
+	// emualator-only (mbc1, mbc2, mbc5)
+	newMooneyeTestCollectionFromDir(tS, "emulator-only/mbc1")
+	newMooneyeTestCollectionFromDir(tS, "emulator-only/mbc2")
+	newMooneyeTestCollectionFromDir(tS, "emulator-only/mbc5")
 }
 
 // testMooneyeROM tests a mooneye rom. A passing test will

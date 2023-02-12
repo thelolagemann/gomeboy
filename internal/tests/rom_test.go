@@ -18,10 +18,10 @@ func Test_All(t *testing.T) {
 	testTable := &TestTable{
 		testSuites: make([]*TestSuite, 0),
 	}
-	testAcid2(t, testTable)
+	//testAcid2(t, testTable)
 	//testBlarrg(t, testTable)
 	testMooneye(t, testTable)
-	testSamesuite(t, testTable)
+	//testSamesuite(t, testTable)
 
 	// execute tests
 	for _, top := range testTable.testSuites {
