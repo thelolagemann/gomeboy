@@ -47,4 +47,10 @@ func testAcid2(t *testing.T, table *TestTable) {
 		name:    "cgb-acid2",
 		model:   gameboy.ModelCGB,
 	})
+	tc.Add(&acid2Test{
+		romPath: "roms/cgb-acid-hell/cgb-acid-hell.gbc",
+		imgPath: "roms/cgb-acid-hell/cgb-acid-hell.png",
+		name:    "cgb-acid-hell",
+		model:   gameboy.ModelCGB,
+	})
 }

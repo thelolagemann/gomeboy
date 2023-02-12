@@ -15,6 +15,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image/png"
@@ -22,15 +23,19 @@ import (
 	"time"
 )
 
-const (
+var (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
 	// FrameRate is the frame rate of the emulator.
-	FrameRate = 60
+	FrameRate = 144
 	// FrameTime is the time it should take to render a frame.
-	FrameTime     = time.Second / FrameRate
-	TicksPerFrame = ClockSpeed / FrameRate
+	FrameTime            = time.Second / time.Duration(FrameRate)
+	TicksPerFrame uint32 = uint32(ClockSpeed / FrameRate)
 )
+
+var startingRegisterValues = map[types.HardwareAddress]uint8{
+	types.LCDC: 0x91,
+}
 
 type Model = uint8
 
@@ -75,13 +80,7 @@ func Debug() GameBoyOpt {
 func AsModel(m Model) func(gb *GameBoy) {
 	return func(gb *GameBoy) {
 		gb.SetModel(m)
-	}
-}
-
-// NoBios disables the BIOS by setting CPU.CPU.PC to 0x100.
-func NoBios() GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.CPU.PC = 0x0100
+		gb.initializeCPU()
 	}
 }
 
@@ -89,6 +88,11 @@ func NoBios() GameBoyOpt {
 func WithBootROM(rom []byte) GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.MMU.SetBootROM(rom)
+
+		// reattach VRAM to HDMA
+		if gb.MMU.IsGBC() {
+			gb.MMU.HDMA.AttachVRAM(gb.PPU.WriteVRAM)
+		}
 
 		// if we have a boot ROM, we need to reset the CPU
 		// otherwise the emulator will start at 0x100 with
@@ -130,11 +134,29 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Timer:      timerCtl,
 		Serial:     serial,
 	}
+	g.initializeCPU()
 
+	for _, opt := range opts {
+		opt(g)
+	}
+
+	memBus.Map()
+
+	// setup starting register values
+	for addr, val := range startingRegisterValues {
+		g.MMU.Write(addr, val)
+	}
+
+	video.StartRendering()
+
+	return g
+}
+
+func (g *GameBoy) initializeCPU() {
 	// setup initial cpu state
 	g.CPU.PC = 0x100
 	g.CPU.SP = 0xFFFE
-	if memBus.IsGBC() {
+	if g.MMU.IsGBC() {
 		g.CPU.A = 0x11
 		g.CPU.F = 0x80
 		g.CPU.B = 0x00
@@ -154,13 +176,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		g.CPU.L = 0x4D
 	}
 
-	for _, opt := range opts {
-		opt(g)
-	}
-
-	video.StartRendering()
-
-	return g
 }
 
 // Start starts the Game Boy emulation. It will run until the game is closed.
@@ -244,7 +259,7 @@ func avgTime(t []time.Duration) time.Duration {
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	// was the last frame rendered? (by the PPU)
-	if g.frameQueue {
+	/*if g.frameQueue {
 		// if so, tick until the next frame is ready
 		for !g.PPU.HasFrame() {
 			g.CPU.Step()
@@ -257,7 +272,7 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 		g.frameQueue = false
 		g.previousFrame = g.PPU.PreparedFrame
 		return g.previousFrame
-	}
+	}*/
 	ticks := uint32(0)
 	// step until the next frame or until tick threshold is reached
 	for ticks <= TicksPerFrame {
@@ -273,6 +288,7 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 		// if not, create a smoothed frame from the last frame
 		// and the current frame (which is not yet finished)
 		var smoothedFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
+		// TODO find a way to make this parallel (maybe use a channel of chunks?)
 		for x := uint8(0); x < ppu.ScreenWidth; x++ {
 			for y := uint8(0); y < ppu.ScreenHeight; y++ {
 				// is the pixel on the current frame black?
@@ -362,5 +378,9 @@ func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 }
 
 func (g *GameBoy) SetModel(m Model) {
+	// re-initialize MMU
 	g.MMU.SetModel(m)
+	// restart PPU rendering
+
+	// re-initialize CPU
 }

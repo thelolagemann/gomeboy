@@ -68,28 +68,19 @@ type CPU struct {
 // The MMU is used to read and write to the memory.
 func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Controller, ppu *ppu.PPU, sound *apu.APU) *CPU {
 	c := &CPU{
-		PC:    0,
-		SP:    0,
-		Debug: true,
-		Registers: Registers{
-			A: 0x11,
-			B: 0x01,
-			C: 0x00,
-			D: 0xFF,
-			E: 0x08,
-			F: 0x00,
-			H: 0xB0,
-			L: 0x7C,
-		},
-		mmu:     mmu,
-		Speed:   1,
-		stopped: false,
-		Halted:  false,
-		irq:     irq,
-		dma:     dma,
-		timer:   timer,
-		ppu:     ppu,
-		sound:   sound,
+		PC:        0,
+		SP:        0,
+		Debug:     true,
+		Registers: Registers{},
+		mmu:       mmu,
+		Speed:     1,
+		stopped:   false,
+		Halted:    false,
+		irq:       irq,
+		dma:       dma,
+		timer:     timer,
+		ppu:       ppu,
+		sound:     sound,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -104,10 +95,6 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Co
 	c.generateRSTInstructions()
 	c.generateRotateInstructions()
 	c.generateShiftInstructions()
-
-	if len(InstructionSet) != 256 || len(InstructionSetCB) != 256 {
-		panic("invalid instruction set")
-	}
 
 	return c
 }

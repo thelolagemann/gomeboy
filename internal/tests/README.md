@@ -1,4 +1,6 @@
 # Table of Contents
+* [acid2](#acid2)
+  * [acid2](#acid2)
 * [mooneye](#mooneye)
   * [bits](#bits)
   * [instr](#instr)
@@ -14,6 +16,13 @@
   * [interrupt](#interrupt)
   * [ppu](#ppu)
   * [sgb](#sgb)
+# acid2
+## acid2
+| Test | Passing |
+| ---- | ------- |
+| dmg-acid2 | ✅ |
+| cgb-acid2 | ❌ |
+| cgb-acid-hell | ❌ |
 # mooneye
 ## bits
 | Test | Passing |

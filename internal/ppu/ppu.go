@@ -168,55 +168,68 @@ func (p *PPU) init() {
 	)
 
 	// CGB registers
-	if p.bus.IsGBC() {
-		types.RegisterHardware(
-			types.VBK,
-			func(v uint8) {
-				p.vRAMBank = v & types.Bit0 // only the first bit is used
-			},
-			func() uint8 {
-				return p.vRAMBank
-			},
-		)
-		types.RegisterHardware(
-			types.BCPS,
-			func(v uint8) {
+
+	types.RegisterHardware(
+		types.VBK,
+		func(v uint8) {
+			if p.bus.IsGBC() {
+				p.vRAMBank = v & types.Bit0
+			}
+		},
+		func() uint8 {
+			return p.vRAMBank
+		},
+	)
+	types.RegisterHardware(
+		types.BCPS,
+		func(v uint8) {
+			if p.bus.IsGBC() {
 				p.colourPalette.SetIndex(v)
-			},
-			func() uint8 {
-				return p.colourPalette.GetIndex()
-			},
-		)
-		types.RegisterHardware(
-			types.BCPD,
-			func(v uint8) {
+			}
+		},
+		func() uint8 {
+			return p.colourPalette.GetIndex()
+		},
+	)
+	types.RegisterHardware(
+		types.BCPD,
+		func(v uint8) {
+			if p.bus.IsGBC() && p.colorPaletteUnlocked() {
 				p.colourPalette.Write(v)
-			},
-			func() uint8 {
-				// TODO handle locked state
+			}
+		},
+		func() uint8 {
+			if p.colorPaletteUnlocked() {
 				return p.colourPalette.Read()
-			},
-		)
-		types.RegisterHardware(
-			types.OCPS,
-			func(v uint8) {
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.OCPS,
+		func(v uint8) {
+			if p.bus.IsGBC() {
 				p.colourSpritePalette.SetIndex(v)
-			},
-			func() uint8 {
-				return p.colourSpritePalette.GetIndex()
-			},
-		)
-		types.RegisterHardware(
-			types.OCPD,
-			func(v uint8) {
+			}
+		},
+		func() uint8 {
+			return p.colourSpritePalette.GetIndex()
+		},
+	)
+	types.RegisterHardware(
+		types.OCPD,
+		func(v uint8) {
+			if p.bus.IsGBC() && p.colorPaletteUnlocked() {
 				p.colourSpritePalette.Write(v)
-			},
-			func() uint8 {
-				// TODO handle locked state
+			}
+		},
+		func() uint8 {
+			if p.colorPaletteUnlocked() {
 				return p.colourSpritePalette.Read()
-			},
-		)
-	}
+			}
+			return 0xFF
+		},
+	)
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
@@ -245,6 +258,7 @@ func (p *PPU) StartRendering() {
 		p.colourSpritePalette = palette.NewCGBPallette()
 		p.vRAM[1] = ram.NewRAM(0x2000)
 		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
+		fmt.Println("CGB mode")
 	} else {
 		renderJobs := make(chan RenderJob, 20)
 		p.renderer = NewRenderer(renderJobs, output)
@@ -518,8 +532,10 @@ func (p *PPU) Tick() {
 
 	// update the current cycle
 	p.currentCycle++
-	if p.currentCycle < 80 {
-		return // nothing happens during the first 80 cycles
+
+	// 80, 172, 196-204, 456 are the only cycles that we care about
+	if !(p.currentCycle == 80 || p.currentCycle == 172 || (p.currentCycle >= 196 && p.currentCycle <= 204) || p.currentCycle == 456) {
+		return // avoid switch statement for performance (albeit a small one)
 	}
 
 	// step logic (ordered by number of ticks required to optimize calls)
@@ -542,39 +558,37 @@ func (p *PPU) Tick() {
 		}
 
 		// have we reached the cycle threshold for the next scanline?
-		if p.currentCycle >= 196 { // avoid expensive AND operation if possible
-			if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
-				// reset cycle and increment scanline
-				p.currentCycle = 0
-				p.CurrentScanline++
+		if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
+			// reset cycle and increment scanline
+			p.currentCycle = 0
+			p.CurrentScanline++
 
-				// check LYC
-				p.checkLYC()
+			// check LYC
+			p.checkLYC()
 
-				// check if we've reached the end of the visible screen
-				// and need to enter VBlank
-				if p.CurrentScanline == 144 {
-					// enter VBBlank mode and trigger VBlank interrupt
-					p.Mode = lcd.VBlank
-					p.checkStatInterrupts(true)
+			// check if we've reached the end of the visible screen
+			// and need to enter VBlank
+			if p.CurrentScanline == 144 {
+				// enter VBBlank mode and trigger VBlank interrupt
+				p.Mode = lcd.VBlank
+				p.checkStatInterrupts(true)
 
-					p.irq.Request(interrupts.VBlankFlag)
+				p.irq.Request(interrupts.VBlankFlag)
 
-					// flag that the screen needs to be refreshed
-					p.refreshScreen = true
+				// flag that the screen needs to be refreshed
+				p.refreshScreen = true
 
-					// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
-					if !p.Cleared() {
-						p.renderBlank()
-					}
-
-					// update palette
-					//palette.UpdatePalette()
-				} else {
-					// enter OAM mode
-					p.Mode = lcd.OAM
-					p.checkStatInterrupts(false)
+				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
+				if !p.Cleared() {
+					p.renderBlank()
 				}
+
+				// update palette
+				//palette.UpdatePalette()
+			} else {
+				// enter OAM mode
+				p.Mode = lcd.OAM
+				p.checkStatInterrupts(false)
 			}
 		}
 
