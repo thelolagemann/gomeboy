@@ -70,7 +70,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Co
 	c := &CPU{
 		PC:        0,
 		SP:        0,
-		Debug:     true,
+		Debug:     false,
 		Registers: Registers{},
 		mmu:       mmu,
 		Speed:     1,
@@ -188,7 +188,11 @@ func (c *CPU) Step() uint16 {
 			reqInt = c.irq.IME && c.hasInterrupts()
 		case ModeHaltBug:
 			// TODO implement halt bug
-			panic("halt bug")
+			instr := c.readInstruction()
+			c.PC--
+			c.runInstruction(instr)
+			c.mode = ModeNormal
+			reqInt = c.irq.IME && c.hasInterrupts()
 		}
 	}
 
