@@ -96,6 +96,17 @@ func Debug() GameBoyOpt {
 	}
 }
 
+func SaveEvery(t time.Duration) GameBoyOpt {
+	return func(gb *GameBoy) {
+		t := time.NewTicker(t)
+		go func() {
+			for range t.C {
+				gb.MMU.Cart.Save()
+			}
+		}()
+	}
+}
+
 func SerialDebugger(output *string) GameBoyOpt {
 	return func(gb *GameBoy) {
 		// used to intercept serial output and store it in a string
