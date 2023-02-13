@@ -21,10 +21,6 @@ type mooneyeTest struct {
 func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
 	romDir := filepath.Join(mooneyeROMPath, dir)
 	tc := suite.NewTestCollection(dir)
-	if dir == "misc" {
-		romDir = mooneyeROMPath
-		dir = ""
-	}
 
 	// read the directory
 	files, err := os.ReadDir(romDir)
@@ -63,34 +59,76 @@ func testMooneye(t *testing.T, roms *TestTable) {
 	// create top level test
 	tS := roms.NewTestSuite("mooneye")
 
+	// create test collections
+	acceptance := newMooneyeTestCollectionFromDir(tS, "acceptance")
+
 	// bits
-	newMooneyeTestCollectionFromDir(tS, "acceptance/bits")
+	newMooneyeTestCollectionFromCollection(acceptance, "bits")
 
 	// instr
-	newMooneyeTestCollectionFromDir(tS, "acceptance/instr")
+	newMooneyeTestCollectionFromCollection(acceptance, "instr")
 
 	// interrupts
-	newMooneyeTestCollectionFromDir(tS, "acceptance/interrupts")
+	newMooneyeTestCollectionFromCollection(acceptance, "interrupts")
 
 	// oam_dma
-	newMooneyeTestCollectionFromDir(tS, "acceptance/oam_dma")
+	newMooneyeTestCollectionFromCollection(acceptance, "oam_dma")
 
 	// ppu
-	newMooneyeTestCollectionFromDir(tS, "acceptance/ppu")
+	newMooneyeTestCollectionFromCollection(acceptance, "ppu")
 
 	// serial
-	newMooneyeTestCollectionFromDir(tS, "acceptance/serial")
+	newMooneyeTestCollectionFromCollection(acceptance, "serial")
 
 	// timer
-	newMooneyeTestCollectionFromDir(tS, "acceptance/timer")
-
-	// individual
-	newMooneyeTestCollectionFromDir(tS, "misc")
+	newMooneyeTestCollectionFromCollection(acceptance, "timer")
 
 	// emualator-only (mbc1, mbc2, mbc5)
-	newMooneyeTestCollectionFromDir(tS, "emulator-only/mbc1")
-	newMooneyeTestCollectionFromDir(tS, "emulator-only/mbc2")
-	newMooneyeTestCollectionFromDir(tS, "emulator-only/mbc5")
+	emulatorOnly := newMooneyeTestCollectionFromDir(tS, "emulator-only")
+	newMooneyeTestCollectionFromCollection(emulatorOnly, "mbc1")
+	newMooneyeTestCollectionFromCollection(emulatorOnly, "mbc2")
+	newMooneyeTestCollectionFromCollection(emulatorOnly, "mbc5")
+
+	// madness
+	newMooneyeTestCollectionFromDir(tS, "madness")
+
+	// misc
+	misc := newMooneyeTestCollectionFromDir(tS, "misc")
+	newMooneyeTestCollectionFromCollection(misc, "bits")
+	newMooneyeTestCollectionFromCollection(misc, "ppu")
+
+	// sprite_priority (image test)
+	manualOnly := tS.NewTestCollection("manual-only")
+	manualOnly.Add(&genericImageTest{
+		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority", "sprite_priority.gb"),
+		name:            "sprite_priority",
+		emulatedSeconds: 5,
+		model:           gameboy.ModelDMG,
+	})
+}
+
+func newMooneyeTestCollectionFromCollection(collection *TestCollection, s string) *TestCollection {
+	romDir := filepath.Join(mooneyeROMPath, collection.name, s)
+	tc := collection.NewTestCollection(s)
+
+	// read the directory
+	files, err := os.ReadDir(romDir)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".gb" {
+			continue
+		}
+
+		tc.Add(&mooneyeTest{
+			romPath: filepath.Join(romDir, file.Name()),
+			name:    file.Name(),
+		})
+	}
+
+	return tc
 }
 
 // testMooneyeROM tests a mooneye rom. A passing test will

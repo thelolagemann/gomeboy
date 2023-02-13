@@ -20,6 +20,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image/png"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -27,14 +28,32 @@ var (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
 	// FrameRate is the frame rate of the emulator.
-	FrameRate = 144
+	FrameRate = 60
 	// FrameTime is the time it should take to render a frame.
 	FrameTime            = time.Second / time.Duration(FrameRate)
 	TicksPerFrame uint32 = uint32(ClockSpeed / FrameRate)
 )
 
 var startingRegisterValues = map[types.HardwareAddress]uint8{
+	types.NR10: 0x80,
+	types.NR11: 0xBF,
+	types.NR12: 0xF3,
+	types.NR14: 0xBF,
+	types.NR21: 0x3F,
+	types.NR22: 0x00,
+	types.NR24: 0xBF,
+	types.NR30: 0x7F,
+	types.NR31: 0xFF,
+	types.NR32: 0x9F,
+	types.NR33: 0xBF,
+	types.NR41: 0xFF,
+	types.NR42: 0x00,
+	types.NR43: 0x00,
+	types.NR50: 0x77,
+	types.NR51: 0xF3,
+	types.NR52: 0xF1,
 	types.LCDC: 0x91,
+	types.BDIS: 0x01,
 }
 
 type Model = uint8
@@ -74,6 +93,21 @@ type GameBoyOpt func(gb *GameBoy)
 func Debug() GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.CPU.Debug = true
+	}
+}
+
+func SerialDebugger(output *string) GameBoyOpt {
+	return func(gb *GameBoy) {
+		// used to intercept serial output and store it in a string
+		types.RegisterHardware(types.SB, func(v uint8) {
+			*output += string(v)
+			fmt.Println(*output)
+			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
+				gb.CPU.DebugBreakpoint = true
+			}
+		}, func() uint8 {
+			return 0
+		})
 	}
 }
 
@@ -143,8 +177,10 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus.Map()
 
 	// setup starting register values
-	for addr, val := range startingRegisterValues {
-		g.MMU.Write(addr, val)
+	if g.MMU.BootROM == nil {
+		for addr, val := range startingRegisterValues {
+			g.MMU.Write(addr, val)
+		}
 	}
 
 	video.StartRendering()

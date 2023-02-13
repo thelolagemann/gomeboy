@@ -18,7 +18,7 @@ func (m *acid2Test) Name() string {
 }
 
 func (m *acid2Test) Run(t *testing.T) {
-	if pass := testROMWithExpectedImage(t, m.romPath, m.imgPath, m.model); pass {
+	if pass := testROMWithExpectedImage(t, m.romPath, m.imgPath, m.model, 2, m.name); pass {
 		m.passed = true
 	}
 }

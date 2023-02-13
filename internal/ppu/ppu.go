@@ -51,6 +51,8 @@ type PPU struct {
 	irq *interrupts.Service
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
+	scanlineHit   [ScreenHeight]bool
+	scanlineQueue [ScreenHeight]*RenderOutput
 
 	scanlineData [ScanlineSize]uint8
 	spriteData   [40]uint8 // 10 sprites, 4 bytes each. byte 1 and 2 are tile data, byte 3 is attributes, byte 4 is x position
@@ -246,11 +248,12 @@ func (p *PPU) init() {
 	}
 }
 
+// TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
 	output := make(chan *RenderOutput, ScreenHeight)
 	// setup renderer
 	if p.bus.IsGBC() {
-		renderJobs := make(chan RenderJobCGB, ScreenHeight)
+		renderJobs := make(chan RenderJobCGB, 20)
 		p.rendererCGB = NewRendererCGB(renderJobs, output)
 
 		// initialize CGB features
@@ -258,7 +261,6 @@ func (p *PPU) StartRendering() {
 		p.colourSpritePalette = palette.NewCGBPallette()
 		p.vRAM[1] = ram.NewRAM(0x2000)
 		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
-		fmt.Println("CGB mode")
 	} else {
 		renderJobs := make(chan RenderJob, 20)
 		p.renderer = NewRenderer(renderJobs, output)
@@ -269,12 +271,22 @@ func (p *PPU) StartRendering() {
 		var renderOutput *RenderOutput
 		for i := 0; i < ScreenHeight; i++ { // the last 8 scanlines are rendered as they are needed to avoid flickering
 			renderOutput = <-output
-			p.PreparedFrame[renderOutput.Line] = renderOutput.Scanline
+			if p.scanlineHit[renderOutput.Line] {
+				p.scanlineQueue[renderOutput.Line] = renderOutput
+			} else {
+				p.PreparedFrame[renderOutput.Line] = renderOutput.Scanline
+				p.scanlineHit[renderOutput.Line] = true
+			}
 
 			if i == ScreenHeight-1 {
 				// the last scanline has been rendered, so the frame is ready
-				p.refreshScreen = true
 				i = 0
+
+				// reset scanline hit
+				p.scanlineHit = [ScreenHeight]bool{}
+
+				// process any queued scanlines TODO
+				p.scanlineQueue = [ScreenHeight]*RenderOutput{}
 			}
 		}
 	}()

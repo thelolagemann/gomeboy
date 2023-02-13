@@ -28,7 +28,7 @@ type MMU struct {
 	raw [65536]*types.Address
 
 	// 0x0000 - 0x00FF/0x0900 - BOOT ROM (256B/2304B)
-	bootROM     *boot.ROM
+	BootROM     *boot.ROM
 	bootROMDone bool
 
 	// 0x0000 - 0x7FFF - ROM (16kB)
@@ -93,7 +93,7 @@ func (m *MMU) init() {
 			if m.isGBC {
 				return m.key0
 			}
-			return 0
+			return 0xFF
 		})
 	types.RegisterHardware(
 		types.KEY1,
@@ -105,7 +105,7 @@ func (m *MMU) init() {
 			if m.isGBC {
 				return m.key1 | 0x7e // upper bits are always set
 			}
-			return 0
+			return 0xFF
 		},
 	)
 
@@ -148,10 +148,10 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 	if cart.Header().Hardware() == "CGB" {
 		// load boot depending on cartridge type
 		m.HDMA = NewHDMA(m)
-		// m.bootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
+		// m.BootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
 	} else {
 		// load dmg boot
-		// m.bootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
+		// m.BootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
 	}
 
 	m.init()
@@ -238,7 +238,7 @@ func (m *MMU) Map() {
 }
 
 func (m *MMU) SetBootROM(rom []byte) {
-	m.bootROM = boot.LoadBootROM(rom)
+	m.BootROM = boot.LoadBootROM(rom)
 	m.bootROMDone = false
 	if len(rom) == 0x900 {
 		m.isGBC = true
@@ -279,12 +279,12 @@ func (m *MMU) IsGBC() bool {
 
 func (m *MMU) readCart(address uint16) uint8 {
 	// handle the boot ROM (if enabled)
-	if m.bootROM != nil && !m.bootROMDone {
+	if m.BootROM != nil && !m.bootROMDone {
 		if address < 0x100 {
-			return m.bootROM.Read(address)
+			return m.BootROM.Read(address)
 		}
 		if m.isGBC && address >= 0x200 && address < 0x900 {
-			return m.bootROM.Read(address)
+			return m.BootROM.Read(address)
 		}
 	}
 

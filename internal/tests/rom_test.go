@@ -10,27 +10,58 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+const readmeBlurb = `<hr/>
+GomeBoy is automatically tested against the following test suites:
+
+* **[Blargg's test roms](https://github.com/retrio/gb-test-roms)**  
+  <sup>by [Shay Green (a.k.a. Blargg)](http://www.slack.net/~ant/) </sup>
+* **[Bully](https://github.com/Hacktix/BullyGB)**
+  and **[Strikethrough](https://github.com/Hacktix/strikethrough.gb)**  
+  <sup>by [Hacktix](https://github.com/Hacktix) </sup>
+* **[cgb-acid-hell](https://github.com/mattcurrie/cgb-acid-hell)**,
+  **[cgb-acid2](https://github.com/mattcurrie/cgb-acid2)** and
+  **[dmg-acid2](https://github.com/mattcurrie/dmg-acid2)**  
+  <sup>by [Matt Currie](https://github.com/mattcurrie) </sup>
+* **[(parts of) little-things-gb](https://github.com/pinobatch/little-things-gb)**  
+  <sup>by [Damian Yerrick](https://github.com/pinobatch) </sup>
+* **[Mooneye Test Suite](https://github.com/Gekkio/mooneye-test-suite)**  
+  <sup>by [Joonas Javanainen](https://github.com/Gekkio) </sup>
+* **[SameSuite](https://github.com/LIJI32/SameSuite)**  
+  <sup>by [Lior Halphon](https://github.com/LIJI32) </sup>
+
+Different test suites use different pass/fail criteria. Some may write output to the serial port such as
+[Blargg's test roms](https://github.com/retrio/gb-test-roms), others may write to the CPU registers, such as 
+[Mooneye Test Suite](https://github.com/Gekkio/mooneye-test-suite) and [SameSuite](https://github.com/LIJI32/SameSuite).
+If the test suite does not provide a way to automatically determine a pass/fail criteria, then the emulator's output
+is compared against a reference image from a known good emulator.
+<hr/>
+
+`
 
 func Test_All(t *testing.T) {
 	testTable := &TestTable{
 		testSuites: make([]*TestSuite, 0),
 	}
 	testAcid2(t, testTable)
+	testBully(testTable)
 	testBlarrg(t, testTable)
-	//testMooneye(t, testTable)
-	//testSamesuite(t, testTable)
+	testLittleThings(testTable)
+	testMooneye(t, testTable)
+	testSamesuite(t, testTable)
+	testStrikethrough(testTable)
 
 	// execute tests
 	for _, top := range testTable.testSuites {
 		t.Run(top.name, func(t *testing.T) {
 			for _, collection := range top.collections {
 				t.Run(collection.name, func(t *testing.T) {
-					for _, test := range collection.tests {
-						test.Run(t)
-					}
+					collection.Run(t)
 				})
 			}
 		})
@@ -79,6 +110,7 @@ func ImgCompare(img1, img2 image.Image) (int64, image.Image, error) {
 					bounds1.Min.X+x,
 					bounds1.Min.Y+y,
 					color.RGBA{R: 255, A: 255})
+				fmt.Printf("pixel %d,%d: %d,%d,%d,%d != %d,%d,%d,%d\n", x, y, r1, g1, b1, a1, r2, g2, b2, a2)
 			}
 		}
 	}
@@ -99,25 +131,62 @@ type TestTable struct {
 
 func (t *TestTable) CreateReadme() string {
 	// create the table of contents with links
-	tableOfContents := "# Table of Contents\n"
+	tableOfContents := "# Test Results\n"
 	for _, suite := range t.testSuites {
 		tableOfContents += "* [" + suite.name + "](#" + suite.name + ")\n"
 		for _, collection := range suite.collections {
 			tableOfContents += "  * [" + collection.name + "](#" + collection.name + ")\n"
+			// check for subcollections
+			for _, sub := range collection.subCollections {
+				tableOfContents += "    * [" + sub.name + "](#" + sub.name + ")\n"
+			}
 		}
 	}
+
+	// create a progress bar for overall test pass rate
+	passed := 0
+	total := 0
+	for _, suite := range t.testSuites {
+		for _, collection := range suite.AllCollections() {
+			// TODO get all ROM tests including sub-collections for correct total
+			for _, test := range collection.tests {
+				total++
+				if test.Passed() {
+					passed++
+				}
+			}
+		}
+	}
+	passRate := float64(passed) / float64(total)
+
+	progressBar := fmt.Sprintf(
+		"![progress](https://progress-bar.dev/%s/?scale=100&title=passing%%20%s,%%20failing%%20%s&width=500)",
+		fmt.Sprintf("%d", int(passRate*100)),
+		fmt.Sprintf("%d", passed),
+		fmt.Sprintf("%d", total-passed))
 
 	// create the test results
 	table := ""
 	for _, suite := range t.testSuites {
 		table += "# " + suite.name + "\n"
-		for _, collection := range suite.collections {
+		for _, collection := range suite.AllCollections() {
 			table += "## " + collection.name + "\n"
 			table += CreateMarkdownTableFromTests(collection.tests)
 		}
 	}
 
-	return tableOfContents + table
+	// create document timestamp and commit hash
+	timestamp := time.Now().Format(time.RFC3339)
+	commitHash := "unknown"
+	if commitHashBytes, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
+		// get the first 8 characters of the commit hash
+		commitHash = string(commitHashBytes[:8])
+	}
+
+	// create formatted timestamp
+	timeStr := fmt.Sprintf("#### This document was automatically generated at %s from commit %s\n", timestamp, commitHash)
+	return `# Automated test results
+` + progressBar + "\n\n" + timeStr + readmeBlurb + tableOfContents + "\n" + table
 }
 
 // TestSuite is a collection of tests (often by a single author, or for a single
@@ -127,14 +196,23 @@ type TestSuite struct {
 	collections []*TestCollection
 }
 
-func (t *TestSuite) NewTestCollection(name string) *TestCollection {
-	collection := &TestCollection{name: name, tests: make([]ROMTest, 0)}
-	t.collections = append(t.collections, collection)
-	return collection
+func (t *TestSuite) AllCollections() []*TestCollection {
+	tests := []*TestCollection{}
+	for _, collection := range t.collections {
+		tests = append(tests, collection)
+
+		for _, subCollection := range collection.subCollections {
+			// TODO recursively get all sub-collections
+			tests = append(tests, subCollection)
+
+		}
+	}
+
+	return tests
 }
 
-func (t *TestSuite) NewTestCollectionFromDir(dir string) *TestCollection {
-	collection := &TestCollection{name: dir, tests: make([]ROMTest, 0)}
+func (t *TestSuite) NewTestCollection(name string) *TestCollection {
+	collection := &TestCollection{name: name, tests: make([]ROMTest, 0)}
 	t.collections = append(t.collections, collection)
 	return collection
 }
@@ -146,12 +224,49 @@ func (t *TestTable) NewTestSuite(name string) *TestSuite {
 }
 
 type TestCollection struct {
-	tests []ROMTest
-	name  string
+	tests          []ROMTest
+	name           string
+	subCollections []*TestCollection
 }
 
-func (t *TestCollection) Add(test ROMTest) {
-	t.tests = append(t.tests, test)
+func (tC *TestCollection) Add(test ROMTest) {
+	tC.tests = append(tC.tests, test)
+}
+
+func (tC *TestCollection) AllTests() []ROMTest {
+	tests := []ROMTest{}
+	for _, test := range tC.tests {
+		tests = append(tests, test)
+	}
+	for _, subCollection := range tC.subCollections {
+		// handle recursive sub collections
+		for _, subTest := range subCollection.AllTests() {
+			tests = append(tests, subTest)
+		}
+	}
+	return tests
+}
+
+// Run runs all the tests in the collection, including any tests in sub-collections.
+func (tC *TestCollection) Run(t *testing.T) {
+	for _, test := range tC.tests {
+		test.Run(t)
+	}
+	for _, subCollection := range tC.subCollections {
+		t.Run(subCollection.name, func(t *testing.T) {
+			subCollection.Run(t)
+		})
+	}
+}
+
+func (tC *TestCollection) NewTestCollection(name string) *TestCollection {
+	collection := &TestCollection{name: name, tests: make([]ROMTest, 0)}
+	tC.subCollections = append(tC.subCollections, collection)
+	return collection
+}
+
+func (tC *TestCollection) AddTestCollection(dir *TestCollection) {
+	tC.subCollections = append(tC.subCollections, dir)
 }
 
 type ROMTest interface {
@@ -174,9 +289,9 @@ func CreateMarkdownTableFromTests(tests []ROMTest) string {
 	return table
 }
 
-func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath string, asModel gameboy.Model) bool {
+func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath string, asModel gameboy.Model, emulatedSeconds int, name string) bool {
 	passed := true
-	t.Run(filepath.Base(romPath), func(t *testing.T) {
+	t.Run(name, func(t *testing.T) {
 		// load the rom
 		b, err := os.ReadFile(romPath)
 		if err != nil {
@@ -187,7 +302,7 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel))
 
 		// custom test loop
-		for frame := 0; frame < 60*60; frame++ {
+		for frame := 0; frame < 60*emulatedSeconds; frame++ {
 			for i := uint32(0); i < gameboy.TicksPerFrame; {
 				i += uint32(g.CPU.Step())
 			}
@@ -244,6 +359,27 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 		}
 	})
 	return passed
+}
+
+type genericImageTest struct {
+	romPath         string
+	name            string
+	emulatedSeconds int
+	expectedImage   string
+	passed          bool
+	model           gameboy.Model
+}
+
+func (t *genericImageTest) Run(tester *testing.T) {
+	t.passed = testROMWithExpectedImage(tester, t.romPath, t.expectedImage, t.model, t.emulatedSeconds, t.name)
+}
+
+func (t *genericImageTest) Name() string {
+	return t.name
+}
+
+func (t *genericImageTest) Passed() bool {
+	return t.passed
 }
 
 // TODO:
