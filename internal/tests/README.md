@@ -1,7 +1,7 @@
 # Automated test results
 ![progress](https://progress-bar.dev/62/?scale=100&title=passing%2096,%20failing%2058&width=500)
 
-#### This document was automatically generated from commit ac36f08f
+#### This document was automatically generated from commit 14e83e0b
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -39,8 +39,10 @@ is compared against a reference image from a known good emulator.
 | mooneye | 66% | 75 | 38 | 113 |
 | samesuite | 7% | 1 | 12 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
-Explore the individual tests for each suite below.
 
+Explore the individual tests for each suite using the table of contents below.
+
+## Table of Contents
 * [acid2](#acid2)
   * [dmg-acid2](#dmg-acid2)
   * [cgb-acid2](#cgb-acid2)

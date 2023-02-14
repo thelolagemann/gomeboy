@@ -158,7 +158,7 @@ func (t *TestTable) CreateReadme() string {
 	for _, suite := range t.testSuites {
 		tableOfContents += suite.CreateTableEntry()
 	}
-	tableOfContents += "\nExplore the individual tests for each suite below.\n\n"
+	tableOfContents += "\n\nExplore the individual tests for each suite using the table of contents below.\n\n## Table of Contents\n"
 	for _, suite := range t.testSuites {
 		tableOfContents += "* [" + suite.name + "](#" + suite.name + ")\n"
 		for _, collection := range suite.collections {
