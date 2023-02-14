@@ -59,7 +59,7 @@ type State struct {
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
 	s := &State{
-		State: 0b1111_1111,
+		State: 0xFF,
 		irq:   irq,
 	}
 	// set up the register
@@ -73,9 +73,9 @@ func New(irq *interrupts.Service) *State {
 
 func (s *State) Get() uint8 {
 	if !utils.Test(s.Register, 4) {
-		return s.Register | s.State>>4
+		return (s.Register | s.State>>4) | 0xC0
 	} else if !utils.Test(s.Register, 5) {
-		return s.Register | s.State&0b0000_1111
+		return (s.Register | s.State&0b0000_1111) | 0xC0
 	}
 	return s.Register
 }

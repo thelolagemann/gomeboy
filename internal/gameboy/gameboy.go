@@ -98,12 +98,14 @@ func Debug() GameBoyOpt {
 
 func SaveEvery(t time.Duration) GameBoyOpt {
 	return func(gb *GameBoy) {
-		t := time.NewTicker(t)
-		go func() {
-			for range t.C {
-				gb.MMU.Cart.Save()
-			}
-		}()
+		if _, ok := gb.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok {
+			t := time.NewTicker(t)
+			go func() {
+				for range t.C {
+					gb.MMU.Cart.Save()
+				}
+			}()
+		}
 	}
 }
 
