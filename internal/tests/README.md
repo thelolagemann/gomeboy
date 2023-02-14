@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/62/?scale=100&title=passing%2095,%20failing%2058&width=500)
+![progress](https://progress-bar.dev/62/?scale=100&title=passing%2096,%20failing%2057&width=500)
 
-#### This document was automatically generated at 2023-02-13T04:28:27Z from commit 64fb9f62
+#### This document was automatically generated from commit 231dc9b8
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -75,7 +75,7 @@ is compared against a reference image from a known good emulator.
 | Test | Passing |
 | ---- | ------- |
 | dmg-acid2 | ✅ |
-| cgb-acid2 | ❌ |
+| cgb-acid2 | ✅ |
 | cgb-acid-hell | ❌ |
 # bully
 ## bully

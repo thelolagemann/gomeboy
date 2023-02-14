@@ -11,9 +11,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
-	"time"
 )
 
 const readmeBlurb = `<hr/>
@@ -86,7 +84,7 @@ func ImgCompare(img1, img2 image.Image) (int64, image.Image, error) {
 	}
 
 	accumError := int64(0)
-	resultImg := image.NewRGBA(image.Rect(
+	resultImg := image.NewNRGBA(image.Rect(
 		bounds1.Min.X,
 		bounds1.Min.Y,
 		bounds1.Max.X,
@@ -109,7 +107,7 @@ func ImgCompare(img1, img2 image.Image) (int64, image.Image, error) {
 				resultImg.Set(
 					bounds1.Min.X+x,
 					bounds1.Min.Y+y,
-					color.RGBA{R: 255, A: 255})
+					color.NRGBA{R: 255, A: 128})
 				fmt.Printf("pixel %d,%d: %d,%d,%d,%d != %d,%d,%d,%d\n", x, y, r1, g1, b1, a1, r2, g2, b2, a2)
 			}
 		}
@@ -176,7 +174,6 @@ func (t *TestTable) CreateReadme() string {
 	}
 
 	// create document timestamp and commit hash
-	timestamp := time.Now().Format(time.RFC3339)
 	commitHash := "unknown"
 	if commitHashBytes, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
 		// get the first 8 characters of the commit hash
@@ -184,7 +181,7 @@ func (t *TestTable) CreateReadme() string {
 	}
 
 	// create formatted timestamp
-	timeStr := fmt.Sprintf("#### This document was automatically generated at %s from commit %s\n", timestamp, commitHash)
+	timeStr := fmt.Sprintf("#### This document was automatically generated from commit %s\n", commitHash)
 	return `# Automated test results
 ` + progressBar + "\n\n" + timeStr + readmeBlurb + tableOfContents + "\n" + table
 }
@@ -317,17 +314,39 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 		img := g.PPU.PreparedFrame
 
 		// create image.Image from the byte array
-		img1 := image.NewRGBA(image.Rect(0, 0, 160, 144))
+		img1 := image.NewNRGBA(image.Rect(0, 0, 160, 144))
 		for y := 0; y < 144; y++ {
 			for x := 0; x < 160; x++ {
-				img1.Set(x, y, color.RGBA{
-					R: img[y][x][0],
-					G: img[y][x][1],
-					B: img[y][x][2],
-					A: 255,
-				})
+				if asModel == gameboy.ModelDMG {
+					col := color.NRGBA{
+						R: img[y][x][0],
+						G: img[y][x][1],
+						B: img[y][x][2],
+						A: 255,
+					}
+					img1.Set(x, y, col)
+					// add color if it doesn't exist
+
+				} else {
+					// cgb 5-bit channel is converted
+					// to 8-bit channel with the formula (x << 3) | (x >> 2)
+					r := img[y][x][0]
+					g := img[y][x][1]
+					b := img[y][x][2]
+					col := color.NRGBA{
+						R: r,
+						G: g,
+						B: b,
+						A: 255,
+					}
+					img1.Set(x, y, col)
+				}
 			}
 		}
+
+		// remove any duplicate colors
+
+		// TODO encode to png, checksum compare to expected image rather than visual compare
 
 		// compare the image to the expected image
 		expectedImg, err := os.ReadFile(expectedImagePath)
@@ -335,27 +354,23 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 			t.Fatal(err)
 		}
 		img2, _, err := image.Decode(bytes.NewReader(expectedImg))
-		if err != nil {
-			t.Fatal(err)
-		}
-
 		// compare the images
-		diff, resultImg, err := ImgCompare(img1, img2)
+		diff, diffResult, err := ImgCompare(img2, img1)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		// if the images are different, save the result image
 		if diff > 0 {
-			t.Errorf("images are different by %d pixels", diff)
 			passed = false
-			// save the result image
-			f, err := os.Create("results/" + filepath.Base(romPath) + "_result.png")
+			t.Errorf("Test %s failed. Difference: %d", name, diff)
+			// save the diff image
+			f, err := os.Create("results/" + name + ".png")
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer f.Close()
-			png.Encode(f, resultImg)
+			if err = png.Encode(f, diffResult); err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 	return passed
@@ -384,5 +399,13 @@ func (t *genericImageTest) Passed() bool {
 
 // TODO:
 // - add a way to run tests in parallel
-// - perform rom tests with expected image output
 // - parse description from test roms (maybe)
+// - add table for global results for quick overview
+// - model differentiation (DMG, CGB, SGB)
+// - expected image output with actual image in README (with overlay)
+// - fix colour palette for CGB tests
+// - git commit hook to run tests and update README
+// - git clone to download test roms
+// - blurb for each test suite
+// - progress bar for each suite, as well as global progress bar
+// - tests have table entries for each test, with a link to the test rom, and a link to the expected image
