@@ -127,9 +127,38 @@ type TestTable struct {
 	testSuites []*TestSuite
 }
 
+func createProgressBar(suite *TestSuite) string {
+	total := 0
+	passed := 0
+	for _, collection := range suite.AllCollections() {
+		for _, test := range collection.tests {
+			total++
+			if test.Passed() {
+				passed++
+			}
+		}
+	}
+
+	passRate := float64(passed) / float64(total)
+
+	progressBar := fmt.Sprintf(
+		"![progress](https://progress-bar.dev/%s/?scale=100&title=passing%%20%s,%%20failing%%20%s&width=500)",
+		fmt.Sprintf("%d", int(passRate*100)),
+		fmt.Sprintf("%d", passed),
+		fmt.Sprintf("%d", total-passed))
+
+	return progressBar
+}
+
 func (t *TestTable) CreateReadme() string {
 	// create the table of contents with links
 	tableOfContents := "# Test Results\n"
+	// create table of global results
+	tableOfContents += "| Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |\n| --- | --- | --- | --- | --- |"
+	for _, suite := range t.testSuites {
+		tableOfContents += suite.CreateTableEntry()
+	}
+	tableOfContents += "\nExplore the individual tests for each suite below.\n\n"
 	for _, suite := range t.testSuites {
 		tableOfContents += "* [" + suite.name + "](#" + suite.name + ")\n"
 		for _, collection := range suite.collections {
@@ -167,6 +196,7 @@ func (t *TestTable) CreateReadme() string {
 	table := ""
 	for _, suite := range t.testSuites {
 		table += "# " + suite.name + "\n"
+		table += createProgressBar(suite) + "\n"
 		for _, collection := range suite.AllCollections() {
 			table += "## " + collection.name + "\n"
 			table += CreateMarkdownTableFromTests(collection.tests)
@@ -183,7 +213,7 @@ func (t *TestTable) CreateReadme() string {
 	// create formatted timestamp
 	timeStr := fmt.Sprintf("#### This document was automatically generated from commit %s\n", commitHash)
 	return `# Automated test results
-` + progressBar + "\n\n" + timeStr + readmeBlurb + tableOfContents + "\n" + table
+` + progressBar + "\n\n" + timeStr + readmeBlurb + "\n" + tableOfContents + "\n" + table
 }
 
 // TestSuite is a collection of tests (often by a single author, or for a single
@@ -212,6 +242,23 @@ func (t *TestSuite) NewTestCollection(name string) *TestCollection {
 	collection := &TestCollection{name: name, tests: make([]ROMTest, 0)}
 	t.collections = append(t.collections, collection)
 	return collection
+}
+
+func (t *TestSuite) CreateTableEntry() string {
+	total := 0
+	passed := 0
+	for _, collection := range t.AllCollections() {
+		for _, test := range collection.tests {
+			total++
+			if test.Passed() {
+				passed++
+			}
+		}
+	}
+
+	passRate := float64(passed) / float64(total)
+
+	return fmt.Sprintf("\n| %s | %s | %d | %d | %d |", t.name, fmt.Sprintf("%d%%", int(passRate*100)), passed, total-passed, total)
 }
 
 func (t *TestTable) NewTestSuite(name string) *TestSuite {
@@ -386,7 +433,11 @@ type genericImageTest struct {
 }
 
 func (t *genericImageTest) Run(tester *testing.T) {
-	t.passed = testROMWithExpectedImage(tester, t.romPath, t.expectedImage, t.model, t.emulatedSeconds, t.name)
+	secs := t.emulatedSeconds
+	if secs == 0 {
+		secs = 2 // default to 2 seconds
+	}
+	t.passed = testROMWithExpectedImage(tester, t.romPath, t.expectedImage, t.model, secs, t.name)
 }
 
 func (t *genericImageTest) Name() string {
@@ -400,12 +451,11 @@ func (t *genericImageTest) Passed() bool {
 // TODO:
 // - add a way to run tests in parallel
 // - parse description from test roms (maybe)
-// - add table for global results for quick overview
 // - model differentiation (DMG, CGB, SGB)
 // - expected image output with actual image in README (with overlay)
-// - fix colour palette for CGB tests
 // - git commit hook to run tests and update README
 // - git clone to download test roms
 // - blurb for each test suite
-// - progress bar for each suite, as well as global progress bar
 // - tests have table entries for each test, with a link to the test rom, and a link to the expected image
+// - refactor tests package out of internal and into root
+// - func to quickly create image test from rom and expected image

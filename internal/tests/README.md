@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/62/?scale=100&title=passing%2096,%20failing%2057&width=500)
+![progress](https://progress-bar.dev/62/?scale=100&title=passing%2096,%20failing%2058&width=500)
 
-#### This document was automatically generated from commit 231dc9b8
+#### This document was automatically generated from commit ac36f08f
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -28,9 +28,22 @@ If the test suite does not provide a way to automatically determine a pass/fail 
 is compared against a reference image from a known good emulator.
 <hr/>
 
+
 # Test Results
+| Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
+| --- | --- | --- | --- | --- |
+| acid2 | 50% | 2 | 2 | 4 |
+| bully | 0% | 0 | 1 | 1 |
+| blarrg | 85% | 17 | 3 | 20 |
+| little-things-gb | 100% | 1 | 0 | 1 |
+| mooneye | 66% | 75 | 38 | 113 |
+| samesuite | 7% | 1 | 12 | 13 |
+| strikethrough | 0% | 0 | 2 | 2 |
+Explore the individual tests for each suite below.
+
 * [acid2](#acid2)
-  * [acid2](#acid2)
+  * [dmg-acid2](#dmg-acid2)
+  * [cgb-acid2](#cgb-acid2)
 * [bully](#bully)
   * [bully](#bully)
 * [blarrg](#blarrg)
@@ -71,18 +84,25 @@ is compared against a reference image from a known good emulator.
   * [strikethrough](#strikethrough)
 
 # acid2
-## acid2
+![progress](https://progress-bar.dev/50/?scale=100&title=passing%202,%20failing%202&width=500)
+## dmg-acid2
 | Test | Passing |
 | ---- | ------- |
 | dmg-acid2 | ✅ |
+| dmg-acid2-cgb | ❌ |
+## cgb-acid2
+| Test | Passing |
+| ---- | ------- |
 | cgb-acid2 | ✅ |
 | cgb-acid-hell | ❌ |
 # bully
+![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%201&width=500)
 ## bully
 | Test | Passing |
 | ---- | ------- |
 | bully | ❌ |
 # blarrg
+![progress](https://progress-bar.dev/85/?scale=100&title=passing%2017,%20failing%203&width=500)
 ## cgb_sound
 | Test | Passing |
 | ---- | ------- |
@@ -125,11 +145,13 @@ is compared against a reference image from a known good emulator.
 | 02-write_timing.gb | ✅ |
 | 03-modify_timing.gb | ✅ |
 # little-things-gb
+![progress](https://progress-bar.dev/100/?scale=100&title=passing%201,%20failing%200&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
 | firstwhite | ✅ |
 # mooneye
+![progress](https://progress-bar.dev/66/?scale=100&title=passing%2075,%20failing%2038&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -295,6 +317,7 @@ is compared against a reference image from a known good emulator.
 | ---- | ------- |
 | sprite_priority | ✅ |
 # samesuite
+![progress](https://progress-bar.dev/7/?scale=100&title=passing%201,%20failing%2012&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
@@ -324,6 +347,7 @@ is compared against a reference image from a known good emulator.
 | command_mlt_req.gb | ❌ |
 | command_mlt_req_1_incrementing.gb | ❌ |
 # strikethrough
+![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%202&width=500)
 ## strikethrough
 | Test | Passing |
 | ---- | ------- |
