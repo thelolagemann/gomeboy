@@ -85,10 +85,6 @@ func (p *Palette) GetColour(index uint8) [3]uint8 {
 	return GetColour(p[index])
 }
 
-func toRGB(c [3]uint8) color.RGBA {
-	return color.RGBA{R: c[0], G: c[1], B: c[2], A: 0xFF}
-}
-
 func CyclePalette() {
 	latchedPalette++
 	if latchedPalette >= len(ColourPalettes) {

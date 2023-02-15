@@ -37,7 +37,9 @@ func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
 		for tileX := 0; tileX < 8; tileX++ {
 			var x = i + tileX
 			var y = i2 + tileY
-			var colourNum = t[tileY][tileX]
+			high, low := t[tileY][0], t[tileY][1]
+			var colourNum = int((high >> (7 - tileX)) & 1)
+			colourNum |= int((low>>(7-tileX))&1) << 1
 			rgb := palette.GetColour(uint8(colourNum))
 			img.Set(x, y, color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 0xff})
 		}

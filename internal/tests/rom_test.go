@@ -459,3 +459,5 @@ func (t *genericImageTest) Passed() bool {
 // - tests have table entries for each test, with a link to the test rom, and a link to the expected image
 // - refactor tests package out of internal and into root
 // - func to quickly create image test from rom and expected image
+// - palette compatibility dump
+// -

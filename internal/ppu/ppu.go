@@ -33,6 +33,7 @@ type PPU struct {
 	CurrentScanline uint8
 	LYCompare       uint8
 	SpritePalettes  [2]palette.Palette
+
 	WindowX         uint8
 	WindowY         uint8
 	WindowYInternal uint8
@@ -136,6 +137,17 @@ func (p *PPU) init() {
 		types.OBP0,
 		func(v uint8) {
 			p.SpritePalettes[0] = palette.ByteToPalette(v)
+			if p.bus.IsGBCCompat() {
+				// reorganize the colour palette based on the sprite palette
+				existingColours := [4][3]uint8{}
+				for i := uint8(0); i < 4; i++ {
+					existingColours[i] = p.colourSpritePalette.GetColour(0, i)
+				}
+
+				for i := 0; i < 4; i++ {
+					p.colourSpritePalette.Palettes[0][i] = existingColours[p.SpritePalettes[0][i]]
+				}
+			}
 		},
 		func() uint8 {
 			return p.SpritePalettes[0].ToByte()
@@ -145,6 +157,17 @@ func (p *PPU) init() {
 		types.OBP1,
 		func(v uint8) {
 			p.SpritePalettes[1] = palette.ByteToPalette(v)
+			if p.bus.IsGBCCompat() {
+				// reorganize the colour palette based on the sprite palette
+				existingColours := [4][3]uint8{}
+				for i := uint8(0); i < 4; i++ {
+					existingColours[i] = p.colourSpritePalette.GetColour(0, i)
+				}
+
+				for i := 0; i < 4; i++ {
+					p.colourSpritePalette.Palettes[1][i] = existingColours[p.SpritePalettes[1][i]]
+				}
+			}
 		},
 		func() uint8 {
 			return p.SpritePalettes[1].ToByte()
@@ -185,7 +208,7 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.BCPS,
 		func(v uint8) {
-			if p.bus.IsGBC() {
+			if p.bus.IsGBCCompat() {
 				p.colourPalette.SetIndex(v)
 			}
 		},
@@ -196,7 +219,7 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.BCPD,
 		func(v uint8) {
-			if p.bus.IsGBC() && p.colorPaletteUnlocked() {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				p.colourPalette.Write(v)
 			}
 		},
@@ -210,7 +233,7 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.OCPS,
 		func(v uint8) {
-			if p.bus.IsGBC() {
+			if p.bus.IsGBCCompat() {
 				p.colourSpritePalette.SetIndex(v)
 			}
 		},
@@ -221,7 +244,7 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.OCPD,
 		func(v uint8) {
-			if p.bus.IsGBC() && p.colorPaletteUnlocked() {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				p.colourSpritePalette.Write(v)
 			}
 		},
@@ -246,21 +269,23 @@ func (p *PPU) init() {
 			p.tileMaps[i] = NewTileMap()
 		}
 	}
+
+	p.colourPalette = palette.NewCGBPallette()
+	p.colourSpritePalette = palette.NewCGBPallette()
 }
 
 // TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
 	output := make(chan *RenderOutput, ScreenHeight)
 	// setup renderer
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		renderJobs := make(chan RenderJobCGB, 20)
-		p.rendererCGB = NewRendererCGB(renderJobs, output)
-
-		// initialize CGB features
-		p.colourPalette = palette.NewCGBPallette()
-		p.colourSpritePalette = palette.NewCGBPallette()
-		p.vRAM[1] = ram.NewRAM(0x2000)
+		p.rendererCGB = NewRendererCGB(renderJobs, output, p.bus.IsGBC())
 		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
+
+		if p.bus.IsGBC() {
+			p.vRAM[1] = ram.NewRAM(0x2000)
+		}
 	} else {
 		renderJobs := make(chan RenderJob, 20)
 		p.renderer = NewRenderer(renderJobs, output)
@@ -377,7 +402,7 @@ func (p *PPU) DumpTiledata() image.Image {
 	// CGB = 768 * 64 = 49152 pixels total
 	// CGB = 512 * 96 = 49152 pixels total
 	var img *image.RGBA
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 192))
 	} else {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 96))
@@ -391,7 +416,7 @@ func (p *PPU) DumpTiledata() image.Image {
 		tile.Draw(img, x, y)
 	}
 
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		for i, tile := range p.tileData[1] {
 			// calculate the x and y position of the tile
 			x := (i % 32) * 8
@@ -661,7 +686,7 @@ func (p *PPU) renderScanline() {
 	}
 
 	// send job to the renderer
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		p.rendererCGB.QueueJob(RenderJobCGB{
 			XStart:            p.ScrollX,
 			Scanline:          p.scanlineData,
@@ -847,4 +872,10 @@ func (p *PPU) renderSprites() {
 
 func (p *PPU) ClearRefresh() {
 	p.refreshScreen = false
+}
+
+// SaveCGBPalettes saves all of the currently active CGB palettes.
+func (p *PPU) SaveCGBPalettes() {
+	p.colourPalette.SaveExample("bg.png")
+	p.colourSpritePalette.SaveExample("sprite.png")
 }
