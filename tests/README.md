@@ -1,7 +1,7 @@
 # Automated test results
 ![progress](https://progress-bar.dev/62/?scale=100&title=passing%2096,%20failing%2058&width=500)
 
-#### This document was automatically generated from commit 14e83e0b
+#### This document was automatically generated from commit e6947be9
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -95,8 +95,8 @@ Explore the individual tests for each suite using the table of contents below.
 ## cgb-acid2
 | Test | Passing |
 | ---- | ------- |
-| cgb-acid2 | ✅ |
-| cgb-acid-hell | ❌ |
+| cgb-acid2-cgb | ✅ |
+| cgb-acid-hell-cgb | ❌ |
 # bully
 ![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%201&width=500)
 ## bully
@@ -353,5 +353,5 @@ Explore the individual tests for each suite using the table of contents below.
 ## strikethrough
 | Test | Passing |
 | ---- | ------- |
-| strikethrough_dmg | ❌ |
-| strikethrough_cgb | ❌ |
+| strikethrough | ❌ |
+| strikethrough-cgb | ❌ |

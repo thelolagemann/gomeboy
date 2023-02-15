@@ -99,7 +99,7 @@ func testMooneye(t *testing.T, roms *TestTable) {
 
 	// sprite_priority (image test)
 	manualOnly := tS.NewTestCollection("manual-only")
-	manualOnly.Add(&genericImageTest{
+	manualOnly.Add(&imageTest{
 		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority", "sprite_priority.gb"),
 		name:            "sprite_priority",
 		emulatedSeconds: 5,

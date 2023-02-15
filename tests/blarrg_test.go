@@ -66,7 +66,7 @@ func testBlarrg(t *testing.T, table *TestTable) {
 	tS := table.NewTestSuite("blarrg")
 
 	// cgb_sound
-	tS.NewTestCollection("cgb_sound").Add(&genericImageTest{
+	tS.NewTestCollection("cgb_sound").Add(&imageTest{
 		romPath:         "roms/blargg/cgb_sound/cgb_sound.gb",
 		name:            "cgb_sound",
 		expectedImage:   "roms/blargg/cgb_sound/cgb_sound-cgb.png",
@@ -77,7 +77,7 @@ func testBlarrg(t *testing.T, table *TestTable) {
 	// cpu_instrs
 	newBlargTestCollectionFromDir(tS, "cpu_instrs")
 	// dmg_sound
-	tS.NewTestCollection("dmg_sound").Add(&genericImageTest{
+	tS.NewTestCollection("dmg_sound").Add(&imageTest{
 		romPath:         "roms/blargg/dmg_sound/dmg_sound.gb",
 		name:            "dmg_sound",
 		expectedImage:   "roms/blargg/dmg_sound/dmg_sound-dmg.png",
@@ -85,7 +85,7 @@ func testBlarrg(t *testing.T, table *TestTable) {
 		model:           gameboy.ModelDMG,
 	})
 	// halt_bug
-	tS.NewTestCollection("halt_bug").Add(&genericImageTest{
+	tS.NewTestCollection("halt_bug").Add(&imageTest{
 		romPath:         "roms/blargg/halt_bug/halt_bug.gb",
 		name:            "halt_bug",
 		expectedImage:   "roms/blargg/halt_bug/halt_bug-dmg-cgb.png",
@@ -93,7 +93,7 @@ func testBlarrg(t *testing.T, table *TestTable) {
 		model:           gameboy.ModelDMG,
 	})
 	// instr_timing
-	tS.NewTestCollection("instr_timing").Add(&genericImageTest{
+	tS.NewTestCollection("instr_timing").Add(&imageTest{
 		romPath:         "roms/blargg/instr_timing/instr_timing.gb",
 		name:            "instr_timing",
 		expectedImage:   "roms/blargg/instr_timing/instr_timing-dmg-cgb.png",
@@ -102,7 +102,7 @@ func testBlarrg(t *testing.T, table *TestTable) {
 	})
 	// interrupt_time (DMG)
 	interruptTime := tS.NewTestCollection("interrupt_time")
-	interruptTime.Add(&genericImageTest{
+	interruptTime.Add(&imageTest{
 		romPath:         "roms/blargg/interrupt_time/interrupt_time.gb",
 		name:            "interrupt_time_dmg",
 		expectedImage:   "roms/blargg/interrupt_time/interrupt_time-dmg.png",
@@ -110,7 +110,7 @@ func testBlarrg(t *testing.T, table *TestTable) {
 		model:           gameboy.ModelDMG,
 	})
 	// interrupt_time (CGB)
-	interruptTime.Add(&genericImageTest{
+	interruptTime.Add(&imageTest{
 		romPath:         "roms/blargg/interrupt_time/interrupt_time.gb",
 		name:            "interrupt_time_cgb",
 		expectedImage:   "roms/blargg/interrupt_time/interrupt_time-cgb.png",

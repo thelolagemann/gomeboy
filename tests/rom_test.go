@@ -46,7 +46,7 @@ func Test_All(t *testing.T) {
 	testTable := &TestTable{
 		testSuites: make([]*TestSuite, 0),
 	}
-	testAcid2(t, testTable)
+	testAcid2(testTable)
 	testBully(testTable)
 	testBlarrg(t, testTable)
 	testLittleThings(testTable)
@@ -108,7 +108,6 @@ func ImgCompare(img1, img2 image.Image) (int64, image.Image, error) {
 					bounds1.Min.X+x,
 					bounds1.Min.Y+y,
 					color.NRGBA{R: 255, A: 128})
-				fmt.Printf("pixel %d,%d: %d,%d,%d,%d != %d,%d,%d,%d\n", x, y, r1, g1, b1, a1, r2, g2, b2, a2)
 			}
 		}
 	}
@@ -277,6 +276,12 @@ func (tC *TestCollection) Add(test ROMTest) {
 	tC.tests = append(tC.tests, test)
 }
 
+func (tC *TestCollection) AddTests(tests ...ROMTest) {
+	for _, test := range tests {
+		tC.tests = append(tC.tests, test)
+	}
+}
+
 func (tC *TestCollection) AllTests() []ROMTest {
 	tests := []ROMTest{}
 	for _, test := range tC.tests {
@@ -362,7 +367,9 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 
 		// create image.Image from the byte array
 		img1 := image.NewNRGBA(image.Rect(0, 0, 160, 144))
+		palette := []color.Color{}
 		for y := 0; y < 144; y++ {
+		next:
 			for x := 0; x < 160; x++ {
 				if asModel == gameboy.ModelDMG {
 					col := color.NRGBA{
@@ -373,7 +380,14 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 					}
 					img1.Set(x, y, col)
 					// add color if it doesn't exist
-
+					for _, p := range palette {
+						r, g, b, _ := p.RGBA()
+						r2, g2, b2, _ := col.RGBA()
+						if r == r2 && g == g2 && b == b2 {
+							continue next
+						}
+					}
+					palette = append(palette, col)
 				} else {
 					// cgb 5-bit channel is converted
 					// to 8-bit channel with the formula (x << 3) | (x >> 2)
@@ -387,13 +401,17 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 						A: 255,
 					}
 					img1.Set(x, y, col)
+					for _, p := range palette {
+						r, g, b, _ := p.RGBA()
+						r2, g2, b2, _ := col.RGBA()
+						if r == r2 && g == g2 && b == b2 {
+							continue next
+						}
+					}
+					palette = append(palette, col)
 				}
 			}
 		}
-
-		// remove any duplicate colors
-
-		// TODO encode to png, checksum compare to expected image rather than visual compare
 
 		// compare the image to the expected image
 		expectedImg, err := os.ReadFile(expectedImagePath)
@@ -401,8 +419,12 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 			t.Fatal(err)
 		}
 		img2, _, err := image.Decode(bytes.NewReader(expectedImg))
+		// create a new paletted image
+		img3 := image.NewPaletted(img1.Bounds(), palette)
+		draw.Draw(img3, img3.Bounds(), img1, image.Point{0, 0}, draw.Src)
+
 		// compare the images
-		diff, diffResult, err := ImgCompare(img2, img1)
+		diff, diffResult, err := ImgCompare(img2, img3)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -418,34 +440,34 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 			if err = png.Encode(f, diffResult); err != nil {
 				t.Fatal(err)
 			}
+
+			// save the actual image
+			f, err = os.Create("results/" + name + "_actual.png")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err = png.Encode(f, img3); err != nil {
+				t.Fatal(err)
+			}
+
+			// save the expected image
+			f, err = os.Create("results/" + name + "_expected.png")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = png.Encode(f, img2); err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 	return passed
 }
 
-type genericImageTest struct {
-	romPath         string
-	name            string
-	emulatedSeconds int
-	expectedImage   string
-	passed          bool
-	model           gameboy.Model
-}
-
-func (t *genericImageTest) Run(tester *testing.T) {
-	secs := t.emulatedSeconds
-	if secs == 0 {
-		secs = 2 // default to 2 seconds
+func testROMs(t *testing.T, roms ...ROMTest) {
+	for _, rom := range roms {
+		rom.Run(t)
 	}
-	t.passed = testROMWithExpectedImage(tester, t.romPath, t.expectedImage, t.model, secs, t.name)
-}
-
-func (t *genericImageTest) Name() string {
-	return t.name
-}
-
-func (t *genericImageTest) Passed() bool {
-	return t.passed
 }
 
 // TODO:
@@ -458,6 +480,11 @@ func (t *genericImageTest) Passed() bool {
 // - blurb for each test suite
 // - tests have table entries for each test, with a link to the test rom, and a link to the expected image
 // - refactor tests package out of internal and into root
-// - func to quickly create image test from rom and expected image
 // - palette compatibility dump
-// -
+// - individual test run
+// - check if test suite has only 1 test (to avoid double header)
+// - individual test suite table generation
+// - add test that can simulate a button press
+// - gameboy doctor
+// - jsmoo tests
+// - wilbertpol's tests
