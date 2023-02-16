@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/62/?scale=100&title=passing%2096,%20failing%2058&width=500)
+![progress](https://progress-bar.dev/62/?scale=100&title=passing%2098,%20failing%2059&width=500)
 
-#### This document was automatically generated from commit e6947be9
+#### This document was automatically generated from commit 3b8ebf64
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -34,8 +34,8 @@ is compared against a reference image from a known good emulator.
 | --- | --- | --- | --- | --- |
 | acid2 | 50% | 2 | 2 | 4 |
 | bully | 0% | 0 | 1 | 1 |
-| blarrg | 85% | 17 | 3 | 20 |
-| little-things-gb | 100% | 1 | 0 | 1 |
+| blarrg | 85% | 18 | 3 | 21 |
+| little-things-gb | 66% | 2 | 1 | 3 |
 | mooneye | 66% | 75 | 38 | 113 |
 | samesuite | 7% | 1 | 12 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
@@ -58,6 +58,7 @@ Explore the individual tests for each suite using the table of contents below.
   * [mem_timing](#mem_timing)
 * [little-things-gb](#little-things-gb)
   * [firstwhite](#firstwhite)
+  * [tellinglys](#tellinglys)
 * [mooneye](#mooneye)
   * [acceptance](#acceptance)
     * [bits](#bits)
@@ -99,16 +100,16 @@ Explore the individual tests for each suite using the table of contents below.
 | cgb-acid-hell-cgb | ❌ |
 # bully
 ![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%201&width=500)
-## bully
+
 | Test | Passing |
 | ---- | ------- |
 | bully | ❌ |
 # blarrg
-![progress](https://progress-bar.dev/85/?scale=100&title=passing%2017,%20failing%203&width=500)
+![progress](https://progress-bar.dev/85/?scale=100&title=passing%2018,%20failing%203&width=500)
 ## cgb_sound
 | Test | Passing |
 | ---- | ------- |
-| cgb_sound | ❌ |
+| cgb_sound-cgb | ❌ |
 ## cpu_instrs
 | Test | Passing |
 | ---- | ------- |
@@ -131,6 +132,7 @@ Explore the individual tests for each suite using the table of contents below.
 | Test | Passing |
 | ---- | ------- |
 | halt_bug | ✅ |
+| halt_bug-cgb | ✅ |
 ## instr_timing
 | Test | Passing |
 | ---- | ------- |
@@ -138,8 +140,8 @@ Explore the individual tests for each suite using the table of contents below.
 ## interrupt_time
 | Test | Passing |
 | ---- | ------- |
-| interrupt_time_dmg | ✅ |
-| interrupt_time_cgb | ❌ |
+| interrupt_time | ✅ |
+| interrupt_time-cgb | ❌ |
 ## mem_timing
 | Test | Passing |
 | ---- | ------- |
@@ -147,11 +149,16 @@ Explore the individual tests for each suite using the table of contents below.
 | 02-write_timing.gb | ✅ |
 | 03-modify_timing.gb | ✅ |
 # little-things-gb
-![progress](https://progress-bar.dev/100/?scale=100&title=passing%201,%20failing%200&width=500)
+![progress](https://progress-bar.dev/66/?scale=100&title=passing%202,%20failing%201&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
 | firstwhite | ✅ |
+## tellinglys
+| Test | Passing |
+| ---- | ------- |
+| tellinglys | ✅ |
+| tellinglys-cgb | ❌ |
 # mooneye
 ![progress](https://progress-bar.dev/66/?scale=100&title=passing%2075,%20failing%2038&width=500)
 ## acceptance
@@ -203,7 +210,7 @@ Explore the individual tests for each suite using the table of contents below.
 | ---- | ------- |
 | mem_oam.gb | ✅ |
 | reg_f.gb | ✅ |
-| unused_hwio-GS.gb | ❌ |
+| unused_hwio-GS.gb | ✅ |
 ## instr
 | Test | Passing |
 | ---- | ------- |
@@ -317,7 +324,7 @@ Explore the individual tests for each suite using the table of contents below.
 ## manual-only
 | Test | Passing |
 | ---- | ------- |
-| sprite_priority | ✅ |
+| sprite_priority | ❌ |
 # samesuite
 ![progress](https://progress-bar.dev/7/?scale=100&title=passing%201,%20failing%2012&width=500)
 ## apu
@@ -350,7 +357,7 @@ Explore the individual tests for each suite using the table of contents below.
 | command_mlt_req_1_incrementing.gb | ❌ |
 # strikethrough
 ![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%202&width=500)
-## strikethrough
+
 | Test | Passing |
 | ---- | ------- |
 | strikethrough | ❌ |

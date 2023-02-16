@@ -12,6 +12,24 @@ const (
 	blarggROMPath = "roms/blargg"
 )
 
+var (
+	// blarggImageTests holds all the tests that are image based,
+	// as they don't output any data to the 0xFF01 register
+	blarggImageTests = []ROMTest{
+		newImageTest("cgb_sound", asModel(gameboy.ModelCGB), withEmulatedSeconds(40)),
+		newImageTest("dmg_sound", withEmulatedSeconds(40)),
+		newImageTest("halt_bug", withEmulatedSeconds(20)),
+		newImageTest("halt_bug", asModel(gameboy.ModelCGB), withEmulatedSeconds(20)),
+		newImageTest("instr_timing", withEmulatedSeconds(20)),
+		newImageTest("interrupt_time", withEmulatedSeconds(2)),
+		newImageTest("interrupt_time", asModel(gameboy.ModelCGB), withEmulatedSeconds(2)),
+	}
+)
+
+func Test_Blargg(t *testing.T) {
+	testROMs(t, blarggImageTests...)
+}
+
 type blarrgTest struct {
 	romPath string
 	name    string
@@ -61,62 +79,23 @@ func (m *blarrgTest) Passed() bool {
 	return m.passed
 }
 
-func testBlarrg(t *testing.T, table *TestTable) {
+func testBlarrg(table *TestTable) {
 	// create top level test suite
 	tS := table.NewTestSuite("blarrg")
 
 	// cgb_sound
-	tS.NewTestCollection("cgb_sound").Add(&imageTest{
-		romPath:         "roms/blargg/cgb_sound/cgb_sound.gb",
-		name:            "cgb_sound",
-		expectedImage:   "roms/blargg/cgb_sound/cgb_sound-cgb.png",
-		emulatedSeconds: 40,
-		model:           gameboy.ModelCGB,
-	})
+	tS.NewTestCollection("cgb_sound").Add(blarggImageTests[0])
 
 	// cpu_instrs
 	newBlargTestCollectionFromDir(tS, "cpu_instrs")
 	// dmg_sound
-	tS.NewTestCollection("dmg_sound").Add(&imageTest{
-		romPath:         "roms/blargg/dmg_sound/dmg_sound.gb",
-		name:            "dmg_sound",
-		expectedImage:   "roms/blargg/dmg_sound/dmg_sound-dmg.png",
-		emulatedSeconds: 40,
-		model:           gameboy.ModelDMG,
-	})
+	tS.NewTestCollection("dmg_sound").Add(blarggImageTests[1])
 	// halt_bug
-	tS.NewTestCollection("halt_bug").Add(&imageTest{
-		romPath:         "roms/blargg/halt_bug/halt_bug.gb",
-		name:            "halt_bug",
-		expectedImage:   "roms/blargg/halt_bug/halt_bug-dmg-cgb.png",
-		emulatedSeconds: 20,
-		model:           gameboy.ModelDMG,
-	})
+	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests[2], blarggImageTests[3])
 	// instr_timing
-	tS.NewTestCollection("instr_timing").Add(&imageTest{
-		romPath:         "roms/blargg/instr_timing/instr_timing.gb",
-		name:            "instr_timing",
-		expectedImage:   "roms/blargg/instr_timing/instr_timing-dmg-cgb.png",
-		emulatedSeconds: 2,
-		model:           gameboy.ModelDMG,
-	})
+	tS.NewTestCollection("instr_timing").Add(blarggImageTests[4])
 	// interrupt_time (DMG)
-	interruptTime := tS.NewTestCollection("interrupt_time")
-	interruptTime.Add(&imageTest{
-		romPath:         "roms/blargg/interrupt_time/interrupt_time.gb",
-		name:            "interrupt_time_dmg",
-		expectedImage:   "roms/blargg/interrupt_time/interrupt_time-dmg.png",
-		emulatedSeconds: 2,
-		model:           gameboy.ModelDMG,
-	})
-	// interrupt_time (CGB)
-	interruptTime.Add(&imageTest{
-		romPath:         "roms/blargg/interrupt_time/interrupt_time.gb",
-		name:            "interrupt_time_cgb",
-		expectedImage:   "roms/blargg/interrupt_time/interrupt_time-cgb.png",
-		emulatedSeconds: 2,
-		model:           gameboy.ModelCGB,
-	})
+	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests[5], blarggImageTests[6])
 	// mem_timing
 	newBlargTestCollectionFromDir(tS, "mem_timing")
 }

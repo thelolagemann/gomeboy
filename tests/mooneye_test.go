@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 const (
@@ -100,7 +99,8 @@ func testMooneye(t *testing.T, roms *TestTable) {
 	// sprite_priority (image test)
 	manualOnly := tS.NewTestCollection("manual-only")
 	manualOnly.Add(&imageTest{
-		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority", "sprite_priority.gb"),
+		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority.gb"),
+		expectedImage:   findImage("sprite_priority", gameboy.ModelDMG),
 		name:            "sprite_priority",
 		emulatedSeconds: 5,
 		model:           gameboy.ModelDMG,
@@ -148,18 +148,14 @@ func testMooneyeROM(t *testing.T, romFile string) bool {
 		// create the gameboy
 		g := gameboy.NewGameBoy(b, gameboy.Debug())
 
-		takenTooLong := false
-		go func() {
-			// run the gameboy for 10 seconds TODO figure out how long it should take
-			time.Sleep(3 * time.Second)
-			takenTooLong = true
-		}()
+		frame := 0
 		// run until breakpoint
 		for {
 			g.Frame()
-			if g.CPU.DebugBreakpoint || takenTooLong {
+			if g.CPU.DebugBreakpoint || frame > (60*10) { // 10 seconds
 				break
 			}
+			frame++
 		}
 
 		expectedRegisters := []uint8{3, 5, 8, 13, 21, 34}
