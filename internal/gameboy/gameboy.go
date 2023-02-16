@@ -15,21 +15,36 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image/png"
 	"os"
+	"strings"
 	"time"
 )
 
-const (
+var (
 	// ClockSpeed is the clock speed of the Game Boy.
 	ClockSpeed = 4194304 // 4.194304 MHz
 	// FrameRate is the frame rate of the emulator.
 	FrameRate = 60
 	// FrameTime is the time it should take to render a frame.
-	FrameTime     = time.Second / FrameRate
-	TicksPerFrame = ClockSpeed / FrameRate
+	FrameTime            = time.Second / time.Duration(FrameRate)
+	TicksPerFrame uint32 = uint32(ClockSpeed / FrameRate)
+)
+
+var startingRegisterValues = map[types.HardwareAddress]uint8{
+	types.LCDC: 0x91,
+	types.BDIS: 0x01,
+}
+
+type Model = uint8
+
+const (
+	ModelAutomatic Model = iota
+	ModelDMG
+	ModelCGB
 )
 
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
@@ -37,7 +52,7 @@ const (
 type GameBoy struct {
 	CPU *cpu.CPU
 	MMU *mmu.MMU
-	ppu *ppu.PPU
+	PPU *ppu.PPU
 
 	APU        *apu.APU
 	Joypad     *joypad.State
@@ -64,10 +79,38 @@ func Debug() GameBoyOpt {
 	}
 }
 
-// NoBios disables the BIOS by setting CPU.CPU.PC to 0x100.
-func NoBios() GameBoyOpt {
+func SaveEvery(t time.Duration) GameBoyOpt {
 	return func(gb *GameBoy) {
-		gb.CPU.PC = 0x0100
+		if _, ok := gb.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok {
+			t := time.NewTicker(t)
+			go func() {
+				for range t.C {
+					gb.MMU.Cart.Save()
+				}
+			}()
+		}
+	}
+}
+
+func SerialDebugger(output *string) GameBoyOpt {
+	return func(gb *GameBoy) {
+		// used to intercept serial output and store it in a string
+		types.RegisterHardware(types.SB, func(v uint8) {
+			*output += string(v)
+			fmt.Println(*output)
+			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
+				gb.CPU.DebugBreakpoint = true
+			}
+		}, func() uint8 {
+			return 0
+		})
+	}
+}
+
+func AsModel(m Model) func(gb *GameBoy) {
+	return func(gb *GameBoy) {
+		gb.SetModel(m)
+		gb.initializeCPU()
 	}
 }
 
@@ -108,7 +151,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	g := &GameBoy{
 		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound),
 		MMU: memBus,
-		ppu: video,
+		PPU: video,
 
 		APU:        sound,
 		Joypad:     pad,
@@ -116,11 +159,31 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Timer:      timerCtl,
 		Serial:     serial,
 	}
+	g.initializeCPU()
 
+	for _, opt := range opts {
+		opt(g)
+	}
+
+	memBus.Map()
+
+	// setup starting register values
+	if g.MMU.BootROM == nil {
+		for addr, val := range startingRegisterValues {
+			g.MMU.Write(addr, val)
+		}
+	}
+
+	video.StartRendering()
+	fmt.Printf("%02x\n", g.MMU.Cart.Header().TitleChecksum())
+	return g
+}
+
+func (g *GameBoy) initializeCPU() {
 	// setup initial cpu state
 	g.CPU.PC = 0x100
 	g.CPU.SP = 0xFFFE
-	if memBus.IsGBC() {
+	if g.MMU.IsGBCCompat() {
 		g.CPU.A = 0x11
 		g.CPU.F = 0x80
 		g.CPU.B = 0x00
@@ -140,11 +203,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		g.CPU.L = 0x4D
 	}
 
-	for _, opt := range opts {
-		opt(g)
-	}
-
-	return g
 }
 
 // Start starts the Game Boy emulation. It will run until the game is closed.
@@ -228,20 +286,20 @@ func avgTime(t []time.Duration) time.Duration {
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	// was the last frame rendered? (by the PPU)
-	if g.frameQueue {
+	/*if g.frameQueue {
 		// if so, tick until the next frame is ready
-		for !g.ppu.HasFrame() {
+		for !g.PPU.HasFrame() {
 			g.CPU.Step()
 		}
 
 		// prepare the frame for display
-		g.ppu.ClearRefresh()
+		g.PPU.ClearRefresh()
 
 		// return the frame and reset the frame queue
 		g.frameQueue = false
-		g.previousFrame = g.ppu.PreparedFrame
+		g.previousFrame = g.PPU.PreparedFrame
 		return g.previousFrame
-	}
+	}*/
 	ticks := uint32(0)
 	// step until the next frame or until tick threshold is reached
 	for ticks <= TicksPerFrame {
@@ -249,14 +307,15 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	}
 
 	// did the PPU render a frame?
-	if g.ppu.HasFrame() {
-		g.ppu.ClearRefresh()
-		g.previousFrame = g.ppu.PreparedFrame
-		return g.ppu.PreparedFrame
+	if g.PPU.HasFrame() {
+		g.PPU.ClearRefresh()
+		g.previousFrame = g.PPU.PreparedFrame
+		return g.PPU.PreparedFrame
 	} else {
 		// if not, create a smoothed frame from the last frame
 		// and the current frame (which is not yet finished)
 		var smoothedFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
+		// TODO find a way to make this parallel (maybe use a channel of chunks?)
 		for x := uint8(0); x < ppu.ScreenWidth; x++ {
 			for y := uint8(0); y < ppu.ScreenHeight; y++ {
 				// is the pixel on the current frame black?
@@ -264,7 +323,7 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 				// interpolate the current frame
 				for c := 0; c < 3; c++ {
 					// smooth by averaging the current and previous frame
-					smoothedFrame[y][x][c] = uint8((uint16(g.previousFrame[y][x][c]) + uint16(g.ppu.PreparedFrame[y][x][c])) / 2)
+					smoothedFrame[y][x][c] = uint8((uint16(g.previousFrame[y][x][c]) + uint16(g.PPU.PreparedFrame[y][x][c])) / 2)
 				}
 			}
 		}
@@ -289,7 +348,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 		},
 		10: func() {
-			img := g.ppu.DumpTileMap()
+			img := g.PPU.DumpTileMap()
 
 			f, err := os.Create("tilemap.png")
 			if err != nil {
@@ -300,7 +359,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 				panic(err)
 			}
 
-			img = g.ppu.DumpTiledata()
+			img = g.PPU.DumpTiledata()
 
 			f, err = os.Create("tiledata.png")
 			if err != nil {
@@ -314,13 +373,19 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 
 		},
 		11: func() {
-			g.ppu.Debug.BackgroundDisabled = !g.ppu.Debug.BackgroundDisabled
+			g.PPU.Debug.BackgroundDisabled = !g.PPU.Debug.BackgroundDisabled
 		},
 		12: func() {
-			g.ppu.Debug.WindowDisabled = !g.ppu.Debug.WindowDisabled
+			g.PPU.Debug.WindowDisabled = !g.PPU.Debug.WindowDisabled
 		},
 		13: func() {
-			g.ppu.Debug.SpritesDisabled = !g.ppu.Debug.SpritesDisabled
+			g.PPU.Debug.SpritesDisabled = !g.PPU.Debug.SpritesDisabled
+		},
+		14: func() {
+			types.SavePaletteDump()
+		},
+		15: func() {
+			g.PPU.SaveCompatibilityPalette()
 		},
 	}
 }
@@ -343,4 +408,12 @@ func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
 			g.Joypad.Release(key)
 		}
 	}
+}
+
+func (g *GameBoy) SetModel(m Model) {
+	// re-initialize MMU
+	g.MMU.SetModel(m)
+	// restart PPU rendering
+
+	// re-initialize CPU
 }

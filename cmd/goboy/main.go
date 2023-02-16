@@ -8,6 +8,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"net/http"
 	"os"
+	"time"
 
 	_ "net/http/pprof"
 )
@@ -22,6 +23,8 @@ func main() {
 	}()
 
 	romFile := flag.String("rom", "", "The rom file to load")
+	bootROM := flag.String("boot", "", "The boot rom file to load")
+	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	flag.Parse()
 
 	// open the rom file
@@ -41,8 +44,41 @@ func main() {
 		rom = append(rom, buf[:n]...)
 	}
 
+	var opts []gameboy.GameBoyOpt
+	// open the boot rom file
+	var boot []byte
+	if *bootROM != "" {
+		f, err = os.Open(*bootROM)
+		if err != nil {
+			panic(err)
+		}
+
+		// read the boot rom file into a byte slice
+		boot = make([]byte, 0)
+		buf = make([]byte, 1024)
+		for {
+			n, err := f.Read(buf)
+			if err != nil {
+				break
+			}
+			boot = append(boot, buf[:n]...)
+		}
+
+		opts = append(opts, gameboy.WithBootROM(boot))
+	}
+
+	switch *asModel {
+	case "auto":
+		// no-op
+		break
+	case "dmg":
+		opts = append(opts, gameboy.AsModel(gameboy.ModelDMG))
+	case "cgb":
+		opts = append(opts, gameboy.AsModel(gameboy.ModelCGB))
+	}
+	opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	// create a new gameboy
-	gb := gameboy.NewGameBoy(rom)
+	gb := gameboy.NewGameBoy(rom, opts...)
 
 	pixelgl.Run(func() {
 		// create a new pixel binding

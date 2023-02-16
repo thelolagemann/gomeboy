@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"time"
 )
 
 type Cartridge struct {
@@ -42,25 +41,6 @@ func (c *Cartridge) Filename() string {
 	return fmt.Sprintf("%s.sav", hex.EncodeToString(hash[:]))
 }
 
-func (c *Cartridge) init() {
-	if ram, ok := c.MemoryBankController.(RAMController); ok {
-		// setup the cartridge RAM
-		saveData, err := os.ReadFile(c.Filename())
-		if err != nil && !os.IsNotExist(err) {
-			panic(err)
-		}
-
-		ram.Load(saveData)
-
-		ticker := time.NewTicker(5 * time.Second)
-		go func() {
-			for range ticker.C {
-				c.Save()
-			}
-		}()
-	}
-}
-
 // Save saves the cartridge RAM to a file.
 func (c *Cartridge) Save() {
 	data := c.MemoryBankController.(RAMController).Save()
@@ -80,6 +60,8 @@ func NewCartridge(rom []byte) *Cartridge {
 		cart.MemoryBankController = NewROMCartridge(rom)
 	case MBC1, MBC1RAM, MBC1RAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge1(rom, header)
+	case MBC2, MBC2BATT:
+		cart.MemoryBankController = NewMemoryBankedCartridge2(rom, header)
 	case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge3(rom, header)
 	case MBC5, MBC5RAM, MBC5RAMBATT:
@@ -88,7 +70,16 @@ func NewCartridge(rom []byte) *Cartridge {
 		panic(fmt.Sprintf("cartridge type %d not implemented", header.CartridgeType))
 	}
 
-	cart.init()
+	// load the save file if it exists
+	if ram, ok := cart.MemoryBankController.(RAMController); ok {
+		// setup the cartridge RAM
+		saveData, err := os.ReadFile(cart.Filename())
+		if err != nil && !os.IsNotExist(err) {
+			panic(err)
+		}
+
+		ram.Load(saveData)
+	}
 
 	// calculate the md5 hash of the cartridge
 	hash := md5.Sum(rom)

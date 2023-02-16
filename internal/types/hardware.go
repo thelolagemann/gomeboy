@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"os"
 )
 
 var (
@@ -17,10 +18,31 @@ type HardwareRegisters [0x80]*Hardware
 // the given address. If the hardware register is not
 // readable, it returns 0xFF.
 func (h HardwareRegisters) Read(address uint16) uint8 {
-	if h[address&0x007F] == nil {
+	if h[address&0x007F] == nil || address == 0xFF7F { // TODO: remove this hack. when FF7F is read, it should return 0xFF
+		// however, as the address is ANDed with 0x007F, it will return the value of the
+		// hardware register at address 0xFFFF, which is the interrupt enable register.
 		return 0xFF
 	}
 	return h[address&0x007F].Read()
+}
+
+var paletteDump []struct {
+	address uint16
+	val     uint8
+}
+
+func SavePaletteDump() {
+	// save the current palette dump to a file
+	f, err := os.Create("palette-dump.txt")
+	if err != nil {
+		panic(err)
+	}
+
+	for _, d := range paletteDump {
+		fmt.Fprintf(f, "%04X: %02X\n", d.address, d.val)
+	}
+
+	f.Close()
 }
 
 // Write writes the given value to the hardware register

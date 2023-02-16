@@ -1,34 +1,15 @@
 package mmu
 
-import (
-	"github.com/thelolagemann/go-gameboy/internal/types"
-)
-
 type WRAM struct {
 	bank uint8
 	raw  [8][0x1000]uint8
-}
-
-func (w *WRAM) init() {
-	// setup registers
-	types.RegisterHardware(
-		types.SVBK,
-		func(v uint8) {
-			w.bank = v & 0x07
-			if w.bank == 0 {
-				w.bank = 1
-			}
-		}, func() uint8 {
-			return w.bank
-		},
-	)
 }
 
 func NewWRAM() *WRAM {
 	w := &WRAM{
 		bank: 1, // bank 1 is the default as the first bank is fixed
 	}
-	w.init()
+
 	return w
 }
 

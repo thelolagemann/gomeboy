@@ -56,7 +56,6 @@ type Controller struct {
 	BackgroundEnabled bool
 
 	cleared  bool
-	reg      *types.Hardware
 	isSigned bool
 }
 
@@ -129,10 +128,10 @@ func NewController(writeHandler types.WriteHandler) *Controller {
 		BackgroundTileMapAddress: 0x9800,
 		TileDataAddress:          0x8800,
 		SpriteSize:               8,
-		BackgroundEnabled:        true,
-		SpriteEnabled:            true,
-		WindowEnabled:            true,
-		Enabled:                  true,
+		BackgroundEnabled:        false,
+		SpriteEnabled:            false,
+		WindowEnabled:            false,
+		Enabled:                  false,
 	}
 	c.init(writeHandler)
 	return c

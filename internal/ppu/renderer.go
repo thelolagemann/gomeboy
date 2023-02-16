@@ -138,27 +138,13 @@ func RenderScanline(jobs <-chan RenderJob, output chan<- *RenderOutput) {
 
 }
 
-func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
+func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput, isGBC bool) {
 	scanline := &RenderOutput{}
 	for {
 		select {
 		case job := <-jobs:
 			spriteXPerScreen := [ScreenWidth]uint8{}
 			scanline.Line = job.Line
-			// determine tile offset
-
-			// example:
-			// offset = 3
-			// start drawing from tile 0, pixel 3 (tile 0, pixel 0 is the first pixel)
-			// when x = 0, draw tile 0, pixel 3
-			// when x = 1, draw tile 0, pixel 4
-			// when x = 2, draw tile 0, pixel 5
-			// when x = 3, draw tile 0, pixel 6
-			// when x = 4, draw tile 0, pixel 7
-			// when x = 5, update tile, draw tile 1, pixel 0
-			// when x = 6, draw tile 1, pixel 1
-			// when x = 7, draw tile 1, pixel 2
-			// ... and so on
 			tileOffset := job.XStart % 8
 
 			// load the inital data
@@ -238,7 +224,7 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 					}
 
 					// determine priority
-					if job.BackgroundEnabled {
+					if isGBC && job.BackgroundEnabled {
 						if !(job.Sprites[i*SpriteSizeInBytes+2]&types.Bit7 == 0 && !(job.Scanline[((tileOffset+startX+x)/8)*TileSizeInBytes+2]&types.Bit7 == types.Bit7)) {
 							// we need to determine which palette number that the background tile is using
 							// we can do this by looking at the tile info byte
@@ -252,14 +238,29 @@ func RenderScanlineCGB(jobs <-chan RenderJobCGB, output chan<- *RenderOutput) {
 								continue
 							}
 						}
+					} else if !isGBC {
+						if !(job.Sprites[i*SpriteSizeInBytes+2]&types.Bit7 == 0 && !(job.Scanline[((tileOffset+startX+x)/8)*TileSizeInBytes+2]&types.Bit7 == types.Bit7)) {
+							if scanline.Scanline[startX+x] != job.palettes.GetColour(0, 0) {
+								continue
+							}
+						}
 					}
 
 					// is the pixel occupied by a sprite already?
 					if spriteXPerScreen[startX+x] != 0 {
-						continue
+						if !isGBC && spriteXPerScreen[startX+x] <= startX {
+							continue
+						} else if isGBC {
+							continue
+						}
 					}
 
-					scanline.Scanline[startX+x] = job.objPalette.GetColour(job.Sprites[i*SpriteSizeInBytes+2]&0x07, uint8(colorNum))
+					palNumber := job.Sprites[i*SpriteSizeInBytes+2] & 0x07
+					if !isGBC {
+						palNumber = job.Sprites[i*SpriteSizeInBytes+2] >> 4 & 0x1
+					}
+
+					scanline.Scanline[startX+x] = job.objPalette.GetColour(palNumber, uint8(colorNum))
 
 					// mark pixel as occupied by sprite
 					spriteXPerScreen[startX+x] = startX
@@ -312,7 +313,7 @@ func NewRenderer(jobs chan RenderJob, output chan<- *RenderOutput) *Renderer {
 	}
 
 	// start a few goroutines to render the scanlines
-	for i := 0; i < ScreenHeight; i++ {
+	for i := 0; i < 16; i++ {
 		go RenderScanline(jobs, output)
 	}
 
@@ -329,7 +330,7 @@ func (r *RendererCGB) QueueJob(job RenderJobCGB) {
 	r.jobs <- job
 }
 
-func NewRendererCGB(jobs chan RenderJobCGB, output chan<- *RenderOutput) *RendererCGB {
+func NewRendererCGB(jobs chan RenderJobCGB, output chan<- *RenderOutput, isGBC bool) *RendererCGB {
 	r := &RendererCGB{
 		jobs:   jobs,
 		output: output,
@@ -337,7 +338,7 @@ func NewRendererCGB(jobs chan RenderJobCGB, output chan<- *RenderOutput) *Render
 
 	// start a few goroutines to render the scanlines
 	for i := 0; i < 16; i++ {
-		go RenderScanlineCGB(jobs, output)
+		go RenderScanlineCGB(jobs, output, isGBC)
 	}
 
 	return r

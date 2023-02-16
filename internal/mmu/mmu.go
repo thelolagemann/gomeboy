@@ -4,6 +4,7 @@
 package mmu
 
 import (
+	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/thelolagemann/go-gameboy/internal/boot"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
@@ -27,7 +28,7 @@ type MMU struct {
 	raw [65536]*types.Address
 
 	// 0x0000 - 0x00FF/0x0900 - BOOT ROM (256B/2304B)
-	bootROM     *boot.ROM
+	BootROM     *boot.ROM
 	bootROMDone bool
 
 	// 0x0000 - 0x7FFF - ROM (16kB)
@@ -69,26 +70,107 @@ func (m *MMU) init() {
 		func(v uint8) {
 			// it's assumed any write to this register will disable the boot rom
 			m.bootROMDone = true
-		}, types.NoRead)
+		}, func() uint8 {
+			// TODO return different values depending on hardware (DMG/SGB/CGB)
+			if m.bootROMDone {
+				if m.isGBC {
+					return 0x11
+				} else {
+					return 0xFF
+				}
+			}
+			return 0x00
+		})
 	// CGB registers
-	if m.IsGBC() {
-		types.RegisterHardware(
-			types.KEY0,
-			func(v uint8) {
-				m.key0 = v & 0xf // only lower nibble is writable
-			}, func() uint8 {
-				return m.key0
-			})
-		types.RegisterHardware(
-			types.KEY1,
-			func(v uint8) {
-				m.key1 |= v & types.Bit0 // only lower bit is writable
-			}, func() uint8 {
-				return m.key1 | 0x7e // upper bits are always set
-			},
-		)
-	}
 
+	types.RegisterHardware(
+		types.KEY0,
+		func(v uint8) {
+			if m.isGBC {
+				m.key0 = v & 0xf // only lower nibble is writable
+			}
+		}, func() uint8 {
+			if m.isGBC {
+				return m.key0
+			}
+			return 0xFF
+		})
+	types.RegisterHardware(
+		types.KEY1,
+		func(v uint8) {
+			if m.isGBC {
+				m.key1 |= v & types.Bit0 // only lower bit is writable
+			}
+		}, func() uint8 {
+			if m.isGBC {
+				return m.key1 | 0x7e // upper bits are always set
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.SVBK,
+		func(v uint8) {
+			if m.isGBC {
+				m.wRAM.bank = v & 0x07
+				if m.wRAM.bank == 0 {
+					m.wRAM.bank = 1
+				}
+			}
+		}, func() uint8 {
+			if m.isGBC {
+				return m.wRAM.bank
+			}
+			return 0xFF
+		},
+	)
+
+}
+
+func readOffset(read func(uint16) uint8, offset uint16) func(uint16) uint8 {
+	return func(addr uint16) uint8 {
+		return read(addr - offset)
+	}
+}
+
+func writeOffset(write func(uint16, uint8), offset uint16) func(uint16, uint8) {
+	return func(addr uint16, v uint8) {
+		write(addr-offset, v)
+	}
+}
+
+// NewMMU returns a new MMU.
+func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
+	l := logrus.New()
+	l.SetLevel(logrus.DebugLevel)
+	l.Formatter = &logrus.TextFormatter{
+		DisableColors:    true,
+		DisableTimestamp: true,
+		DisableSorting:   true,
+		DisableQuote:     true,
+	}
+	m := &MMU{
+		Cart: cart,
+		wRAM: NewWRAM(),
+
+		zRAM: ram.NewRAM(0x80), // 128 bytes
+
+		Sound:       sound,
+		Log:         l,
+		isGBC:       cart.Header().Hardware() == "CGB",
+		bootROMDone: true, // only set to false if boot rom is enabled
+	}
+	if m.IsGBCCompat() {
+		m.HDMA = NewHDMA(m)
+	}
+	m.init()
+
+	return m
+}
+
+// Map is to be called after all components have been initialized.
+// This will map the memory addresses to the correct components.
+func (m *MMU) Map() {
 	// setup raw memory
 	addresses := []types.Address{
 		{Read: m.readCart, Write: m.Cart.Write},
@@ -129,60 +211,61 @@ func (m *MMU) init() {
 		m.raw[i] = &addresses[3]
 	}
 
-}
+	// collect hardware registers
+	m.registers = types.CollectHardwareRegisters()
 
-func readOffset(read func(uint16) uint8, offset uint16) func(uint16) uint8 {
-	return func(addr uint16) uint8 {
-		return read(addr - offset)
-	}
-}
-
-func writeOffset(write func(uint16, uint8), offset uint16) func(uint16, uint8) {
-	return func(addr uint16, v uint8) {
-		write(addr-offset, v)
-	}
-}
-
-// NewMMU returns a new MMU.
-func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
-	l := logrus.New()
-	l.SetLevel(logrus.DebugLevel)
-	l.Formatter = &logrus.TextFormatter{
-		DisableColors:    true,
-		DisableTimestamp: true,
-		DisableSorting:   true,
-		DisableQuote:     true,
-	}
-	m := &MMU{
-		Cart: cart,
-		wRAM: NewWRAM(),
-
-		zRAM: ram.NewRAM(0x80), // 128 bytes
-
-		Sound: sound,
-		Log:   l,
-		isGBC: cart.Header().Hardware() == "CGB",
+	addresses2 := []types.Address{
+		{Read: m.Video.Read, Write: m.Video.Write},
+		{Read: m.registers.Read, Write: m.registers.Write},
+		{Read: m.Sound.Read, Write: m.Sound.Write},
 	}
 
-	if cart.Header().Hardware() == "CGB" {
-		// load boot depending on cartridge type
-		m.HDMA = NewHDMA(m)
-		// m.bootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
-	} else {
-		// load dmg boot
-		// m.bootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
+	// 0xFF00 - 0xFF7F - I/O (128B)
+	for i := 0xFF00; i < 0xFF80; i++ {
+		m.raw[i] = &addresses2[1]
+	}
+	// 0xFFFF - interrupt enable register
+	m.raw[0xFFFF] = &types.Address{
+		Read:  m.registers.Read,
+		Write: m.registers.Write,
 	}
 
-	m.init()
+	// 0x8000 - 0x9FFF - VRAM (8kB)
+	for i := 0x8000; i < 0xA000; i++ {
+		m.raw[i] = &addresses2[0]
+	}
 
-	return m
+	// 0xFE00 - 0xFE9F - sprite attribute table (OAM) (160B)
+	for i := 0xFE00; i < 0xFEA0; i++ {
+		m.raw[i] = &addresses2[0]
+	}
+
+	// 0xFF30 - 0xFF3F - Wave Pattern RAM (16B)
+	for i := 0xFF30; i < 0xFF40; i++ {
+		m.raw[i] = &addresses2[2]
+	}
 }
 
 func (m *MMU) SetBootROM(rom []byte) {
-	m.bootROM = boot.LoadBootROM(rom)
+	m.BootROM = boot.LoadBootROM(rom)
+	m.bootROMDone = false
 	if len(rom) == 0x900 {
 		m.isGBC = true
 		m.HDMA = NewHDMA(m)
+	} else {
+		m.isGBC = false
+	}
+}
+
+func (m *MMU) SetModel(model uint8) {
+	switch model {
+	case 1:
+		m.isGBC = false
+		fmt.Println("Setting model to DMG")
+	case 2:
+		m.isGBC = true
+		m.HDMA = NewHDMA(m)
+		fmt.Println("Setting model to CGB")
 	}
 }
 
@@ -197,54 +280,24 @@ func (m *MMU) SetKey(key uint8) {
 // AttachVideo attaches the video component to the MMU.
 func (m *MMU) AttachVideo(video IOBus) {
 	m.Video = video
+}
 
-	// collect hardware registers
-	m.registers = types.CollectHardwareRegisters()
-
-	addresses := []types.Address{
-		{Read: m.Video.Read, Write: m.Video.Write},
-		{Read: m.registers.Read, Write: m.registers.Write},
-		{Read: m.Sound.Read, Write: m.Sound.Write},
-	}
-
-	// 0xFF00 - 0xFF7F - I/O (128B)
-	for i := 0xFF00; i < 0xFF80; i++ {
-		m.raw[i] = &addresses[1]
-	}
-	// 0xFFFF - interrupt enable register
-	m.raw[0xFFFF] = &types.Address{
-		Read:  m.registers.Read,
-		Write: m.registers.Write,
-	}
-
-	// 0x8000 - 0x9FFF - VRAM (8kB)
-	for i := 0x8000; i < 0xA000; i++ {
-		m.raw[i] = &addresses[0]
-	}
-
-	// 0xFE00 - 0xFE9F - sprite attribute table (OAM) (160B)
-	for i := 0xFE00; i < 0xFEA0; i++ {
-		m.raw[i] = &addresses[0]
-	}
-
-	// 0xFF30 - 0xFF3F - Wave Pattern RAM (16B)
-	for i := 0xFF30; i < 0xFF40; i++ {
-		m.raw[i] = &addresses[2]
-	}
+func (m *MMU) IsGBCCompat() bool {
+	return m.isGBC
 }
 
 func (m *MMU) IsGBC() bool {
-	return m.isGBC
+	return m.isGBC && m.Cart.Header().GameboyColor()
 }
 
 func (m *MMU) readCart(address uint16) uint8 {
 	// handle the boot ROM (if enabled)
-	if m.bootROM != nil && !m.bootROMDone {
+	if m.BootROM != nil && !m.bootROMDone {
 		if address < 0x100 {
-			return m.bootROM.Read(address)
+			return m.BootROM.Read(address)
 		}
 		if m.isGBC && address >= 0x200 && address < 0x900 {
-			return m.bootROM.Read(address)
+			return m.BootROM.Read(address)
 		}
 	}
 

@@ -37,9 +37,9 @@ var ColourPalettes = []Colour{
 	// Greyscale
 	{
 		{0xFF, 0xFF, 0xFF, 0xFF},
-		{0xCC, 0xCC, 0xCC, 0xFF},
-		{0x77, 0x77, 0x77, 0xFF},
-		{0x00, 0x00, 0x00, 0xFF},
+		{0xAA, 0xAA, 0xAA, 0xAA},
+		{0x55, 0x55, 0x55, 0x55},
+		{0x00, 0x00, 0x00, 0x00},
 	},
 	// Green (mimics original)
 	{
@@ -83,10 +83,6 @@ func (p *Palette) ToByte() byte {
 func (p *Palette) GetColour(index uint8) [3]uint8 {
 	// map provided index to the current palette
 	return GetColour(p[index])
-}
-
-func toRGB(c [3]uint8) color.RGBA {
-	return color.RGBA{R: c[0], G: c[1], B: c[2], A: 0xFF}
 }
 
 func CyclePalette() {

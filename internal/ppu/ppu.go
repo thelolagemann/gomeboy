@@ -2,6 +2,8 @@
 package ppu
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
@@ -11,6 +13,8 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
+	"log"
+	"os"
 )
 
 const (
@@ -33,6 +37,7 @@ type PPU struct {
 	CurrentScanline uint8
 	LYCompare       uint8
 	SpritePalettes  [2]palette.Palette
+
 	WindowX         uint8
 	WindowY         uint8
 	WindowYInternal uint8
@@ -51,6 +56,8 @@ type PPU struct {
 	irq *interrupts.Service
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
+	scanlineHit   [ScreenHeight]bool
+	scanlineQueue [ScreenHeight]*RenderOutput
 
 	scanlineData [ScanlineSize]uint8
 	spriteData   [40]uint8 // 10 sprites, 4 bytes each. byte 1 and 2 are tile data, byte 3 is attributes, byte 4 is x position
@@ -134,6 +141,17 @@ func (p *PPU) init() {
 		types.OBP0,
 		func(v uint8) {
 			p.SpritePalettes[0] = palette.ByteToPalette(v)
+			if p.bus.IsGBCCompat() {
+				// reorganize the colour palette based on the sprite palette
+				existingColours := [4][3]uint8{}
+				for i := uint8(0); i < 4; i++ {
+					existingColours[i] = p.colourSpritePalette.GetColour(0, i)
+				}
+
+				for i := 0; i < 4; i++ {
+					p.colourSpritePalette.Palettes[0][i] = existingColours[p.SpritePalettes[0][i]]
+				}
+			}
 		},
 		func() uint8 {
 			return p.SpritePalettes[0].ToByte()
@@ -143,6 +161,17 @@ func (p *PPU) init() {
 		types.OBP1,
 		func(v uint8) {
 			p.SpritePalettes[1] = palette.ByteToPalette(v)
+			if p.bus.IsGBCCompat() {
+				// reorganize the colour palette based on the sprite palette
+				existingColours := [4][3]uint8{}
+				for i := uint8(0); i < 4; i++ {
+					existingColours[i] = p.colourSpritePalette.GetColour(0, i)
+				}
+
+				for i := 0; i < 4; i++ {
+					p.colourSpritePalette.Palettes[1][i] = existingColours[p.SpritePalettes[1][i]]
+				}
+			}
 		},
 		func() uint8 {
 			return p.SpritePalettes[1].ToByte()
@@ -168,55 +197,77 @@ func (p *PPU) init() {
 	)
 
 	// CGB registers
-	if p.bus.IsGBC() {
-		types.RegisterHardware(
-			types.VBK,
-			func(v uint8) {
-				p.vRAMBank = v & types.Bit0 // only the first bit is used
-			},
-			func() uint8 {
+
+	types.RegisterHardware(
+		types.VBK,
+		func(v uint8) {
+			if p.bus.IsGBC() {
+				p.vRAMBank = v & types.Bit0
+			}
+		},
+		func() uint8 {
+			if p.bus.IsGBC() {
 				return p.vRAMBank
-			},
-		)
-		types.RegisterHardware(
-			types.BCPS,
-			func(v uint8) {
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.BCPS,
+		func(v uint8) {
+			if p.bus.IsGBCCompat() {
 				p.colourPalette.SetIndex(v)
-			},
-			func() uint8 {
+			}
+		},
+		func() uint8 {
+			if p.bus.IsGBCCompat() {
 				return p.colourPalette.GetIndex()
-			},
-		)
-		types.RegisterHardware(
-			types.BCPD,
-			func(v uint8) {
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.BCPD,
+		func(v uint8) {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				p.colourPalette.Write(v)
-			},
-			func() uint8 {
-				// TODO handle locked state
+			}
+		},
+		func() uint8 {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				return p.colourPalette.Read()
-			},
-		)
-		types.RegisterHardware(
-			types.OCPS,
-			func(v uint8) {
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.OCPS,
+		func(v uint8) {
+			if p.bus.IsGBCCompat() {
 				p.colourSpritePalette.SetIndex(v)
-			},
-			func() uint8 {
+			}
+		},
+		func() uint8 {
+			if p.bus.IsGBCCompat() {
 				return p.colourSpritePalette.GetIndex()
-			},
-		)
-		types.RegisterHardware(
-			types.OCPD,
-			func(v uint8) {
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.OCPD,
+		func(v uint8) {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				p.colourSpritePalette.Write(v)
-			},
-			func() uint8 {
-				// TODO handle locked state
+			}
+		},
+		func() uint8 {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				return p.colourSpritePalette.Read()
-			},
-		)
-	}
+			}
+			return 0xFF
+		},
+	)
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
@@ -232,11 +283,22 @@ func (p *PPU) init() {
 		}
 	}
 
+	p.colourPalette = palette.NewCGBPallette()
+	p.colourSpritePalette = palette.NewCGBPallette()
+}
+
+// TODO pass channel to send frame to
+func (p *PPU) StartRendering() {
 	output := make(chan *RenderOutput, ScreenHeight)
 	// setup renderer
-	if p.bus.IsGBC() {
-		renderJobs := make(chan RenderJobCGB, ScreenHeight)
-		p.rendererCGB = NewRendererCGB(renderJobs, output)
+	if p.bus.IsGBCCompat() {
+		renderJobs := make(chan RenderJobCGB, 20)
+		p.rendererCGB = NewRendererCGB(renderJobs, output, p.bus.IsGBC())
+		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
+
+		if p.bus.IsGBC() {
+			p.vRAM[1] = ram.NewRAM(0x2000)
+		}
 	} else {
 		renderJobs := make(chan RenderJob, 20)
 		p.renderer = NewRenderer(renderJobs, output)
@@ -247,12 +309,22 @@ func (p *PPU) init() {
 		var renderOutput *RenderOutput
 		for i := 0; i < ScreenHeight; i++ { // the last 8 scanlines are rendered as they are needed to avoid flickering
 			renderOutput = <-output
-			p.PreparedFrame[renderOutput.Line] = renderOutput.Scanline
+			if p.scanlineHit[renderOutput.Line] {
+				p.scanlineQueue[renderOutput.Line] = renderOutput
+			} else {
+				p.PreparedFrame[renderOutput.Line] = renderOutput.Scanline
+				p.scanlineHit[renderOutput.Line] = true
+			}
 
 			if i == ScreenHeight-1 {
 				// the last scanline has been rendered, so the frame is ready
-				p.refreshScreen = true
 				i = 0
+
+				// reset scanline hit
+				p.scanlineHit = [ScreenHeight]bool{}
+
+				// process any queued scanlines TODO
+				p.scanlineQueue = [ScreenHeight]*RenderOutput{}
 			}
 		}
 	}()
@@ -273,16 +345,51 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 		DMA: NewDMA(mmu, oam),
 	}
 
-	// initialize CGB features
-	if mmu.IsGBC() {
-		p.colourPalette = palette.NewCGBPallette()
-		p.colourSpritePalette = palette.NewCGBPallette()
-		p.vRAM[1] = ram.NewRAM(0x2000)
-		mmu.HDMA.AttachVRAM(p.WriteVRAM)
-	}
-
 	p.init()
 	return p
+}
+
+// TODO save compatibility palette
+// - load game with boot ROM enabled
+// - save colour palette to file (bgp = index 0 of colour palette, obp1 = index 0 of sprite palette, obp2 = index 1 of sprite palette)
+// - encoded filename as hash of palette
+
+func (p *PPU) SaveCompatibilityPalette() {
+	compatPal := palette.CompatibilityPalette{
+		BGP:  p.colourPalette.Palettes[0],
+		OBP0: p.colourSpritePalette.Palettes[0],
+		OBP1: p.colourSpritePalette.Palettes[1],
+	}
+
+	// create hash of palette
+	hash := sha256.New()
+	for _, c := range compatPal.BGP {
+		hash.Write([]byte{c[0], c[1], c[2]})
+	}
+	for _, c := range compatPal.OBP0 {
+		hash.Write([]byte{c[0], c[1], c[2]})
+	}
+	for _, c := range compatPal.OBP1 {
+		hash.Write([]byte{c[0], c[1], c[2]})
+	}
+
+	// create file
+	file, err := os.Create(fmt.Sprintf("compatibility_palette_%x", hash.Sum(nil)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	// encode palette
+	enc := json.NewEncoder(file)
+
+	// write palette to file
+	err = enc.Encode(compatPal)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("Compatibility palette saved to file: compatibility_palette_%x", hash.Sum(nil))
 }
 
 func (p *PPU) Read(address uint16) uint8 {
@@ -351,7 +458,7 @@ func (p *PPU) DumpTiledata() image.Image {
 	// CGB = 768 * 64 = 49152 pixels total
 	// CGB = 512 * 96 = 49152 pixels total
 	var img *image.RGBA
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 192))
 	} else {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 96))
@@ -365,7 +472,7 @@ func (p *PPU) DumpTiledata() image.Image {
 		tile.Draw(img, x, y)
 	}
 
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		for i, tile := range p.tileData[1] {
 			// calculate the x and y position of the tile
 			x := (i % 32) * 8
@@ -518,8 +625,10 @@ func (p *PPU) Tick() {
 
 	// update the current cycle
 	p.currentCycle++
-	if p.currentCycle < 80 {
-		return // nothing happens during the first 80 cycles
+
+	// 80, 172, 196-204, 456 are the only cycles that we care about
+	if !(p.currentCycle == 80 || p.currentCycle == 172 || (p.currentCycle >= 196 && p.currentCycle <= 204) || p.currentCycle == 456) {
+		return // avoid switch statement for performance (albeit a small one)
 	}
 
 	// step logic (ordered by number of ticks required to optimize calls)
@@ -542,39 +651,37 @@ func (p *PPU) Tick() {
 		}
 
 		// have we reached the cycle threshold for the next scanline?
-		if p.currentCycle >= 196 { // avoid expensive AND operation if possible
-			if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
-				// reset cycle and increment scanline
-				p.currentCycle = 0
-				p.CurrentScanline++
+		if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
+			// reset cycle and increment scanline
+			p.currentCycle = 0
+			p.CurrentScanline++
 
-				// check LYC
-				p.checkLYC()
+			// check LYC
+			p.checkLYC()
 
-				// check if we've reached the end of the visible screen
-				// and need to enter VBlank
-				if p.CurrentScanline == 144 {
-					// enter VBBlank mode and trigger VBlank interrupt
-					p.Mode = lcd.VBlank
-					p.checkStatInterrupts(true)
+			// check if we've reached the end of the visible screen
+			// and need to enter VBlank
+			if p.CurrentScanline == 144 {
+				// enter VBBlank mode and trigger VBlank interrupt
+				p.Mode = lcd.VBlank
+				p.checkStatInterrupts(true)
 
-					p.irq.Request(interrupts.VBlankFlag)
+				p.irq.Request(interrupts.VBlankFlag)
 
-					// flag that the screen needs to be refreshed
-					p.refreshScreen = true
+				// flag that the screen needs to be refreshed
+				p.refreshScreen = true
 
-					// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
-					if !p.Cleared() {
-						p.renderBlank()
-					}
-
-					// update palette
-					//palette.UpdatePalette()
-				} else {
-					// enter OAM mode
-					p.Mode = lcd.OAM
-					p.checkStatInterrupts(false)
+				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
+				if !p.Cleared() {
+					p.renderBlank()
 				}
+
+				// update palette
+				//palette.UpdatePalette()
+			} else {
+				// enter OAM mode
+				p.Mode = lcd.OAM
+				p.checkStatInterrupts(false)
 			}
 		}
 
@@ -635,7 +742,7 @@ func (p *PPU) renderScanline() {
 	}
 
 	// send job to the renderer
-	if p.bus.IsGBC() {
+	if p.bus.IsGBCCompat() {
 		p.rendererCGB.QueueJob(RenderJobCGB{
 			XStart:            p.ScrollX,
 			Scanline:          p.scanlineData,
@@ -821,4 +928,10 @@ func (p *PPU) renderSprites() {
 
 func (p *PPU) ClearRefresh() {
 	p.refreshScreen = false
+}
+
+// SaveCGBPalettes saves all of the currently active CGB palettes.
+func (p *PPU) SaveCGBPalettes() {
+	p.colourPalette.SaveExample("bg.png")
+	p.colourSpritePalette.SaveExample("sprite.png")
 }
