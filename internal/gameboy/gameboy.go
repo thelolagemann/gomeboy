@@ -173,9 +173,11 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 			g.MMU.Write(addr, val)
 		}
 	}
+	if g.MMU.IsGBCCompat() {
+		video.LoadCompatibilityPalette(g.MMU.Cart.Header().TitleChecksum())
+	}
 
 	video.StartRendering()
-	fmt.Printf("%02x\n", g.MMU.Cart.Header().TitleChecksum())
 	return g
 }
 
@@ -382,7 +384,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			g.PPU.Debug.SpritesDisabled = !g.PPU.Debug.SpritesDisabled
 		},
 		14: func() {
-			types.SavePaletteDump()
+			g.PPU.SaveCGBPalettes()
 		},
 		15: func() {
 			g.PPU.SaveCompatibilityPalette()

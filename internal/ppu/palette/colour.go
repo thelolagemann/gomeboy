@@ -32,6 +32,17 @@ func (p *CGBPalette) GetIndex() byte {
 	}
 }
 
+// TODO save compatibility palette
+// - load game with boot ROM enabled
+// - save colour palette to file (bgp = index 0 of colour palette, obp1 = index 0 of sprite palette, obp2 = index 1 of sprite palette)
+// - encoded filename as hash of palette
+
+type CompatibilityPalette struct {
+	BGP  [4][3]uint8 `json:"bgp"`
+	OBP0 [4][3]uint8 `json:"obp1"`
+	OBP1 [4][3]uint8 `json:"obp2"`
+}
+
 // Read returns the value of the palette at the specified index.
 func (p *CGBPalette) Read() byte {
 	paletteIndex := p.Index >> 3

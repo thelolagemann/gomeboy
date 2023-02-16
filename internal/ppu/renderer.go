@@ -323,6 +323,8 @@ func NewRenderer(jobs chan RenderJob, output chan<- *RenderOutput) *Renderer {
 type RendererCGB struct {
 	jobs   chan RenderJobCGB
 	output chan<- *RenderOutput
+
+	bootROMDone bool
 }
 
 // QueueJob returns instantly and queues the given job to be rendered.
@@ -332,13 +334,14 @@ func (r *RendererCGB) QueueJob(job RenderJobCGB) {
 
 func NewRendererCGB(jobs chan RenderJobCGB, output chan<- *RenderOutput, isGBC bool) *RendererCGB {
 	r := &RendererCGB{
-		jobs:   jobs,
-		output: output,
+		jobs:        jobs,
+		output:      output,
+		bootROMDone: false,
 	}
 
 	// start a few goroutines to render the scanlines
 	for i := 0; i < 16; i++ {
-		go RenderScanlineCGB(jobs, output, isGBC)
+		go RenderScanlineCGB(jobs, output, isGBC || r.bootROMDone)
 	}
 
 	return r
@@ -346,4 +349,8 @@ func NewRendererCGB(jobs chan RenderJobCGB, output chan<- *RenderOutput, isGBC b
 
 func (r *Renderer) AddJob(job RenderJob) {
 	r.jobs <- job
+}
+
+func (r *RendererCGB) CompleteBootROM() {
+	r.bootROMDone = true
 }

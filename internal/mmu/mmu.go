@@ -277,6 +277,10 @@ func (m *MMU) SetKey(key uint8) {
 	m.key1 = key
 }
 
+func (m *MMU) IsBootROMDone() bool {
+	return m.bootROMDone
+}
+
 // AttachVideo attaches the video component to the MMU.
 func (m *MMU) AttachVideo(video IOBus) {
 	m.Video = video

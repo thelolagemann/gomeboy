@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/62/?scale=100&title=passing%2098,%20failing%2059&width=500)
+![progress](https://progress-bar.dev/63/?scale=100&title=passing%20100,%20failing%2057&width=500)
 
-#### This document was automatically generated from commit 3b8ebf64
+#### This document was automatically generated from commit a194c48f
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -32,10 +32,10 @@ is compared against a reference image from a known good emulator.
 # Test Results
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
-| acid2 | 50% | 2 | 2 | 4 |
+| acid2 | 75% | 3 | 1 | 4 |
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 85% | 18 | 3 | 21 |
-| little-things-gb | 66% | 2 | 1 | 3 |
+| little-things-gb | 100% | 3 | 0 | 3 |
 | mooneye | 66% | 75 | 38 | 113 |
 | samesuite | 7% | 1 | 12 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
@@ -87,12 +87,12 @@ Explore the individual tests for each suite using the table of contents below.
   * [strikethrough](#strikethrough)
 
 # acid2
-![progress](https://progress-bar.dev/50/?scale=100&title=passing%202,%20failing%202&width=500)
+![progress](https://progress-bar.dev/75/?scale=100&title=passing%203,%20failing%201&width=500)
 ## dmg-acid2
 | Test | Passing |
 | ---- | ------- |
 | dmg-acid2 | ✅ |
-| dmg-acid2-cgb | ❌ |
+| dmg-acid2-cgb | ✅ |
 ## cgb-acid2
 | Test | Passing |
 | ---- | ------- |
@@ -149,7 +149,7 @@ Explore the individual tests for each suite using the table of contents below.
 | 02-write_timing.gb | ✅ |
 | 03-modify_timing.gb | ✅ |
 # little-things-gb
-![progress](https://progress-bar.dev/66/?scale=100&title=passing%202,%20failing%201&width=500)
+![progress](https://progress-bar.dev/100/?scale=100&title=passing%203,%20failing%200&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
@@ -158,7 +158,7 @@ Explore the individual tests for each suite using the table of contents below.
 | Test | Passing |
 | ---- | ------- |
 | tellinglys | ✅ |
-| tellinglys-cgb | ❌ |
+| tellinglys-cgb | ✅ |
 # mooneye
 ![progress](https://progress-bar.dev/66/?scale=100&title=passing%2075,%20failing%2038&width=500)
 ## acceptance
