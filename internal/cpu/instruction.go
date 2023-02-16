@@ -32,7 +32,7 @@ func DefineInstructionCB(opcode uint8, name string, fn func(*CPU)) {
 func init() {
 	DefineInstruction(0x00, "NOP", func(c *CPU) {})
 	DefineInstruction(0x10, "STOP", func(c *CPU) {
-		if c.mmu.IsGBC() {
+		if c.mmu.IsGBCCompat() {
 			if c.mmu.Key()&0b0000_0001 == 1 {
 				c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
 				c.doubleSpeed = !c.doubleSpeed

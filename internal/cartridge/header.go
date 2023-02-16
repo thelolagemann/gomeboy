@@ -86,9 +86,21 @@ type Header struct {
 	raw [0x50]byte
 }
 
+func (h *Header) TitleChecksum() uint8 {
+	var checksum uint8
+	for _, c := range h.raw[0x34:0x43] {
+		checksum += c
+	}
+	return checksum
+}
+
 // parseHeader parses the header of the given ROM and returns a Header.
 func parseHeader(header []byte) *Header {
-	h := &Header{}
+	h := &Header{
+		raw: [0x50]byte{},
+	}
+	// copy header into header.raw
+	copy(h.raw[:], header)
 
 	// check if the header is valid
 	if len(header) != 0x50 {
@@ -152,7 +164,7 @@ func parseHeader(header []byte) *Header {
 }
 
 func (h *Header) GameboyColor() bool {
-	return h.CartridgeGBMode == FlagOnlyCGB || h.CartridgeGBMode == FlagSupportsCGB
+	return h.CartridgeGBMode == FlagOnlyCGB
 }
 
 func (h *Header) Hardware() string {

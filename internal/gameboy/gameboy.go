@@ -35,23 +35,6 @@ var (
 )
 
 var startingRegisterValues = map[types.HardwareAddress]uint8{
-	types.NR10: 0x80,
-	types.NR11: 0xBF,
-	types.NR12: 0xF3,
-	types.NR14: 0xBF,
-	types.NR21: 0x3F,
-	types.NR22: 0x00,
-	types.NR24: 0xBF,
-	types.NR30: 0x7F,
-	types.NR31: 0xFF,
-	types.NR32: 0x9F,
-	types.NR33: 0xBF,
-	types.NR41: 0xFF,
-	types.NR42: 0x00,
-	types.NR43: 0x00,
-	types.NR50: 0x77,
-	types.NR51: 0xF3,
-	types.NR52: 0xF1,
 	types.LCDC: 0x91,
 	types.BDIS: 0x01,
 }
@@ -136,11 +119,6 @@ func WithBootROM(rom []byte) GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.MMU.SetBootROM(rom)
 
-		// reattach VRAM to HDMA
-		if gb.MMU.IsGBC() {
-			gb.MMU.HDMA.AttachVRAM(gb.PPU.WriteVRAM)
-		}
-
 		// if we have a boot ROM, we need to reset the CPU
 		// otherwise the emulator will start at 0x100 with
 		// the registers set to the values upon completion
@@ -197,7 +175,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	}
 
 	video.StartRendering()
-
+	fmt.Printf("%02x\n", g.MMU.Cart.Header().TitleChecksum())
 	return g
 }
 
@@ -205,7 +183,7 @@ func (g *GameBoy) initializeCPU() {
 	// setup initial cpu state
 	g.CPU.PC = 0x100
 	g.CPU.SP = 0xFFFE
-	if g.MMU.IsGBC() {
+	if g.MMU.IsGBCCompat() {
 		g.CPU.A = 0x11
 		g.CPU.F = 0x80
 		g.CPU.B = 0x00
@@ -402,6 +380,12 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 		},
 		13: func() {
 			g.PPU.Debug.SpritesDisabled = !g.PPU.Debug.SpritesDisabled
+		},
+		14: func() {
+			types.SavePaletteDump()
+		},
+		15: func() {
+			g.PPU.SaveCompatibilityPalette()
 		},
 	}
 }

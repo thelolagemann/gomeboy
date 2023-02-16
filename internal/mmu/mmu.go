@@ -76,7 +76,7 @@ func (m *MMU) init() {
 				if m.isGBC {
 					return 0x11
 				} else {
-					return 0x01
+					return 0xFF
 				}
 			}
 			return 0x00
@@ -104,6 +104,22 @@ func (m *MMU) init() {
 		}, func() uint8 {
 			if m.isGBC {
 				return m.key1 | 0x7e // upper bits are always set
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.SVBK,
+		func(v uint8) {
+			if m.isGBC {
+				m.wRAM.bank = v & 0x07
+				if m.wRAM.bank == 0 {
+					m.wRAM.bank = 1
+				}
+			}
+		}, func() uint8 {
+			if m.isGBC {
+				return m.wRAM.bank
 			}
 			return 0xFF
 		},
@@ -144,16 +160,9 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 		isGBC:       cart.Header().Hardware() == "CGB",
 		bootROMDone: true, // only set to false if boot rom is enabled
 	}
-
-	if cart.Header().Hardware() == "CGB" {
-		// load boot depending on cartridge type
+	if m.IsGBCCompat() {
 		m.HDMA = NewHDMA(m)
-		// m.BootROM = boot.NewBootROM(boot.CGBBootROM[:], boot.CGBBootROMChecksum)
-	} else {
-		// load dmg boot
-		// m.BootROM = boot.NewBootROM(boot.DMGBootROM[:], boot.DMBBootROMChecksum)
 	}
-
 	m.init()
 
 	return m
@@ -251,12 +260,12 @@ func (m *MMU) SetBootROM(rom []byte) {
 func (m *MMU) SetModel(model uint8) {
 	switch model {
 	case 1:
-		fmt.Println("setting model to dmg")
 		m.isGBC = false
+		fmt.Println("Setting model to DMG")
 	case 2:
-		fmt.Println("setting model to cgb")
 		m.isGBC = true
 		m.HDMA = NewHDMA(m)
+		fmt.Println("Setting model to CGB")
 	}
 }
 
@@ -273,8 +282,12 @@ func (m *MMU) AttachVideo(video IOBus) {
 	m.Video = video
 }
 
-func (m *MMU) IsGBC() bool {
+func (m *MMU) IsGBCCompat() bool {
 	return m.isGBC
+}
+
+func (m *MMU) IsGBC() bool {
+	return m.isGBC && m.Cart.Header().GameboyColor()
 }
 
 func (m *MMU) readCart(address uint16) uint8 {

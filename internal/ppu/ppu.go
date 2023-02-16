@@ -2,6 +2,8 @@
 package ppu
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
@@ -11,6 +13,8 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
+	"log"
+	"os"
 )
 
 const (
@@ -202,7 +206,10 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			return p.vRAMBank
+			if p.bus.IsGBC() {
+				return p.vRAMBank
+			}
+			return 0xFF
 		},
 	)
 	types.RegisterHardware(
@@ -213,7 +220,10 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			return p.colourPalette.GetIndex()
+			if p.bus.IsGBCCompat() {
+				return p.colourPalette.GetIndex()
+			}
+			return 0xFF
 		},
 	)
 	types.RegisterHardware(
@@ -224,7 +234,7 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			if p.colorPaletteUnlocked() {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				return p.colourPalette.Read()
 			}
 			return 0xFF
@@ -238,7 +248,10 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			return p.colourSpritePalette.GetIndex()
+			if p.bus.IsGBCCompat() {
+				return p.colourSpritePalette.GetIndex()
+			}
+			return 0xFF
 		},
 	)
 	types.RegisterHardware(
@@ -249,7 +262,7 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			if p.colorPaletteUnlocked() {
+			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
 				return p.colourSpritePalette.Read()
 			}
 			return 0xFF
@@ -334,6 +347,49 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 
 	p.init()
 	return p
+}
+
+// TODO save compatibility palette
+// - load game with boot ROM enabled
+// - save colour palette to file (bgp = index 0 of colour palette, obp1 = index 0 of sprite palette, obp2 = index 1 of sprite palette)
+// - encoded filename as hash of palette
+
+func (p *PPU) SaveCompatibilityPalette() {
+	compatPal := palette.CompatibilityPalette{
+		BGP:  p.colourPalette.Palettes[0],
+		OBP0: p.colourSpritePalette.Palettes[0],
+		OBP1: p.colourSpritePalette.Palettes[1],
+	}
+
+	// create hash of palette
+	hash := sha256.New()
+	for _, c := range compatPal.BGP {
+		hash.Write([]byte{c[0], c[1], c[2]})
+	}
+	for _, c := range compatPal.OBP0 {
+		hash.Write([]byte{c[0], c[1], c[2]})
+	}
+	for _, c := range compatPal.OBP1 {
+		hash.Write([]byte{c[0], c[1], c[2]})
+	}
+
+	// create file
+	file, err := os.Create(fmt.Sprintf("compatibility_palette_%x", hash.Sum(nil)))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	// encode palette
+	enc := json.NewEncoder(file)
+
+	// write palette to file
+	err = enc.Encode(compatPal)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("Compatibility palette saved to file: compatibility_palette_%x", hash.Sum(nil))
 }
 
 func (p *PPU) Read(address uint16) uint8 {
