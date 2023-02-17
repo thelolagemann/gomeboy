@@ -6,8 +6,8 @@ import (
 	"github.com/faiface/pixel/pixelgl"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
-	"os"
 	"time"
 
 	_ "net/http/pprof"
@@ -28,40 +28,18 @@ func main() {
 	flag.Parse()
 
 	// open the rom file
-	f, err := os.Open(*romFile)
+	rom, err := utils.LoadFile(*romFile)
 	if err != nil {
 		panic(err)
-	}
-
-	// read the rom file into a byte slice
-	rom := make([]byte, 0)
-	buf := make([]byte, 1024)
-	for {
-		n, err := f.Read(buf)
-		if err != nil {
-			break
-		}
-		rom = append(rom, buf[:n]...)
 	}
 
 	var opts []gameboy.GameBoyOpt
 	// open the boot rom file
 	var boot []byte
 	if *bootROM != "" {
-		f, err = os.Open(*bootROM)
+		boot, err = utils.LoadFile(*bootROM)
 		if err != nil {
 			panic(err)
-		}
-
-		// read the boot rom file into a byte slice
-		boot = make([]byte, 0)
-		buf = make([]byte, 1024)
-		for {
-			n, err := f.Read(buf)
-			if err != nil {
-				break
-			}
-			boot = append(boot, buf[:n]...)
 		}
 
 		opts = append(opts, gameboy.WithBootROM(boot))

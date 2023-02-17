@@ -33,6 +33,7 @@ func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
 		irq:        irq,
 		currentBit: bits[0],
+		div:        0xAC << 8,
 	}
 	// set up types
 	types.RegisterHardware(
@@ -42,7 +43,7 @@ func NewController(irq *interrupts.Service) *Controller {
 		},
 		func() uint8 {
 			// return bits 6-13 of divider register
-			return uint8(c.div >> 6) // TODO actually return bits 6-13
+			return uint8(c.div >> 8) // TODO actually return bits 6-13
 		},
 	)
 	types.RegisterHardware(

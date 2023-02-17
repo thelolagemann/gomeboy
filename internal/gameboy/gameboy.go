@@ -35,7 +35,26 @@ var (
 )
 
 var startingRegisterValues = map[types.HardwareAddress]uint8{
+	types.NR10: 0x80,
+	types.NR11: 0xBF,
+	types.NR12: 0xF3,
+	types.NR14: 0xBF,
+	types.NR21: 0x3F,
+	types.NR22: 0x00,
+	types.NR24: 0xBF,
+	types.NR30: 0x7F,
+	types.NR31: 0xFF,
+	types.NR32: 0x9F,
+	types.NR33: 0xBF,
+	types.NR41: 0xFF,
+	types.NR42: 0x00,
+	types.NR43: 0x00,
+	types.NR50: 0x77,
+	types.NR51: 0xF3,
+	types.NR52: 0xF1,
 	types.LCDC: 0x91,
+	types.STAT: 0x80,
+	types.BGP:  0xFC,
 	types.BDIS: 0x01,
 }
 
@@ -172,9 +191,10 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		for addr, val := range startingRegisterValues {
 			g.MMU.Write(addr, val)
 		}
+		g.PPU.Status.Mode = 3
 	}
 	if g.MMU.IsGBCCompat() {
-		video.LoadCompatibilityPalette(g.MMU.Cart.Header().TitleChecksum())
+		video.LoadCompatibilityPalette()
 	}
 
 	video.StartRendering()

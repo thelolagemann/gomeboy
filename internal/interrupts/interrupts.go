@@ -52,7 +52,7 @@ type Service struct {
 // NewService returns a new Service.
 func NewService() *Service {
 	s := &Service{
-		Flag:   0,
+		Flag:   0xE1,
 		Enable: 0,
 		IME:    false,
 	}

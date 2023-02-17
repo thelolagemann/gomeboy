@@ -18,6 +18,12 @@ type HardwareRegisters [0x80]*Hardware
 // the given address. If the hardware register is not
 // readable, it returns 0xFF.
 func (h HardwareRegisters) Read(address uint16) uint8 {
+	if address == 0xFF01 {
+		return 0x00 // stubbed out for now
+	}
+	if address == 0xFF02 {
+		return 0x7E // stubbed out for now
+	}
 	if h[address&0x007F] == nil || address == 0xFF7F { // TODO: remove this hack. when FF7F is read, it should return 0xFF
 		// however, as the address is ANDed with 0x007F, it will return the value of the
 		// hardware register at address 0xFFFF, which is the interrupt enable register.

@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/63/?scale=100&title=passing%20100,%20failing%2057&width=500)
+![progress](https://progress-bar.dev/67/?scale=100&title=passing%20106,%20failing%2052&width=500)
 
-#### This document was automatically generated from commit a194c48f
+#### This document was automatically generated from commit 6badbf18
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -36,7 +36,7 @@ is compared against a reference image from a known good emulator.
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 85% | 18 | 3 | 21 |
 | little-things-gb | 100% | 3 | 0 | 3 |
-| mooneye | 66% | 75 | 38 | 113 |
+| mooneye | 71% | 81 | 33 | 114 |
 | samesuite | 7% | 1 | 12 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -160,7 +160,7 @@ Explore the individual tests for each suite using the table of contents below.
 | tellinglys | ✅ |
 | tellinglys-cgb | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/66/?scale=100&title=passing%2075,%20failing%2038&width=500)
+![progress](https://progress-bar.dev/71/?scale=100&title=passing%2081,%20failing%2033&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -171,7 +171,7 @@ Explore the individual tests for each suite using the table of contents below.
 | boot_div2-S.gb | ❌ |
 | boot_hwio-S.gb | ❌ |
 | boot_hwio-dmg0.gb | ❌ |
-| boot_hwio-dmgABCmgb.gb | ❌ |
+| boot_hwio-dmgABCmgb.gb | ✅ |
 | boot_regs-dmg0.gb | ❌ |
 | boot_regs-dmgABC.gb | ✅ |
 | boot_regs-mgb.gb | ❌ |
@@ -182,7 +182,7 @@ Explore the individual tests for each suite using the table of contents below.
 | call_timing.gb | ✅ |
 | call_timing2.gb | ✅ |
 | di_timing-GS.gb | ❌ |
-| div_timing.gb | ❌ |
+| div_timing.gb | ✅ |
 | ei_sequence.gb | ✅ |
 | ei_timing.gb | ✅ |
 | halt_ime0_ei.gb | ✅ |
@@ -190,14 +190,14 @@ Explore the individual tests for each suite using the table of contents below.
 | halt_ime1_timing.gb | ✅ |
 | halt_ime1_timing2-GS.gb | ❌ |
 | if_ie_registers.gb | ✅ |
-| intr_timing.gb | ❌ |
+| intr_timing.gb | ✅ |
 | jp_cc_timing.gb | ✅ |
 | jp_timing.gb | ✅ |
 | ld_hl_sp_e_timing.gb | ✅ |
 | oam_dma_restart.gb | ✅ |
 | oam_dma_start.gb | ✅ |
 | oam_dma_timing.gb | ✅ |
-| pop_timing.gb | ❌ |
+| pop_timing.gb | ✅ |
 | push_timing.gb | ✅ |
 | rapid_di_ei.gb | ✅ |
 | ret_cc_timing.gb | ✅ |
@@ -237,8 +237,8 @@ Explore the individual tests for each suite using the table of contents below.
 | intr_2_oam_ok_timing.gb | ❌ |
 | lcdon_timing-GS.gb | ❌ |
 | lcdon_write_timing-GS.gb | ❌ |
-| stat_irq_blocking.gb | ❌ |
-| stat_lyc_onoff.gb | ❌ |
+| stat_irq_blocking.gb | ✅ |
+| stat_lyc_onoff.gb | ✅ |
 | vblank_stat_intr-GS.gb | ❌ |
 ## serial
 | Test | Passing |
@@ -324,6 +324,7 @@ Explore the individual tests for each suite using the table of contents below.
 ## manual-only
 | Test | Passing |
 | ---- | ------- |
+| sprite_priority | ❌ |
 | sprite_priority | ❌ |
 # samesuite
 ![progress](https://progress-bar.dev/7/?scale=100&title=passing%201,%20failing%2012&width=500)

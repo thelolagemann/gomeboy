@@ -37,7 +37,7 @@ func NewDisplay(title string) *Display {
 		Title: "GomeBoy | " + title,
 		Bounds: pixel.R(
 			0, 0,
-			float64(ppu.ScreenWidth), float64(ppu.ScreenHeight)),
+			float64(ppu.ScreenWidth*PixelScale), float64(ppu.ScreenHeight*PixelScale)),
 		VSync:                  true,
 		TransparentFramebuffer: true,
 		Resizable:              true,
@@ -137,6 +137,8 @@ var keyMap = map[pixelgl.Button]Input{
 	pixelgl.Key1:           ToggleBackground,
 	pixelgl.Key2:           ToggleWindow,
 	pixelgl.Key3:           ToggleSprites,
+	pixelgl.KeyD:           PaletteDump,
+	pixelgl.KeyR:           CGBPaletteDump,
 }
 
 type Inputs struct {
@@ -153,6 +155,8 @@ const (
 	ToggleBackground
 	ToggleWindow
 	ToggleSprites
+	PaletteDump
+	CGBPaletteDump
 )
 
 // PollKeys polls the keys and returns the pressed and released keys.

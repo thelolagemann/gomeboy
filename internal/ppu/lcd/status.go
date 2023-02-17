@@ -49,7 +49,11 @@ func (s *Status) init(handler types.WriteHandler) {
 
 			s.raw = v & 0xF8
 		}, func() uint8 {
-			return s.raw | uint8(s.Mode) | types.Bit7
+			coin := uint8(0)
+			if s.Coincidence {
+				coin = 1
+			}
+			return types.Bit7 | s.raw | uint8(s.Mode) | (coin << 2)
 		},
 		types.WithWriteHandler(handler),
 	)

@@ -345,8 +345,16 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 // - save colour palette to file (bgp = index 0 of colour palette, obp1 = index 0 of sprite palette, obp2 = index 1 of sprite palette)
 // - encoded filename as hash of palette
 
-func (p *PPU) LoadCompatibilityPalette(hash uint8) {
-	paletteEntry, ok := palette.GetCompatibilityPaletteEntry(uint16(hash)<<8 | uint16(p.bus.Cart.Header().Title[3]))
+func (p *PPU) LoadCompatibilityPalette() {
+	if p.bus.BootROM != nil {
+		return // don't load compatibility palette if boot ROM is enabled (as the boot ROM will setup the palette)
+	}
+	hash := p.bus.Cart.Header().TitleChecksum()
+	entryWord := uint16(hash) << 8
+	if p.bus.Cart.Header().Title != "" {
+		entryWord |= uint16(p.bus.Cart.Header().Title[3])
+	}
+	paletteEntry, ok := palette.GetCompatibilityPaletteEntry(entryWord)
 
 	if !ok {
 		p.bus.Log.Infof("No compatibility palette found for hash %02X", hash)
@@ -769,7 +777,7 @@ func (p *PPU) renderScanline() {
 			objPalette:        p.compatibilitySpritePalette,
 			Line:              p.CurrentScanline,
 		}
-		if p.bus.IsGBC() || !p.bus.IsBootROMDone() {
+		if p.bus.IsGBC() || p.bus.BootROM != nil {
 			job.palettes = p.colourPalette
 			job.objPalette = p.colourSpritePalette
 		}
@@ -806,9 +814,6 @@ func (p *PPU) renderBlankLine() {
 }
 
 func (p *PPU) renderWindow() {
-	// setup variables
-	var xPos, yPos, row uint8
-
 	// do nothing if window is out of bounds
 	if p.CurrentScanline < p.WindowY {
 		return
@@ -818,8 +823,8 @@ func (p *PPU) renderWindow() {
 		return
 	}
 
-	yPos = p.WindowYInternal
-	tileYIndex := (yPos) / 8
+	yPos := p.WindowYInternal
+	tileYIndex := yPos / 8
 
 	mapOffset := uint8(p.WindowTileMapAddress / 0x9C00)
 
@@ -828,23 +833,49 @@ func (p *PPU) renderWindow() {
 		if (i * 8) < p.WindowX-7 {
 			continue
 		}
-		xPos = (i * 8) - (p.WindowX - 7)
+		xPos := (i * 8) - (p.WindowX - 7)
+		row := yPos % 8
 
 		// get the tile
 		tileEntry := p.calculateTileID(tileYIndex, xPos/8, mapOffset)
 		tileID := tileEntry.GetID(p.UsingSignedTileData())
 
-		row = yPos % 8
-
 		// should we flip the tile vertically?
 		if tileEntry.Attributes.YFlip {
 			row = 7 - row
 		}
+		if (p.ScrollX+xPos)%8 != 0 {
+			// if we're not aligned to a tile boundary, we need to write to 2 tiles
+			// so here we need to work out the offset of the second tile and write to it
 
-		// copy the tile data to the scanline
-		p.scanlineData[i*TileSizeInBytes] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
-		p.scanlineData[i*TileSizeInBytes+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
-		p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.value
+			// where are we starting in the first tile?
+			offset := (p.ScrollX + xPos) % 8
+
+			// get the existing data to rewrite
+			existingData := p.scanlineData[i*TileSizeInBytes]
+			existingData2 := p.scanlineData[i*TileSizeInBytes+1]
+
+			// TODO
+			// - fix window rendering to be aligned correctly
+			// - handle offsets
+			// - find way to merge existing attributes with new ones
+			// - maybe switch to FIFO rendering?
+
+			// rewrite the first tile
+			p.scanlineData[i*TileSizeInBytes] = (p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0] >> offset) | (existingData << (8 - offset))
+
+			// rewrite the second tile
+			p.scanlineData[i*TileSizeInBytes+1] = (p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1] >> offset) | (existingData2 << (8 - offset))
+
+			// rewrite the attributes
+
+		} else {
+			// copy the tile data to the scanline
+			p.scanlineData[i*TileSizeInBytes] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+			p.scanlineData[i*TileSizeInBytes+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+			p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.value
+		}
+
 	}
 
 	p.WindowYInternal++
