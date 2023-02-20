@@ -3,14 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/faiface/pixel/pixelgl"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/pkg/display/views"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
-	"time"
-
 	_ "net/http/pprof"
+	"time"
 )
 
 func main() {
@@ -21,6 +22,8 @@ func main() {
 			return
 		}
 	}()
+
+	// log := display.NewLog()
 
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
@@ -56,17 +59,41 @@ func main() {
 	}
 	opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	// create a new gameboy
+	// opts = append(opts, gameboy.WithLogger(log))
 	gb := gameboy.NewGameBoy(rom, opts...)
+	fmt.Println(gb.MMU.Cart.Title())
 
-	pixelgl.Run(func() {
-		// create a new pixel binding
-		mon := display.NewDisplay(gb.MMU.Cart.Header().String())
+	a := app.New()
+	w := a.NewWindow("GomeBoy")
+	w.Resize(fyne.NewSize(ppu.ScreenWidth*4, ppu.ScreenHeight*4))
 
-		// render boot animation
-		// mon.RenderBootAnimation()
-		fmt.Println("Boot animation finished")
+	w.SetMaster()
+	w.Show()
 
-		// start the gameboy
-		gb.Start(mon)
-	})
+	w2 := a.NewWindow("CPU")
+	w2.Show()
+
+	w3 := a.NewWindow("PPU")
+	w3.Show()
+
+	c := views.NewCPU(gb.CPU)
+	g := views.NewPPU(gb.PPU)
+
+	go func() {
+		if err := gb.Run(w); err != nil {
+			panic(err)
+		}
+	}()
+	go func() {
+		if err := c.Run(w2); err != nil {
+			panic(err)
+		}
+	}()
+	go func() {
+		if err := g.Run(w3); err != nil {
+			panic(err)
+		}
+	}()
+
+	a.Run()
 }

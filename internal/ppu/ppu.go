@@ -47,8 +47,8 @@ type PPU struct {
 
 	oam                        *OAM
 	vRAM                       [2]*ram.RAM // Second bank only exists on CGB
-	colourPalette              *palette.CGBPalette
-	colourSpritePalette        *palette.CGBPalette
+	ColourPalette              *palette.CGBPalette
+	ColourSpritePalette        *palette.CGBPalette
 	compatibilityPalette       *palette.CGBPalette // TODO use more efficient data structure
 	compatibilitySpritePalette *palette.CGBPalette
 
@@ -207,12 +207,12 @@ func (p *PPU) init() {
 		types.BCPS,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() {
-				p.colourPalette.SetIndex(v)
+				p.ColourPalette.SetIndex(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.colourPalette.GetIndex()
+				return p.ColourPalette.GetIndex()
 			}
 			return 0xFF
 		},
@@ -221,12 +221,12 @@ func (p *PPU) init() {
 		types.BCPD,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				p.colourPalette.Write(v)
+				p.ColourPalette.Write(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				return p.colourPalette.Read()
+				return p.ColourPalette.Read()
 			}
 			return 0xFF
 		},
@@ -235,12 +235,12 @@ func (p *PPU) init() {
 		types.OCPS,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() {
-				p.colourSpritePalette.SetIndex(v)
+				p.ColourSpritePalette.SetIndex(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.colourSpritePalette.GetIndex()
+				return p.ColourSpritePalette.GetIndex()
 			}
 			return 0xFF
 		},
@@ -249,12 +249,12 @@ func (p *PPU) init() {
 		types.OCPD,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				p.colourSpritePalette.Write(v)
+				p.ColourSpritePalette.Write(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				return p.colourSpritePalette.Read()
+				return p.ColourSpritePalette.Read()
 			}
 			return 0xFF
 		},
@@ -274,8 +274,8 @@ func (p *PPU) init() {
 		}
 	}
 
-	p.colourPalette = palette.NewCGBPallette()
-	p.colourSpritePalette = palette.NewCGBPallette()
+	p.ColourPalette = palette.NewCGBPallette()
+	p.ColourSpritePalette = palette.NewCGBPallette()
 	p.compatibilityPalette = palette.NewCGBPallette()
 	p.compatibilitySpritePalette = palette.NewCGBPallette()
 }
@@ -381,9 +381,9 @@ func (p *PPU) LoadCompatibilityPalette() {
 
 func (p *PPU) SaveCompatibilityPalette() {
 	compatPal := palette.CompatibilityPalette{
-		BGP:  p.colourPalette.Palettes[0],
-		OBP0: p.colourSpritePalette.Palettes[0],
-		OBP1: p.colourSpritePalette.Palettes[1],
+		BGP:  p.ColourPalette.Palettes[0],
+		OBP0: p.ColourSpritePalette.Palettes[0],
+		OBP1: p.ColourSpritePalette.Palettes[1],
 	}
 
 	// create hash of palette
@@ -778,8 +778,8 @@ func (p *PPU) renderScanline() {
 			Line:              p.CurrentScanline,
 		}
 		if p.bus.IsGBC() || p.bus.BootROM != nil {
-			job.palettes = p.colourPalette
-			job.objPalette = p.colourSpritePalette
+			job.palettes = p.ColourPalette
+			job.objPalette = p.ColourSpritePalette
 		}
 		p.rendererCGB.QueueJob(job)
 	} else {
@@ -985,6 +985,6 @@ func (p *PPU) ClearRefresh() {
 
 // SaveCGBPalettes saves all of the currently active CGB palettes.
 func (p *PPU) SaveCGBPalettes() {
-	p.colourPalette.SaveExample("bg.png")
-	p.colourSpritePalette.SaveExample("sprite.png")
+	p.ColourPalette.SaveExample("bg.png")
+	p.ColourSpritePalette.SaveExample("sprite.png")
 }
