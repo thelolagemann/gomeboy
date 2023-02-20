@@ -1,4 +1,5 @@
-package display
+// go:build exclude
+package pixelgl
 
 import (
 	"fmt"
