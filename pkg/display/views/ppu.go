@@ -7,9 +7,9 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"image/color"
 	"strconv"
-	"time"
 )
 
 type PPU struct {
@@ -20,21 +20,19 @@ func NewPPU(ppu *ppu.PPU) *PPU {
 	return &PPU{ppu}
 }
 
-func (p *PPU) Run(w fyne.Window) error {
+func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 	// create the base grid and set it as the content of the window
 	grid := container.New(layout.NewVBoxLayout())
 	w.SetContent(grid)
+	// create the base grid and set it as the content of the window
+	w.SetContent(grid)
 
-	// create a grid for the DMG palettes
+	// create a grid for the palettes
 	dmgPaletteGrid := container.NewGridWithRows(3)
-
-	// create a grid for the CGB BG palette
 	cgbBgPaletteGrid := container.NewGridWithRows(8)
-
-	// create a grid for the CGB OBJ palette
 	cgbObjPaletteGrid := container.NewGridWithRows(8)
 
-	// add the palette grids to the palette grid
+	// add the palettes to the grid
 	grid.Add(dmgPaletteGrid)
 	grid.Add(cgbBgPaletteGrid)
 	grid.Add(cgbObjPaletteGrid)
@@ -46,20 +44,21 @@ func (p *PPU) Run(w fyne.Window) error {
 
 	// dmg palette
 	for i, str := range []string{"BG   ", "OBJ 0", "OBJ 1"} {
-		dmgPaletteEntryGrids[i] = container.New(layout.NewHBoxLayout())
+		dmgPaletteEntryGrids[i] = container.New(&palette{})
 		// add the label to the grid
 		dmgPaletteEntryGrids[i].Add(widget.NewLabelWithStyle(str, fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}))
 		dmgPaletteGrid.Add(dmgPaletteEntryGrids[i])
 	}
 	for i := 0; i < 8; i++ {
-		cgbBgPaletteEntryGrids[i] = container.New(layout.NewHBoxLayout())
+		cgbBgPaletteEntryGrids[i] = container.New(&palette{})
 		// add the label to the grid
 		cgbBgPaletteEntryGrids[i].Add(widget.NewLabelWithStyle("BG  "+strconv.Itoa(i), fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}))
 		cgbBgPaletteGrid.Add(cgbBgPaletteEntryGrids[i])
 
-		cgbObjPaletteEntryGrids[i] = container.NewHBox() // 4 colors + label
+		cgbObjPaletteEntryGrids[i] = container.New(&palette{}) // 4 colors + label
 		// add the label to the grid
 		cgbObjPaletteEntryGrids[i].Add(widget.NewLabelWithStyle("OBJ "+strconv.Itoa(i), fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}))
+		cgbObjPaletteEntryGrids[i].Resize(fyne.NewSize(64, 16))
 		cgbObjPaletteGrid.Add(cgbObjPaletteEntryGrids[i])
 	}
 
@@ -70,7 +69,7 @@ func (p *PPU) Run(w fyne.Window) error {
 	for i := 0; i < 12; i++ {
 		dmgPaletteEntryRects[i] = canvas.NewRectangle(color.White)
 		dmgPaletteEntryGrids[i/4].Add(dmgPaletteEntryRects[i])
-		dmgPaletteEntryRects[i].SetMinSize(fyne.NewSize(32, 32))
+		dmgPaletteEntryRects[i].SetMinSize(fyne.NewSize(24, 24))
 	}
 	for i := 0; i < 32; i++ {
 		cgbBgPaletteEntryRects[i] = canvas.NewRectangle(color.White)
@@ -78,28 +77,40 @@ func (p *PPU) Run(w fyne.Window) error {
 
 		cgbBgPaletteEntryGrids[i/4].Add(cgbBgPaletteEntryRects[i])
 		cgbObjPaletteEntryGrids[i/4].Add(cgbObjPaletteEntryRects[i])
-		cgbBgPaletteEntryRects[i].SetMinSize(fyne.NewSize(32, 32))
-		cgbObjPaletteEntryRects[i].SetMinSize(fyne.NewSize(32, 32))
+		cgbBgPaletteEntryRects[i].SetMinSize(fyne.NewSize(24, 24))
+		cgbObjPaletteEntryRects[i].SetMinSize(fyne.NewSize(24, 24))
+	}
+	// button to open the palette window
+
+	for {
+		select {
+		case e := <-events:
+			switch e.Type {
+			case display.EventTypeQuit:
+				return nil
+			case display.EventTypeFrame:
+				// set the colors
+				for i := uint8(0); i < 12; i++ {
+					if i < 4 {
+						dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
+					} else if i < 8 {
+						dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[0].GetColour(i % 4))
+					} else {
+						dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[1].GetColour(i % 4))
+					}
+				}
+				for i := uint8(0); i < 32; i++ {
+					cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
+					cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
+				}
+
+				grid.Refresh()
+			}
+		}
 	}
 
-	// create a goroutine to update the palette every 100ms
-	go func() {
-		for {
-			// set the colors
-			for i := uint8(0); i < 12; i++ {
-				dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
-			}
-			for i := uint8(0); i < 32; i++ {
-				cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
-				cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
-			}
-			time.Sleep(10 * time.Millisecond)
-
-			grid.Refresh()
-		}
-	}()
-
-	return nil
+	// add the tile map box to the grid
+	//grid.Add(tileMapBox)
 }
 
 // toRGB converts a 3 element uint8 array to a color.RGBA
@@ -114,3 +125,21 @@ func toRGB(rgb [3]uint8) color.RGBA {
 // - window interface - Run() error - creates a new window and runs it, Update() error - updates the window when appropriate
 // - channel from main window that sends a signal over channel to update all windows on new frame
 // - palettes actually hold colours (not just indexes) - palette changes
+
+type palette struct {
+}
+
+func (p *palette) MinSize(_ []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(164, 24)
+}
+
+func (p *palette) Layout(objects []fyne.CanvasObject, _ fyne.Size) {
+	pos := fyne.NewPos(0, 0)
+	for _, o := range objects {
+		s := o.MinSize()
+		o.Resize(s)
+		o.Move(pos)
+
+		pos = pos.Add(fyne.NewPos(s.Width+4, 0))
+	}
+}

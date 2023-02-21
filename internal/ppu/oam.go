@@ -1,5 +1,11 @@
 package ppu
 
+import "github.com/thelolagemann/go-gameboy/internal/types"
+
+var (
+	_ types.Resettable = &OAM{}
+)
+
 // OAM (Object Attribute Memory) is the memory used to store the
 // attributes of the sprites. It is 160 bytes long and is located at
 // 0xFE00-0xFE9F in the memory map. It is divided in 40 entries of 4 bytes
@@ -11,20 +17,21 @@ type OAM struct {
 	data [160]byte
 }
 
-func (o *OAM) init() {
+// Reset implements the types.Resettable interface.
+func (o *OAM) Reset() {
 	// setup sprites
 	for i := len(o.Sprites) - 1; i >= 0; i-- {
 		o.Sprites[i] = &Sprite{
 			SpriteAttributes: SpriteAttributes{},
 		}
 	}
+	// reset raw data
+	o.data = [160]byte{}
 }
 
 func NewOAM() *OAM {
-	o := &OAM{
-		data: [160]byte{},
-	}
-	o.init()
+	o := &OAM{}
+	o.Reset()
 	return o
 }
 

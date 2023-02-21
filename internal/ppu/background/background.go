@@ -21,16 +21,6 @@ type Background struct {
 }
 
 func (b *Background) init() {
-	// setup the types
-	types.RegisterHardware(
-		types.BGP,
-		func(v uint8) {
-			b.Palette = palette.ByteToPalette(v)
-		},
-		func() uint8 {
-			return b.Palette.ToByte()
-		},
-	)
 	types.RegisterHardware(
 		types.SCX,
 		func(v uint8) {

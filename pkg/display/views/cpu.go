@@ -7,7 +7,11 @@ import (
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
-	"time"
+	"github.com/thelolagemann/go-gameboy/pkg/display"
+)
+
+var (
+	_ display.View = (*CPU)(nil)
 )
 
 type CPU struct {
@@ -20,7 +24,7 @@ func NewCPU(c *cpu.CPU) *CPU {
 	return &CPU{CPU: c}
 }
 
-func (c *CPU) Run(w fyne.Window) error {
+func (c *CPU) Run(w fyne.Window, events <-chan display.Event) error {
 	// create the base grid
 	grid := container.NewGridWithColumns(2)
 
@@ -32,14 +36,6 @@ func (c *CPU) Run(w fyne.Window) error {
 
 	// set the content of the window to the grid
 	w.SetContent(grid)
-
-	// goroutine to update the registers every 100ms
-	go func() {
-		for {
-			c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", c.PC, c.SP, c.AF.Uint16(), c.BC.Uint16(), c.DE.Uint16(), c.HL.Uint16()))
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
 
 	// create a grid for register F flags (checkboxes for each flag of the 4 flags)
 	fGrid := container.NewVBox(widget.NewLabel("F Flags:"))
@@ -84,18 +80,6 @@ func (c *CPU) Run(w fyne.Window) error {
 
 	// add the grid to the main grid
 	grid.Add(fGrid)
-
-	// goroutine to update the flags every 100ms
-	go func() {
-		for {
-			// get the value of the flags
-			zBool.Set(c.F&cpu.FlagZero != 0)
-			nBool.Set(c.F&cpu.FlagSubtract != 0)
-			hBool.Set(c.F&cpu.FlagHalfCarry != 0)
-			cyBool.Set(c.F&cpu.FlagCarry != 0)
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
 
 	// Interrupts
 
@@ -145,5 +129,21 @@ func (c *CPU) Run(w fyne.Window) error {
 	// add the divider and grid to the main grid
 	grid.Add(interruptsGrid)
 
-	return nil
+	for {
+		select {
+		case e := <-events:
+			switch e.Type {
+			case display.EventTypeQuit:
+				return nil
+			case display.EventTypeFrame:
+				c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", c.PC, c.SP, c.AF.Uint16(), c.BC.Uint16(), c.DE.Uint16(), c.HL.Uint16()))
+				zBool.Set(c.F&cpu.FlagZero != 0)
+				nBool.Set(c.F&cpu.FlagSubtract != 0)
+				hBool.Set(c.F&cpu.FlagHalfCarry != 0)
+				cyBool.Set(c.F&cpu.FlagCarry != 0)
+
+				grid.Refresh()
+			}
+		}
+	}
 }

@@ -6,7 +6,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
@@ -63,37 +63,13 @@ func main() {
 	gb := gameboy.NewGameBoy(rom, opts...)
 	fmt.Println(gb.MMU.Cart.Title())
 
-	a := app.New()
-	w := a.NewWindow("GomeBoy")
-	w.Resize(fyne.NewSize(ppu.ScreenWidth*4, ppu.ScreenHeight*4))
+	a := display.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"))
+	mainWindow := a.NewWindow("GomeBoy", gb)
+	mainWindow.SetMaster()
+	mainWindow.Resize(fyne.NewSize(160*4, 144*4))
 
-	w.SetMaster()
-	w.Show()
+	a.NewWindow("CPU", views.NewCPU(gb.CPU))
+	a.NewWindow("PPU", views.NewPPU(gb.PPU))
 
-	w2 := a.NewWindow("CPU")
-	w2.Show()
-
-	w3 := a.NewWindow("PPU")
-	w3.Show()
-
-	c := views.NewCPU(gb.CPU)
-	g := views.NewPPU(gb.PPU)
-
-	go func() {
-		if err := gb.Run(w); err != nil {
-			panic(err)
-		}
-	}()
-	go func() {
-		if err := c.Run(w2); err != nil {
-			panic(err)
-		}
-	}()
-	go func() {
-		if err := g.Run(w3); err != nil {
-			panic(err)
-		}
-	}()
-
-	a.Run()
+	a.Run(gameboy.FrameTime)
 }

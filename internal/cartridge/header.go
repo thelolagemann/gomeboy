@@ -54,6 +54,35 @@ const (
 	HUDSONHUC1        Type = 0xFF
 )
 
+var nameMap = map[Type]string{
+	ROM:               "ROM",
+	MBC1:              "MBC1",
+	MBC1RAM:           "MBC1+RAM",
+	MBC1RAMBATT:       "MBC1+RAM+BATT",
+	MBC2:              "MBC2",
+	MBC2BATT:          "MBC2+BATT",
+	ROMRAM:            "ROM+RAM",
+	ROMRAMBATT:        "ROM+RAM+BATT",
+	MMM01:             "MMM01",
+	MMM01RAM:          "MMM01+RAM",
+	MMM01RAMBATT:      "MMM01+RAM+BATT",
+	MBC3TIMERBATT:     "MBC3+TIMER+BATT",
+	MBC3TIMERRAMBATT:  "MBC3+TIMER+RAM+BATT",
+	MBC3:              "MBC3",
+	MBC3RAM:           "MBC3+RAM",
+	MBC3RAMBATT:       "MBC3+RAM+BATT",
+	MBC5:              "MBC5",
+	MBC5RAM:           "MBC5+RAM",
+	MBC5RAMBATT:       "MBC5+RAM+BATT",
+	MBC5RUMBLE:        "MBC5+RUMBLE",
+	MBC5RUMBLERAM:     "MBC5+RUMBLE+RAM",
+	MBC5RUMBLERAMBATT: "MBC5+RUMBLE+RAM+BATT",
+	POCKETCAMERA:      "POCKET CAMERA",
+	BANDAITAMA5:       "BANDAI TAMA5",
+	HUDSONHUC3:        "HUDSON HUC3",
+	HUDSONHUC1:        "HUDSON HUC1",
+}
+
 // Header represents the header of a cartridge, each cartridge has a header and is
 // located at the address space 0x0100-0x014F. The header contains information about
 // the cartridge itself, and the hardware it expects to run on.

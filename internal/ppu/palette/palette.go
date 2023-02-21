@@ -22,7 +22,7 @@ const (
 // To give another example, if the palette is [3, 1, 0, 2], and the
 // current ColourPalette is the green palette, the colours will be
 // [0, 255, 0, 255].
-type Palette [4]uint8
+type Palette [4][3]uint8
 
 type Colour [4]color.RGBA
 
@@ -60,29 +60,39 @@ func GetColour(index uint8) [3]uint8 {
 // selected palette as a base.
 func ByteToPalette(b byte) Palette {
 	var palette Palette
-	palette[0] = b & 0x03
-	palette[1] = (b >> 2) & 0x03
-	palette[2] = (b >> 4) & 0x03
-	palette[3] = (b >> 6) & 0x03
+	// get the first 2 bits
+	palette[0] = GetColour(b & 0x03)
+	// get the second 2 bits
+	palette[1] = GetColour((b >> 2) & 0x03)
+	// get the third 2 bits
+	palette[2] = GetColour((b >> 4) & 0x03)
+	// get the fourth 2 bits
+	palette[3] = GetColour((b >> 6) & 0x03)
 	return palette
 }
 
 // ToByte converts a palette to a byte, using the
 // selected palette as a base.
-func (p *Palette) ToByte() byte {
+//
+// TODO The logic here is incredibly inefficient. It should be
+// possible to do this in a single loop.
+func (p Palette) ToByte() byte {
 	var b byte
 
-	b |= p[0]
-	b |= p[1] << 2
-	b |= p[2] << 4
-	b |= p[3] << 6
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 4; j++ {
+			if p[i] == GetColour(uint8(j)) {
+				b |= uint8(j) << (i * 2)
+			}
+		}
+	}
 
 	return b
 }
 
-func (p *Palette) GetColour(index uint8) [3]uint8 {
+func (p Palette) GetColour(index uint8) [3]uint8 {
 	// map provided index to the current palette
-	return GetColour(p[index])
+	return p[index]
 }
 
 func CyclePalette() {
