@@ -30,7 +30,10 @@ type View interface {
 	// Run runs the view and blocks until the view is closed,
 	// or an error occurs. The event channel is used to send events
 	// to the view.
-	Run(window fyne.Window, events <-chan Event) error
+	Run(events <-chan Event) error
+	// Setup is called to setup the view using the given window,
+	// before the view is run.
+	Setup(window fyne.Window) error
 }
 
 type Window interface {
@@ -90,6 +93,21 @@ func (a *Application) NewWindow(name string, view View) fyne.Window {
 // Run runs the application and blocks until the application is closed,
 // or an error occurs.
 func (a *Application) Run(frameTime time.Duration) error {
+	// run each window in a goroutine
+	for _, win := range a.Windows {
+		// setup the view
+		if err := win.View().Setup(win.FyneWindow()); err != nil {
+			return err
+		}
+		win.FyneWindow().Show()
+		go func(w *baseWindow) {
+			// run the view
+			if err := w.View().Run(w.events); err != nil {
+				panic(err)
+			}
+		}(win)
+	}
+
 	// create a dispatcher
 	events := make(chan Event, 144)
 	go func() {
@@ -112,20 +130,14 @@ func (a *Application) Run(frameTime time.Duration) error {
 		}
 	}()
 
-	// run each window in a goroutine
-	for _, w := range a.Windows {
-		go func(w *baseWindow) {
-			// show the window
-			w.FyneWindow().Show()
-			// run the view
-			if err := w.View().Run(w.FyneWindow(), w.events); err != nil {
-				panic(err)
-			}
-		}(w)
-	}
-
 	// run the application
 	a.app.Run()
 
 	return nil
 }
+
+// TODO
+// - add a way to close windows
+// - implement Resettable interface for remaining components (apu, cpu, interrupts, joypad, mmu, ppu, timer, types)
+// - implement a way to save state
+// - implement a way to load state

@@ -12,15 +12,50 @@ import (
 	"strconv"
 )
 
+var (
+	_ display.View = (*PPU)(nil)
+)
+
 type PPU struct {
 	*ppu.PPU
+
+	dmgPaletteEntryRects    []*canvas.Rectangle
+	cgbBgPaletteEntryRects  []*canvas.Rectangle
+	cgbObjPaletteEntryRects []*canvas.Rectangle
+
+	grid *fyne.Container
 }
 
-func NewPPU(ppu *ppu.PPU) *PPU {
-	return &PPU{ppu}
+func (p *PPU) Run(events <-chan display.Event) error {
+	for {
+		select {
+		case e := <-events:
+			switch e.Type {
+			case display.EventTypeQuit:
+				return nil
+			case display.EventTypeFrame:
+				// set the colors
+				for i := uint8(0); i < 12; i++ {
+					if i < 4 {
+						p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
+					} else if i < 8 {
+						p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[0].GetColour(i % 4))
+					} else {
+						p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[1].GetColour(i % 4))
+					}
+				}
+				for i := uint8(0); i < 32; i++ {
+					p.cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
+					p.cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
+				}
+
+				p.grid.Refresh()
+			}
+		}
+	}
 }
 
-func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
+func (p *PPU) Setup(w fyne.Window) error {
 	// create the base grid and set it as the content of the window
 	grid := container.New(layout.NewVBoxLayout())
 	w.SetContent(grid)
@@ -80,37 +115,20 @@ func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 		cgbBgPaletteEntryRects[i].SetMinSize(fyne.NewSize(24, 24))
 		cgbObjPaletteEntryRects[i].SetMinSize(fyne.NewSize(24, 24))
 	}
-	// button to open the palette window
 
-	for {
-		select {
-		case e := <-events:
-			switch e.Type {
-			case display.EventTypeQuit:
-				return nil
-			case display.EventTypeFrame:
-				// set the colors
-				for i := uint8(0); i < 12; i++ {
-					if i < 4 {
-						dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
-					} else if i < 8 {
-						dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[0].GetColour(i % 4))
-					} else {
-						dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[1].GetColour(i % 4))
-					}
-				}
-				for i := uint8(0); i < 32; i++ {
-					cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
-					cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
-				}
+	// TODO find better way to do this
+	// copy the palette entry rectangles to the PPU struct
+	p.dmgPaletteEntryRects = dmgPaletteEntryRects
+	p.cgbBgPaletteEntryRects = cgbBgPaletteEntryRects
+	p.cgbObjPaletteEntryRects = cgbObjPaletteEntryRects
 
-				grid.Refresh()
-			}
-		}
-	}
+	// set the grid to the PPU struct
+	p.grid = grid
+	return nil
+}
 
-	// add the tile map box to the grid
-	//grid.Add(tileMapBox)
+func NewPPU(ppu *ppu.PPU) *PPU {
+	return &PPU{PPU: ppu}
 }
 
 // toRGB converts a 3 element uint8 array to a color.RGBA

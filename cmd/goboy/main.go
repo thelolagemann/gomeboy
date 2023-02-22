@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
@@ -61,7 +60,6 @@ func main() {
 	// create a new gameboy
 	// opts = append(opts, gameboy.WithLogger(log))
 	gb := gameboy.NewGameBoy(rom, opts...)
-	fmt.Println(gb.MMU.Cart.Title())
 
 	a := display.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"))
 	mainWindow := a.NewWindow("GomeBoy", gb)
@@ -70,6 +68,7 @@ func main() {
 
 	a.NewWindow("CPU", views.NewCPU(gb.CPU))
 	a.NewWindow("PPU", views.NewPPU(gb.PPU))
+	a.NewWindow("MMU", views.NewMMU(gb.MMU))
 
 	a.Run(gameboy.FrameTime)
 }

@@ -54,6 +54,13 @@ const (
 	HUDSONHUC1        Type = 0xFF
 )
 
+func (t Type) String() string {
+	if name, ok := nameMap[t]; ok {
+		return name
+	}
+	return fmt.Sprintf("Unknown cartridge type: 0x%02X", uint8(t))
+}
+
 var nameMap = map[Type]string{
 	ROM:               "ROM",
 	MBC1:              "MBC1",
@@ -113,6 +120,15 @@ type Header struct {
 	GlobalChecksum  uint16
 
 	raw [0x50]byte
+}
+
+func (h *Header) Destination() string {
+	if h.CountryCode == 0x00 {
+		return "Japanese"
+	} else if h.CountryCode == 0x01 {
+		return "Non-Japanese"
+	}
+	return "Unknown"
 }
 
 func (h *Header) TitleChecksum() uint8 {
@@ -193,7 +209,7 @@ func parseHeader(header []byte) *Header {
 }
 
 func (h *Header) GameboyColor() bool {
-	return h.CartridgeGBMode == FlagOnlyCGB
+	return h.CartridgeGBMode == FlagOnlyCGB || h.CartridgeGBMode == FlagSupportsCGB
 }
 
 func (h *Header) Hardware() string {

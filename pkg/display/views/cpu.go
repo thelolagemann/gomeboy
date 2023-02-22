@@ -18,24 +18,39 @@ type CPU struct {
 	*cpu.CPU
 
 	registerGrid *widget.TextGrid
+	grid         *fyne.Container
+	flags        []binding.BoolList
 }
 
-func NewCPU(c *cpu.CPU) *CPU {
-	return &CPU{CPU: c}
+func (c *CPU) Run(events <-chan display.Event) error {
+	for {
+		select {
+		case e := <-events:
+			switch e.Type {
+			case display.EventTypeQuit:
+				return nil
+			case display.EventTypeFrame:
+				// TODO get cpu values from event data and update the text grid
+				c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", c.PC, c.SP, c.AF.Uint16(), c.BC.Uint16(), c.DE.Uint16(), c.HL.Uint16()))
+
+				c.grid.Refresh()
+			}
+		}
+	}
 }
 
-func (c *CPU) Run(w fyne.Window, events <-chan display.Event) error {
+func (c *CPU) Setup(w fyne.Window) error {
 	// create the base grid
-	grid := container.NewGridWithColumns(2)
+	c.grid = container.NewGridWithColumns(2)
 
 	// create a new text grid
 	c.registerGrid = widget.NewTextGridFromString("Registers:\n\nPC\t0000\nSP\t0000\nAF\t0000\nBC\t0000\nDE\t0000\nHL\t0000\n")
 
 	// add the text grid to the grid
-	grid.Add(c.registerGrid)
+	c.grid.Add(c.registerGrid)
 
 	// set the content of the window to the grid
-	w.SetContent(grid)
+	w.SetContent(c.grid)
 
 	// create a grid for register F flags (checkboxes for each flag of the 4 flags)
 	fGrid := container.NewVBox(widget.NewLabel("F Flags:"))
@@ -79,7 +94,7 @@ func (c *CPU) Run(w fyne.Window, events <-chan display.Event) error {
 	fGrid.Add(cy)
 
 	// add the grid to the main grid
-	grid.Add(fGrid)
+	c.grid.Add(fGrid)
 
 	// Interrupts
 
@@ -127,23 +142,11 @@ func (c *CPU) Run(w fyne.Window, events <-chan display.Event) error {
 	interruptsGrid.Add(joypad)
 
 	// add the divider and grid to the main grid
-	grid.Add(interruptsGrid)
+	c.grid.Add(interruptsGrid)
 
-	for {
-		select {
-		case e := <-events:
-			switch e.Type {
-			case display.EventTypeQuit:
-				return nil
-			case display.EventTypeFrame:
-				c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", c.PC, c.SP, c.AF.Uint16(), c.BC.Uint16(), c.DE.Uint16(), c.HL.Uint16()))
-				zBool.Set(c.F&cpu.FlagZero != 0)
-				nBool.Set(c.F&cpu.FlagSubtract != 0)
-				hBool.Set(c.F&cpu.FlagHalfCarry != 0)
-				cyBool.Set(c.F&cpu.FlagCarry != 0)
+	return nil
+}
 
-				grid.Refresh()
-			}
-		}
-	}
+func NewCPU(c *cpu.CPU) *CPU {
+	return &CPU{CPU: c}
 }
