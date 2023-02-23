@@ -31,7 +31,8 @@ func (c *CPU) Run(events <-chan display.Event) error {
 				return nil
 			case display.EventTypeFrame:
 				// TODO get cpu values from event data and update the text grid
-				c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", c.PC, c.SP, c.AF.Uint16(), c.BC.Uint16(), c.DE.Uint16(), c.HL.Uint16()))
+				registers := e.State.CPU.Registers
+				c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", registers.PC, registers.SP, registers.AF, registers.BC, registers.DE, registers.HL))
 
 				c.grid.Refresh()
 			}

@@ -5,6 +5,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"math"
+	"sync"
 )
 
 const (
@@ -59,9 +60,13 @@ type buffer struct {
 	writePosition  int
 	size           int
 	bytesCollected int
+
+	sync.RWMutex
 }
 
 func (b *buffer) Read(p []byte) (int, error) {
+	b.RLock()
+	defer b.RUnlock()
 	var n int
 	if b.bytesCollected > 0 {
 		n = copy(p, b.data[b.readPosition:])
@@ -78,6 +83,8 @@ func (b *buffer) Read(p []byte) (int, error) {
 }
 
 func (b *buffer) Write(p []byte) (int, error) {
+	b.Lock()
+	defer b.Unlock()
 	b.data[b.writePosition] = p[0]
 	b.data[b.writePosition+1] = p[1]
 	b.data[b.writePosition+2] = p[2]
@@ -327,7 +334,7 @@ func NewAPU() *APU {
 
 	// set buffer to 512 samples
 	a.player.SetBufferSize(100)
-
+	a.Play()
 	// seems to be a bug in ebiten, and is delaying the audio by roughly 2 x sampleRate
 
 	return a

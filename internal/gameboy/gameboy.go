@@ -6,8 +6,6 @@ package gameboy
 import (
 	"fmt"
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
@@ -94,130 +92,106 @@ type GameBoy struct {
 	ticks         uint16
 	previousFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 	frameQueue    bool
-
-	img    *image.RGBA
-	canvas *canvas.Raster
 }
 
-func (g *GameBoy) Run(events <-chan display.Event) error {
-	// TODO move to views package and create a view for the gameboy
-	for {
-		select {
-		case e := <-events:
-			switch e.Type {
-			case display.EventTypeQuit:
-				return nil
-			case display.EventTypeFrame:
-				g.frames++
-				var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
-				if !g.paused && !g.CPU.Paused {
-					// render frame
-					//frameStart = time.Now()
-
-					frame = g.Frame()
-					//renderTimes = append(renderTimes, time.Since(frameStart))
-
-				} else {
-					frame = g.previousFrame
-				}
-				//frameStart = time.Now()
-
-				// turn frame into image
-				for y := 0; y < ppu.ScreenHeight; y++ {
-					for x := 0; x < ppu.ScreenWidth; x++ {
-						g.img.Set(x, y, color.RGBA{
-							R: frame[y][x][0],
-							G: frame[y][x][1],
-							B: frame[y][x][2],
-							A: 255,
-						})
-					}
-				}
-				/*
-					if time.Since(start) > time.Second {
-						// average frame time
-						avgFrameTime := avgTime(frameTimes)
-						avgRenderTime := avgTime(renderTimes)
-						frameTimes = frameTimes[:0]
-						renderTimes = renderTimes[:0]
-
-						// append to avg render times
-						avgRenderTimes = append(avgRenderTimes, avgRenderTime)
-						total := avgFrameTime + avgRenderTime
-
-						totalAvgRenderTime := avgTime(avgRenderTimes)
-
-						title := fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
-						w.SetTitle(title)
-						g.frames = 0
-						start = time.Now()
-
-						// make sure avg render times doesn't get too big
-						if len(avgRenderTimes) > 144 {
-							avgRenderTimes = avgRenderTimes[1:]
-						}
-					}*/
-
-				// update canvas
-				g.canvas.Refresh()
-
-				// update frametime
-				// frameTimes = append(frameTimes, time.Since(frameStart))
-			}
-		}
-
-	}
-}
-
-func (g *GameBoy) Setup(w fyne.Window) error {
-	// we don't want a padded window for the emulator
-	w.SetPadded(false)
-
+func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
 	// setup fps counter
 	g.frames = 0
-	//start := time.Now()
-	//frameStart := time.Now()
-	//frameTimes := make([]time.Duration, 0, FrameRate)
-	// renderTimes := make([]time.Duration, 0, FrameRate)
+	start := time.Now()
+	frameStart := time.Now()
+	frameTimes := make([]time.Duration, 0, FrameRate)
+	renderTimes := make([]time.Duration, 0, FrameRate)
 	g.APU.Play()
 
 	// set initial image
-	g.img = image.NewRGBA(image.Rect(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
+	img := image.NewRGBA(image.Rect(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
+	avgRenderTimes := make([]time.Duration, 0, FrameRate)
 
-	// create the base canvas for the Emulator
-	c := canvas.NewRasterFromImage(g.img)
-	c.ScaleMode = canvas.ImageScalePixels
-	c.SetMinSize(fyne.NewSize(ppu.ScreenWidth, ppu.ScreenHeight))
-	w.SetContent(c)
-	// setup key bindings
-	if desk, ok := w.Canvas().(desktop.Canvas); ok {
-		desk.SetOnKeyDown(func(e *fyne.KeyEvent) {
-			if button, ok := keyboardBindings[e.Name]; ok {
-				g.Joypad.Press(button)
-				return
+	// start a ticker
+	ticker := time.NewTicker(FrameTime)
+
+	for {
+		select {
+		case <-ticker.C:
+			// update the fps counter
+			g.frames++
+
+			var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
+			if !g.paused && !g.CPU.Paused {
+				// render frame
+				frameStart = time.Now()
+
+				frame = g.Frame()
+				renderTimes = append(renderTimes, time.Since(frameStart))
+
+			} else {
+				frame = g.previousFrame
 			}
+			frameStart = time.Now()
 
-			switch e.Name {
-			case fyne.KeyEscape:
-				w.Close()
-			case fyne.KeySpace:
-				if g.paused {
-					g.Unpause()
-				} else {
-					g.Pause()
+			// turn frame into image
+			for y := 0; y < ppu.ScreenHeight; y++ {
+				for x := 0; x < ppu.ScreenWidth; x++ {
+					img.Set(x, y, color.RGBA{
+						R: frame[y][x][0],
+						G: frame[y][x][1],
+						B: frame[y][x][2],
+						A: 255,
+					})
 				}
 			}
-		})
-		desk.SetOnKeyUp(func(e *fyne.KeyEvent) {
-			if button, ok := keyboardBindings[e.Name]; ok {
-				g.Joypad.Release(button)
+
+			if time.Since(start) > time.Second {
+				// average frame time
+				avgFrameTime := avgTime(frameTimes)
+				avgRenderTime := avgTime(renderTimes)
+				frameTimes = frameTimes[:0]
+				renderTimes = renderTimes[:0]
+
+				// append to avg render times
+				avgRenderTimes = append(avgRenderTimes, avgRenderTime)
+				total := avgFrameTime + avgRenderTime
+
+				totalAvgRenderTime := avgTime(avgRenderTimes)
+
+				title := fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
+				events <- display.Event{Type: display.EventTypeTitle, Data: title}
+				g.frames = 0
+				start = time.Now()
+
+				// make sure avg render times doesn't get too big
+				if len(avgRenderTimes) > 144 {
+					avgRenderTimes = avgRenderTimes[1:]
+				}
 			}
-		})
+
+			// update frame times
+			frameTimes = append(frameTimes, time.Since(frameStart))
+
+			// send frame to channel
+			frames <- img.Pix
+
+			// send frame events
+			events <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
+				Registers struct {
+					AF uint16
+					BC uint16
+					DE uint16
+					HL uint16
+					SP uint16
+					PC uint16
+				}
+			}{Registers: struct {
+				AF uint16
+				BC uint16
+				DE uint16
+				HL uint16
+				SP uint16
+				PC uint16
+			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
+		}
 	}
 
-	// avgRenderTimes := make([]time.Duration, 0, FrameRate)
-	g.canvas = c
-	return nil
 }
 
 func (g *GameBoy) Pause() {

@@ -2,10 +2,9 @@ package main
 
 import (
 	"flag"
-	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/pkg/display/fyne"
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
@@ -61,14 +60,12 @@ func main() {
 	// opts = append(opts, gameboy.WithLogger(log))
 	gb := gameboy.NewGameBoy(rom, opts...)
 
-	a := display.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"))
-	mainWindow := a.NewWindow("GomeBoy", gb)
-	mainWindow.SetMaster()
-	mainWindow.Resize(fyne.NewSize(160*4, 144*4))
+	a := fyne.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"), gb)
 
+	// TODO make optional
 	a.NewWindow("CPU", views.NewCPU(gb.CPU))
 	a.NewWindow("PPU", views.NewPPU(gb.PPU))
 	a.NewWindow("MMU", views.NewMMU(gb.MMU))
 
-	a.Run(gameboy.FrameTime)
+	a.Run()
 }
