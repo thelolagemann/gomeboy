@@ -91,12 +91,18 @@ func (b *ROM) Write(addr uint16, val byte) {
 
 // Checksum returns the md5 checksum of the boot rom.
 func (b *ROM) Checksum() string {
+	if b == nil {
+		return ""
+	}
 	return b.checksum
 }
 
 // Model returns the model of the boot rom. The model
 // is determined by the checksum of the boot rom.
 func (b *ROM) Model() string {
+	if b == nil {
+		return "none"
+	}
 	for model, checksum := range knownBootROMChecksums {
 		if checksum == b.checksum {
 			return model

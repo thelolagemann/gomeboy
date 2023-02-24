@@ -38,9 +38,7 @@ type Pixel = uint8
 // that represent the pixels on the screen.
 //
 // TODO merge common functionality with RenderScanlineCGB
-func RenderScanlineDMG(job RenderJob) *RenderOutput {
-	scanline := &RenderOutput{}
-
+func RenderScanlineDMG(job RenderJob, scanline *RenderOutput) {
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	scanline.Line = job.Line
 	tileOffset := job.XStart % 8
@@ -133,13 +131,9 @@ func RenderScanlineDMG(job RenderJob) *RenderOutput {
 			spriteXPerScreen[startX+x] = startX
 		}
 	}
-
-	return scanline
 }
 
-func RenderScanlineCGB(job RenderJob) *RenderOutput {
-	scanline := &RenderOutput{}
-
+func RenderScanlineCGB(job RenderJob, scanline *RenderOutput) {
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	scanline.Line = job.Line
 	tileOffset := job.XStart % 8
@@ -249,9 +243,6 @@ func RenderScanlineCGB(job RenderJob) *RenderOutput {
 			spriteXPerScreen[startX+x] = startX
 		}
 	}
-
-	// render the scanline
-	return scanline
 }
 
 type RenderJob struct {
@@ -295,12 +286,14 @@ func NewRenderer(jobs chan RenderJob, output chan<- *RenderOutput) *Renderer {
 }
 
 func (r *Renderer) RenderScanline(jobs <-chan RenderJob, output chan<- *RenderOutput) {
+	scanline := &RenderOutput{}
 	for job := range jobs {
 		if r.renderMode {
-			output <- RenderScanlineCGB(job)
+			RenderScanlineCGB(job, scanline)
 		} else {
-			output <- RenderScanlineDMG(job)
+			RenderScanlineDMG(job, scanline)
 		}
+		output <- scanline
 	}
 }
 

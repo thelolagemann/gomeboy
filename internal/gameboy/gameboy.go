@@ -21,10 +21,10 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display/pixelgl"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image"
-	"image/color"
 	"image/png"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -73,6 +73,7 @@ const (
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
 // It is the main entry point for the emulator.
 type GameBoy struct {
+	sync.RWMutex
 	CPU *cpu.CPU
 	MMU *mmu.MMU
 	PPU *ppu.PPU
@@ -94,7 +95,7 @@ type GameBoy struct {
 	frameQueue    bool
 }
 
-func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
+func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
 	// setup fps counter
 	g.frames = 0
 	start := time.Now()
@@ -104,19 +105,25 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
 	g.APU.Play()
 
 	// set initial image
-	img := image.NewRGBA(image.Rect(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
 	avgRenderTimes := make([]time.Duration, 0, FrameRate)
 
 	// start a ticker
 	ticker := time.NewTicker(FrameTime)
+	frameBuffer := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
+	var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 
 	for {
 		select {
+		case p := <-pressed:
+			g.Joypad.Press(p)
+		case r := <-released:
+			g.Joypad.Release(r)
 		case <-ticker.C:
+			// lock the gameboy
+			g.Lock()
 			// update the fps counter
 			g.frames++
 
-			var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 			if !g.paused && !g.CPU.Paused {
 				// render frame
 				frameStart = time.Now()
@@ -132,12 +139,9 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
 			// turn frame into image
 			for y := 0; y < ppu.ScreenHeight; y++ {
 				for x := 0; x < ppu.ScreenWidth; x++ {
-					img.Set(x, y, color.RGBA{
-						R: frame[y][x][0],
-						G: frame[y][x][1],
-						B: frame[y][x][2],
-						A: 255,
-					})
+					frameBuffer[(y*ppu.ScreenWidth+x)*3] = frame[y][x][0]
+					frameBuffer[(y*ppu.ScreenWidth+x)*3+1] = frame[y][x][1]
+					frameBuffer[(y*ppu.ScreenWidth+x)*3+2] = frame[y][x][2]
 				}
 			}
 
@@ -154,8 +158,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
 
 				totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				title := fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
-				events <- display.Event{Type: display.EventTypeTitle, Data: title}
+				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
 				g.frames = 0
 				start = time.Now()
 
@@ -164,12 +167,6 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
 					avgRenderTimes = avgRenderTimes[1:]
 				}
 			}
-
-			// update frame times
-			frameTimes = append(frameTimes, time.Since(frameStart))
-
-			// send frame to channel
-			frames <- img.Pix
 
 			// send frame events
 			events <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
@@ -189,6 +186,15 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event) {
 				SP uint16
 				PC uint16
 			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
+
+			// send frame
+			frames <- frameBuffer
+
+			// update frame times
+			frameTimes = append(frameTimes, time.Since(frameStart))
+
+			// unlock the gameboy
+			g.Unlock()
 		}
 	}
 
@@ -200,6 +206,10 @@ func (g *GameBoy) Pause() {
 
 func (g *GameBoy) Unpause() {
 	g.paused = false
+}
+
+func (g *GameBoy) TogglePause() {
+	g.paused = !g.paused
 }
 
 var keyboardBindings = map[fyne.KeyName]joypad.Button{
@@ -259,6 +269,7 @@ func AsModel(m Model) func(gb *GameBoy) {
 func WithLogger(log log.Logger) GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.Logger = log
+		gb.MMU.Log = log
 	}
 }
 
@@ -434,18 +445,19 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 		},
 		10: func() {
-			img := g.PPU.DumpTileMap()
+			var img1, img2 *image.RGBA
+			g.PPU.DumpTileMaps(img1, img2)
 
 			f, err := os.Create("tilemap.png")
 			if err != nil {
 				panic(err)
 			}
 			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
+			if err := png.Encode(f, img1); err != nil {
 				panic(err)
 			}
 
-			img = g.PPU.DumpTiledata()
+			img1 = g.PPU.DumpTiledata().(*image.RGBA)
 
 			f, err = os.Create("tiledata.png")
 			if err != nil {
@@ -453,7 +465,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 			defer f.Close()
 
-			if err := png.Encode(f, img); err != nil {
+			if err := png.Encode(f, img1); err != nil {
 				panic(err)
 			}
 

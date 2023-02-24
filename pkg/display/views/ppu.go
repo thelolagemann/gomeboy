@@ -26,41 +26,10 @@ type PPU struct {
 	grid *fyne.Container
 }
 
-func (p *PPU) Run(events <-chan display.Event) error {
-	for {
-		select {
-		case e := <-events:
-			switch e.Type {
-			case display.EventTypeQuit:
-				return nil
-			case display.EventTypeFrame:
-				// set the colors
-				for i := uint8(0); i < 12; i++ {
-					if i < 4 {
-						p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
-					} else if i < 8 {
-						p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[0].GetColour(i % 4))
-					} else {
-						p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[1].GetColour(i % 4))
-					}
-				}
-				for i := uint8(0); i < 32; i++ {
-					p.cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
-					p.cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
-				}
-
-				p.grid.Refresh()
-			}
-		}
-	}
-}
-
-func (p *PPU) Setup(w fyne.Window) error {
+func (p *PPU) Run(w display.Window) error {
 	// create the base grid and set it as the content of the window
 	grid := container.New(layout.NewVBoxLayout())
-	w.SetContent(grid)
-	// create the base grid and set it as the content of the window
-	w.SetContent(grid)
+	w.FyneWindow().SetContent(grid)
 
 	// create a grid for the palettes
 	dmgPaletteGrid := container.NewGridWithRows(3)
@@ -124,6 +93,41 @@ func (p *PPU) Setup(w fyne.Window) error {
 
 	// set the grid to the PPU struct
 	p.grid = grid
+
+	// handle events
+	events := w.Events()
+
+	go func() {
+		for {
+			select {
+			case e := <-events:
+				switch e.Type {
+				case display.EventTypeQuit:
+					return
+				case display.EventTypeFrame:
+					// set the colors
+					for i := uint8(0); i < 12; i++ {
+						if i < 4 {
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
+						} else if i < 8 {
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[0].GetColour(i % 4))
+						} else {
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[1].GetColour(i % 4))
+						}
+						p.dmgPaletteEntryRects[i].Refresh()
+					}
+					for i := uint8(0); i < 32; i++ {
+						p.cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
+						p.cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
+						p.cgbBgPaletteEntryRects[i].Refresh()
+						p.cgbObjPaletteEntryRects[i].Refresh()
+					}
+
+				}
+			}
+		}
+	}()
+
 	return nil
 }
 

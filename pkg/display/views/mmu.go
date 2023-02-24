@@ -2,13 +2,13 @@ package views
 
 import (
 	"fmt"
-	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"strconv"
+	"strings"
 )
 
 var (
@@ -20,22 +20,24 @@ type MMU struct {
 	*mmu.MMU
 }
 
-func (M *MMU) Run(events <-chan display.Event) error {
-	for {
-		select {
-		case <-events:
-		}
-	}
-}
-
-func (M *MMU) Setup(window fyne.Window) error {
+func (M *MMU) Run(w display.Window) error {
 	// create the base grid
-	grid := container.NewGridWithRows(2)
+	grid := container.NewVBox()
 
 	// TODO change to textgrid
 
 	// set the content of the window
-	window.SetContent(grid)
+	w.FyneWindow().SetContent(grid)
+
+	// boot rom information
+	bootRomGrid := container.NewVBox()
+	grid.Add(bootRomGrid)
+
+	// boot rom information
+	bootRomGrid.Add(widget.NewLabel("Boot ROM Information"))
+	bootRomGrid.Add(widget.NewTextGridFromString(`Enabled		` + strconv.FormatBool(M.BootROM != nil) + `
+Model		` + M.BootROM.Model() + `
+Checksum	` + strings.ToUpper(M.BootROM.Checksum())))
 
 	// cartridge informaton
 	cartridgeGrid := container.NewVBox()
@@ -82,14 +84,11 @@ Destination	` + M.Cart.Header().Destination() + `
 	// add the checkbox grid to the feature grid
 	featureGrid.Add(checkboxGrid)
 
-	// boot rom information
-	bootRomGrid := container.NewGridWithRows(4)
-	grid.Add(bootRomGrid)
-
-	// boot rom information
-	bootRomGrid.Add(widget.NewLabel("Enabled: " + strconv.FormatBool(M.BootROM != nil)))
-	bootRomGrid.Add(widget.NewLabel("Model: " + M.BootROM.Model()))
-	bootRomGrid.Add(widget.NewLabel("Checksum: " + M.BootROM.Checksum()))
+	go func() {
+		for {
+			<-w.Events() // MMU view does not react to events (yet)
+		}
+	}()
 
 	return nil
 }

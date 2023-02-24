@@ -50,7 +50,7 @@ type PPU struct {
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
 
-	tileData [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
+	TileData [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
 	tileMaps [2]TileMap    // 32x32 tiles, 8x8 pixels each
 
 	irq *interrupts.Service
@@ -278,8 +278,8 @@ func (p *PPU) init() {
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
-		for j := 0; j < len(p.tileData[0]); j++ {
-			p.tileData[i][j] = &Tile{}
+		for j := 0; j < len(p.TileData[0]); j++ {
+			p.TileData[i][j] = &Tile{}
 		}
 	}
 
@@ -339,7 +339,7 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	oam := NewOAM()
 	p := &PPU{
 		Background: background.NewBackground(),
-		tileData:   [2][384]*Tile{},
+		TileData:   [2][384]*Tile{},
 
 		bus: mmu,
 		irq: irq,
@@ -451,17 +451,14 @@ func (p *PPU) oamUnlocked() bool {
 	return p.Mode != lcd.OAM && p.Mode != lcd.VRAM
 }
 
-func (p *PPU) DumpTileMap() image.Image {
-	var img *image.RGBA
-	img = image.NewRGBA(image.Rect(0, 0, 256, 512))
-
+func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA) {
 	// draw tilemap (0x9800 - 0x9BFF)
 	for i := uint8(0); i < 32; i++ {
 		for j := uint8(0); j < 32; j++ {
 			tileEntry := p.calculateTileID(j, i, 0)
 			// get tile data
-			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-			tile.Draw(img, int(i*8), int(j*8))
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile.Draw(tileMap1, int(i*8), int(j*8))
 		}
 	}
 
@@ -471,12 +468,10 @@ func (p *PPU) DumpTileMap() image.Image {
 			tileEntry := p.calculateTileID(j, i, 1)
 
 			// get tile data
-			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-			tile.Draw(img, int(i)*8, int(j)*8+256)
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile.Draw(tileMap2, int(i)*8, int(j)*8)
 		}
 	}
-
-	return img
 }
 
 func (p *PPU) DumpTiledata() image.Image {
@@ -493,7 +488,7 @@ func (p *PPU) DumpTiledata() image.Image {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 96))
 	}
 
-	for i, tile := range p.tileData[0] {
+	for i, tile := range p.TileData[0] {
 		// calculate the x and y position of the tile
 		x := (i % 32) * 8
 		y := (i / 32) * 8
@@ -502,7 +497,7 @@ func (p *PPU) DumpTiledata() image.Image {
 	}
 
 	if p.bus.IsGBCCompat() {
-		for i, tile := range p.tileData[1] {
+		for i, tile := range p.TileData[1] {
 			// calculate the x and y position of the tile
 			x := (i % 32) * 8
 			y := (i/32)*8 + 96
@@ -588,7 +583,7 @@ func (p *PPU) UpdateTile(address uint16, value uint8) {
 	row := (address >> 1) & 0x7
 
 	// set the tile data
-	p.tileData[p.vRAMBank][tileID][row][address%2] = value
+	p.TileData[p.vRAMBank][tileID][row][address%2] = value
 }
 
 func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
@@ -856,17 +851,17 @@ func (p *PPU) renderWindow() {
 			// - maybe switch to FIFO rendering?
 
 			// rewrite the first tile
-			p.scanlineData[i*TileSizeInBytes] = (p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0] >> offset) | (existingData << (8 - offset))
+			p.scanlineData[i*TileSizeInBytes] = (p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][0] >> offset) | (existingData << (8 - offset))
 
 			// rewrite the second tile
-			p.scanlineData[i*TileSizeInBytes+1] = (p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1] >> offset) | (existingData2 << (8 - offset))
+			p.scanlineData[i*TileSizeInBytes+1] = (p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][1] >> offset) | (existingData2 << (8 - offset))
 
 			// rewrite the attributes
 
 		} else {
 			// copy the tile data to the scanline
-			p.scanlineData[i*TileSizeInBytes] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
-			p.scanlineData[i*TileSizeInBytes+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+			p.scanlineData[i*TileSizeInBytes] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+			p.scanlineData[i*TileSizeInBytes+1] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
 			p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.value
 		}
 
@@ -903,8 +898,8 @@ func (p *PPU) renderBackground() {
 		}
 
 		// copy the 3 bytes of tile data into the scanline
-		p.scanlineData[scanlineByte] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
-		p.scanlineData[scanlineByte+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+		p.scanlineData[scanlineByte] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+		p.scanlineData[scanlineByte+1] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
 		p.scanlineData[scanlineByte+2] = tileEntry.Attributes.value
 	}
 }
@@ -961,8 +956,8 @@ func (p *PPU) renderSprites() {
 		}
 
 		// copy the sprite data to the sprite data
-		p.spriteData[byteIndex] = p.tileData[sprite.VRAMBank][tileID][tileRow][0]
-		p.spriteData[byteIndex+1] = p.tileData[sprite.VRAMBank][tileID][tileRow][1]
+		p.spriteData[byteIndex] = p.TileData[sprite.VRAMBank][tileID][tileRow][0]
+		p.spriteData[byteIndex+1] = p.TileData[sprite.VRAMBank][tileID][tileRow][1]
 		p.spriteData[byteIndex+2] = sprite.SpriteAttributes.value
 
 		// set the sprite x position for the current scanline

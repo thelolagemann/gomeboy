@@ -3,11 +3,13 @@ package views
 import (
 	"fmt"
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"image/color"
 )
 
 var (
@@ -17,41 +19,69 @@ var (
 type CPU struct {
 	*cpu.CPU
 
-	registerGrid *widget.TextGrid
-	grid         *fyne.Container
-	flags        []binding.BoolList
+	flags []binding.BoolList
 }
 
-func (c *CPU) Run(events <-chan display.Event) error {
-	for {
-		select {
-		case e := <-events:
-			switch e.Type {
-			case display.EventTypeQuit:
-				return nil
-			case display.EventTypeFrame:
-				// TODO get cpu values from event data and update the text grid
-				registers := e.State.CPU.Registers
-				c.registerGrid.SetText(fmt.Sprintf("Registers:\n\nPC\t%04X\nSP\t%04X\nAF\t%04X\nBC\t%04X\nDE\t%04X\nHL\t%04X\n", registers.PC, registers.SP, registers.AF, registers.BC, registers.DE, registers.HL))
+func (c *CPU) Run(window display.Window) error {
+	grid := container.NewVBox()
+	// set the content of the window
+	window.FyneWindow().SetContent(grid)
 
-				c.grid.Refresh()
+	// create the labels
+	af := canvas.NewText("", color.White)
+	af.TextStyle = fyne.TextStyle{Monospace: true}
+	bc := canvas.NewText("", color.White)
+	bc.TextStyle = fyne.TextStyle{Monospace: true}
+	de := canvas.NewText("", color.White)
+	de.TextStyle = fyne.TextStyle{Monospace: true}
+	hl := canvas.NewText("", color.White)
+	hl.TextStyle = fyne.TextStyle{Monospace: true}
+	sp := canvas.NewText("", color.White)
+	sp.TextStyle = fyne.TextStyle{Monospace: true}
+	pc := canvas.NewText("", color.White)
+	pc.TextStyle = fyne.TextStyle{Monospace: true}
+
+	// create a grid for the registers
+	registerGrid := container.NewGridWithRows(7)
+	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("AF"), af))
+	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("BC"), bc))
+	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("DE"), de))
+	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("HL"), hl))
+	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("SP"), sp))
+	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("PC"), pc))
+
+	// add the grid to the window
+	grid.Add(registerGrid)
+
+	// handle events
+	go func() {
+		for {
+			select {
+			case e := <-window.Events():
+				switch e.Type {
+				case display.EventTypeQuit:
+					return
+				case display.EventTypeFrame:
+					registers := e.State.CPU.Registers
+
+					// update bindings
+					af.Text = fmt.Sprintf("%04X", registers.AF)
+					bc.Text = fmt.Sprintf("%04X", registers.BC)
+					de.Text = fmt.Sprintf("%04X", registers.DE)
+					hl.Text = fmt.Sprintf("%04X", registers.HL)
+					sp.Text = fmt.Sprintf("%04X", registers.SP)
+					pc.Text = fmt.Sprintf("%04X", registers.PC)
+
+					registerGrid.Refresh()
+				}
 			}
 		}
-	}
+	}()
+
+	return nil
 }
 
 func (c *CPU) Setup(w fyne.Window) error {
-	// create the base grid
-	c.grid = container.NewGridWithColumns(2)
-
-	// create a new text grid
-	c.registerGrid = widget.NewTextGridFromString("Registers:\n\nPC\t0000\nSP\t0000\nAF\t0000\nBC\t0000\nDE\t0000\nHL\t0000\n")
-
-	// add the text grid to the grid
-	c.grid.Add(c.registerGrid)
-
-	// set the content of the window to the grid
-	w.SetContent(c.grid)
 
 	// create a grid for register F flags (checkboxes for each flag of the 4 flags)
 	fGrid := container.NewVBox(widget.NewLabel("F Flags:"))
@@ -93,9 +123,6 @@ func (c *CPU) Setup(w fyne.Window) error {
 	fGrid.Add(n)
 	fGrid.Add(h)
 	fGrid.Add(cy)
-
-	// add the grid to the main grid
-	c.grid.Add(fGrid)
 
 	// Interrupts
 
@@ -141,9 +168,6 @@ func (c *CPU) Setup(w fyne.Window) error {
 	interruptsGrid.Add(timer)
 	interruptsGrid.Add(serial)
 	interruptsGrid.Add(joypad)
-
-	// add the divider and grid to the main grid
-	c.grid.Add(interruptsGrid)
 
 	return nil
 }
