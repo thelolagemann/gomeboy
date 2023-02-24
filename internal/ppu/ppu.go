@@ -45,14 +45,12 @@ type PPU struct {
 	// CGB registers
 	vRAMBank uint8
 
-	oam                        *OAM
-	vRAM                       [2]*ram.RAM // Second bank only exists on CGB
-	colourPalette              *palette.CGBPalette
-	colourSpritePalette        *palette.CGBPalette
-	compatibilityPalette       *palette.CGBPalette // TODO use more efficient data structure
-	compatibilitySpritePalette *palette.CGBPalette
+	oam                 *OAM
+	vRAM                [2]*ram.RAM // Second bank only exists on CGB
+	ColourPalette       *palette.CGBPalette
+	ColourSpritePalette *palette.CGBPalette
 
-	tileData [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
+	TileData [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
 	tileMaps [2]TileMap    // 32x32 tiles, 8x8 pixels each
 
 	irq *interrupts.Service
@@ -74,8 +72,7 @@ type PPU struct {
 	DMA                *DMA
 	delayedTick        bool
 
-	renderer    *Renderer
-	rendererCGB *RendererCGB
+	renderer *Renderer
 }
 
 func (p *PPU) init() {
@@ -140,12 +137,32 @@ func (p *PPU) init() {
 		},
 	)
 	types.RegisterHardware(
+		types.BGP,
+		func(v uint8) {
+			p.Background.Palette = palette.ByteToPalette(v)
+			if p.bus.IsGBCCompat() && !p.bus.IsGBC() {
+				// rewrite the palette
+				for i := 0; i < 4; i++ {
+					// get colour number from value
+					palNum := v >> (i * 2) & 0x3
+					p.Background.Palette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
+				}
+			}
+		},
+		func() uint8 {
+			return p.Background.Palette.ToByte()
+		},
+	)
+	types.RegisterHardware(
 		types.OBP0,
 		func(v uint8) {
 			p.SpritePalettes[0] = palette.ByteToPalette(v)
-			if p.bus.IsGBCCompat() {
+			if p.bus.IsGBCCompat() && !p.bus.IsGBC() {
+				// rewrite the palette
 				for i := 0; i < 4; i++ {
-					p.compatibilitySpritePalette.Palettes[0][i] = p.compatibilitySpritePalette.GetColour(7, p.SpritePalettes[0][i])
+					// get colour number from value
+					palNum := v >> (i * 2) & 0x3
+					p.SpritePalettes[0][palNum] = p.ColourSpritePalette.Palettes[0].GetColour(uint8(i))
 				}
 			}
 		},
@@ -157,10 +174,9 @@ func (p *PPU) init() {
 		types.OBP1,
 		func(v uint8) {
 			p.SpritePalettes[1] = palette.ByteToPalette(v)
-			if p.bus.IsGBCCompat() {
-				// reorganize the colour palette based on the sprite palette
+			if p.bus.IsGBCCompat() && !p.bus.IsGBC() {
 				for i := 0; i < 4; i++ {
-					p.compatibilitySpritePalette.Palettes[1][i] = p.compatibilitySpritePalette.GetColour(6, p.SpritePalettes[1][i])
+					p.SpritePalettes[1][v>>(i*2)&0x3] = p.ColourSpritePalette.Palettes[1].GetColour(uint8(i))
 				}
 			}
 		},
@@ -207,12 +223,12 @@ func (p *PPU) init() {
 		types.BCPS,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() {
-				p.colourPalette.SetIndex(v)
+				p.ColourPalette.SetIndex(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.colourPalette.GetIndex()
+				return p.ColourPalette.GetIndex()
 			}
 			return 0xFF
 		},
@@ -221,12 +237,12 @@ func (p *PPU) init() {
 		types.BCPD,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				p.colourPalette.Write(v)
+				p.ColourPalette.Write(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				return p.colourPalette.Read()
+				return p.ColourPalette.Read()
 			}
 			return 0xFF
 		},
@@ -235,12 +251,12 @@ func (p *PPU) init() {
 		types.OCPS,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() {
-				p.colourSpritePalette.SetIndex(v)
+				p.ColourSpritePalette.SetIndex(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.colourSpritePalette.GetIndex()
+				return p.ColourSpritePalette.GetIndex()
 			}
 			return 0xFF
 		},
@@ -249,12 +265,12 @@ func (p *PPU) init() {
 		types.OCPD,
 		func(v uint8) {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				p.colourSpritePalette.Write(v)
+				p.ColourSpritePalette.Write(v)
 			}
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
-				return p.colourSpritePalette.Read()
+				return p.ColourSpritePalette.Read()
 			}
 			return 0xFF
 		},
@@ -262,8 +278,8 @@ func (p *PPU) init() {
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
-		for j := 0; j < len(p.tileData[0]); j++ {
-			p.tileData[i][j] = &Tile{}
+		for j := 0; j < len(p.TileData[0]); j++ {
+			p.TileData[i][j] = &Tile{}
 		}
 	}
 
@@ -274,25 +290,23 @@ func (p *PPU) init() {
 		}
 	}
 
-	p.colourPalette = palette.NewCGBPallette()
-	p.colourSpritePalette = palette.NewCGBPallette()
-	p.compatibilityPalette = palette.NewCGBPallette()
-	p.compatibilitySpritePalette = palette.NewCGBPallette()
+	p.ColourPalette = palette.NewCGBPallette()
+	p.ColourSpritePalette = palette.NewCGBPallette()
 }
 
 // TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
 	output := make(chan *RenderOutput, ScreenHeight)
 	// setup renderer
-	if p.bus.IsGBCCompat() {
-		renderJobs := make(chan RenderJobCGB, 20)
-		p.rendererCGB = NewRendererCGB(renderJobs, output, p.bus.IsGBC())
-		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
+	renderJobs := make(chan RenderJob, 20)
+	p.renderer = NewRenderer(renderJobs, output)
 
+	if p.bus.IsGBCCompat() || (p.bus.IsGBC() && p.bus.BootROM != nil) {
+		p.renderer.renderMode = true
+	}
+	if p.bus.IsGBCCompat() {
 		p.vRAM[1] = ram.NewRAM(0x2000)
-	} else {
-		renderJobs := make(chan RenderJob, 20)
-		p.renderer = NewRenderer(renderJobs, output)
+		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
 	}
 
 	// create goroutine to handle rendering
@@ -325,7 +339,7 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	oam := NewOAM()
 	p := &PPU{
 		Background: background.NewBackground(),
-		tileData:   [2][384]*Tile{},
+		TileData:   [2][384]*Tile{},
 
 		bus: mmu,
 		irq: irq,
@@ -355,35 +369,25 @@ func (p *PPU) LoadCompatibilityPalette() {
 		entryWord |= uint16(p.bus.Cart.Header().Title[3])
 	}
 	paletteEntry, ok := palette.GetCompatibilityPaletteEntry(entryWord)
-
 	if !ok {
-		p.bus.Log.Infof("No compatibility palette found for hash %02X", hash)
+		p.bus.Log.Debugf("no compatibility palette entry found for %s, hash %02x", p.bus.Cart.Header().Title, hash)
+		// load default palette
 		paletteEntry = palette.CompatibilityPalettes[0x1C][0x03]
 	}
-	p.bus.Log.Infof("Loaded compatibility palette %02X", hash)
 
-	// copy the loaded compatibility palette into the palette (so the palette can be re-organised)
-	p.compatibilityPalette.Palettes[0][0] = paletteEntry.BG[0]
-	p.compatibilityPalette.Palettes[0][1] = paletteEntry.BG[1]
-	p.compatibilityPalette.Palettes[0][2] = paletteEntry.BG[2]
-	p.compatibilityPalette.Palettes[0][3] = paletteEntry.BG[3]
-
-	p.compatibilitySpritePalette.Palettes[7][0] = paletteEntry.OBJ0[0]
-	p.compatibilitySpritePalette.Palettes[7][1] = paletteEntry.OBJ0[1]
-	p.compatibilitySpritePalette.Palettes[7][2] = paletteEntry.OBJ0[2]
-	p.compatibilitySpritePalette.Palettes[7][3] = paletteEntry.OBJ0[3]
-
-	p.compatibilitySpritePalette.Palettes[6][0] = paletteEntry.OBJ1[0]
-	p.compatibilitySpritePalette.Palettes[6][1] = paletteEntry.OBJ1[1]
-	p.compatibilitySpritePalette.Palettes[6][2] = paletteEntry.OBJ1[2]
-	p.compatibilitySpritePalette.Palettes[6][3] = paletteEntry.OBJ1[3]
+	// set the palette
+	for i := 0; i < 4; i++ {
+		p.ColourPalette.Palettes[0][i] = paletteEntry.BG[i]
+		p.ColourSpritePalette.Palettes[0][i] = paletteEntry.OBJ0[i]
+		p.ColourSpritePalette.Palettes[1][i] = paletteEntry.OBJ1[i]
+	}
 }
 
 func (p *PPU) SaveCompatibilityPalette() {
 	compatPal := palette.CompatibilityPalette{
-		BGP:  p.colourPalette.Palettes[0],
-		OBP0: p.colourSpritePalette.Palettes[0],
-		OBP1: p.colourSpritePalette.Palettes[1],
+		BGP:  p.ColourPalette.Palettes[0],
+		OBP0: p.ColourSpritePalette.Palettes[0],
+		OBP1: p.ColourSpritePalette.Palettes[1],
 	}
 
 	// create hash of palette
@@ -447,17 +451,14 @@ func (p *PPU) oamUnlocked() bool {
 	return p.Mode != lcd.OAM && p.Mode != lcd.VRAM
 }
 
-func (p *PPU) DumpTileMap() image.Image {
-	var img *image.RGBA
-	img = image.NewRGBA(image.Rect(0, 0, 256, 512))
-
+func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA) {
 	// draw tilemap (0x9800 - 0x9BFF)
 	for i := uint8(0); i < 32; i++ {
 		for j := uint8(0); j < 32; j++ {
 			tileEntry := p.calculateTileID(j, i, 0)
 			// get tile data
-			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-			tile.Draw(img, int(i*8), int(j*8))
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile.Draw(tileMap1, int(i*8), int(j*8))
 		}
 	}
 
@@ -467,12 +468,10 @@ func (p *PPU) DumpTileMap() image.Image {
 			tileEntry := p.calculateTileID(j, i, 1)
 
 			// get tile data
-			tile := p.tileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-			tile.Draw(img, int(i)*8, int(j)*8+256)
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile.Draw(tileMap2, int(i)*8, int(j)*8)
 		}
 	}
-
-	return img
 }
 
 func (p *PPU) DumpTiledata() image.Image {
@@ -489,7 +488,7 @@ func (p *PPU) DumpTiledata() image.Image {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 96))
 	}
 
-	for i, tile := range p.tileData[0] {
+	for i, tile := range p.TileData[0] {
 		// calculate the x and y position of the tile
 		x := (i % 32) * 8
 		y := (i / 32) * 8
@@ -498,7 +497,7 @@ func (p *PPU) DumpTiledata() image.Image {
 	}
 
 	if p.bus.IsGBCCompat() {
-		for i, tile := range p.tileData[1] {
+		for i, tile := range p.TileData[1] {
 			// calculate the x and y position of the tile
 			x := (i % 32) * 8
 			y := (i/32)*8 + 96
@@ -584,7 +583,7 @@ func (p *PPU) UpdateTile(address uint16, value uint8) {
 	row := (address >> 1) & 0x7
 
 	// set the tile data
-	p.tileData[p.vRAMBank][tileID][row][address%2] = value
+	p.TileData[p.vRAMBank][tileID][row][address%2] = value
 }
 
 func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
@@ -766,32 +765,22 @@ func (p *PPU) renderScanline() {
 		p.renderSprites()
 	}
 
-	// send job to the renderer
-	if p.bus.IsGBCCompat() {
-		job := RenderJobCGB{
-			XStart:            p.ScrollX,
-			Scanline:          p.scanlineData,
-			Sprites:           p.spriteData,
-			BackgroundEnabled: p.BackgroundEnabled,
-			palettes:          p.compatibilityPalette,
-			objPalette:        p.compatibilitySpritePalette,
-			Line:              p.CurrentScanline,
-		}
-		if p.bus.IsGBC() || p.bus.BootROM != nil {
-			job.palettes = p.colourPalette
-			job.objPalette = p.colourSpritePalette
-		}
-		p.rendererCGB.QueueJob(job)
-	} else {
-		p.renderer.AddJob(RenderJob{
-			XStart:     p.ScrollX,
-			Scanline:   p.scanlineData,
-			Sprites:    p.spriteData,
-			palettes:   p.Palette,
-			objPalette: p.SpritePalettes,
-			Line:       p.CurrentScanline,
-		})
+	// TODO use event queue to handle this
+	if p.bus.IsGBCCompat() && p.bus.IsBootROMDone() && !p.bus.IsGBC() {
+		p.renderer.renderMode = false
 	}
+
+	// send job to the renderer
+	job := RenderJob{
+		XStart:            p.ScrollX,
+		Scanline:          p.scanlineData,
+		Sprites:           p.spriteData,
+		palettes:          [9]palette.Palette{p.Palette, p.ColourPalette.Palettes[0], p.ColourPalette.Palettes[1], p.ColourPalette.Palettes[2], p.ColourPalette.Palettes[3], p.ColourPalette.Palettes[4], p.ColourPalette.Palettes[5], p.ColourPalette.Palettes[6], p.ColourPalette.Palettes[7]},
+		objPalette:        [10]palette.Palette{p.SpritePalettes[0], p.SpritePalettes[1], p.ColourSpritePalette.Palettes[0], p.ColourSpritePalette.Palettes[1], p.ColourSpritePalette.Palettes[2], p.ColourSpritePalette.Palettes[3], p.ColourSpritePalette.Palettes[4], p.ColourSpritePalette.Palettes[5], p.ColourSpritePalette.Palettes[6], p.ColourSpritePalette.Palettes[7]},
+		Line:              p.CurrentScanline,
+		BackgroundEnabled: p.BackgroundEnabled,
+	}
+	p.renderer.AddJob(job)
 
 	// clear scanline data
 	p.scanlineData = [ScanlineSize]uint8{}
@@ -862,17 +851,17 @@ func (p *PPU) renderWindow() {
 			// - maybe switch to FIFO rendering?
 
 			// rewrite the first tile
-			p.scanlineData[i*TileSizeInBytes] = (p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0] >> offset) | (existingData << (8 - offset))
+			p.scanlineData[i*TileSizeInBytes] = (p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][0] >> offset) | (existingData << (8 - offset))
 
 			// rewrite the second tile
-			p.scanlineData[i*TileSizeInBytes+1] = (p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1] >> offset) | (existingData2 << (8 - offset))
+			p.scanlineData[i*TileSizeInBytes+1] = (p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][1] >> offset) | (existingData2 << (8 - offset))
 
 			// rewrite the attributes
 
 		} else {
 			// copy the tile data to the scanline
-			p.scanlineData[i*TileSizeInBytes] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
-			p.scanlineData[i*TileSizeInBytes+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+			p.scanlineData[i*TileSizeInBytes] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+			p.scanlineData[i*TileSizeInBytes+1] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
 			p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.value
 		}
 
@@ -909,8 +898,8 @@ func (p *PPU) renderBackground() {
 		}
 
 		// copy the 3 bytes of tile data into the scanline
-		p.scanlineData[scanlineByte] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
-		p.scanlineData[scanlineByte+1] = p.tileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
+		p.scanlineData[scanlineByte] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][0]
+		p.scanlineData[scanlineByte+1] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row][1]
 		p.scanlineData[scanlineByte+2] = tileEntry.Attributes.value
 	}
 }
@@ -967,8 +956,8 @@ func (p *PPU) renderSprites() {
 		}
 
 		// copy the sprite data to the sprite data
-		p.spriteData[byteIndex] = p.tileData[sprite.VRAMBank][tileID][tileRow][0]
-		p.spriteData[byteIndex+1] = p.tileData[sprite.VRAMBank][tileID][tileRow][1]
+		p.spriteData[byteIndex] = p.TileData[sprite.VRAMBank][tileID][tileRow][0]
+		p.spriteData[byteIndex+1] = p.TileData[sprite.VRAMBank][tileID][tileRow][1]
 		p.spriteData[byteIndex+2] = sprite.SpriteAttributes.value
 
 		// set the sprite x position for the current scanline
@@ -985,6 +974,6 @@ func (p *PPU) ClearRefresh() {
 
 // SaveCGBPalettes saves all of the currently active CGB palettes.
 func (p *PPU) SaveCGBPalettes() {
-	p.colourPalette.SaveExample("bg.png")
-	p.colourSpritePalette.SaveExample("sprite.png")
+	p.ColourPalette.SaveExample("bg.png")
+	p.ColourSpritePalette.SaveExample("sprite.png")
 }

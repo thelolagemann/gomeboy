@@ -89,17 +89,17 @@ func init() {
 		cpu.clearFlag(FlagHalfCarry)
 	})
 	DefineInstruction(0x76, "HALT", func(c *CPU) {
-		if c.irq.IME {
+		if c.IRQ.IME {
 			c.mode = ModeHalt
 		} else {
-			if c.irq.Flag&c.irq.Enable != 0 {
+			if c.IRQ.Flag&c.IRQ.Enable != 0 {
 				c.mode = ModeHaltBug
 			} else {
 				c.mode = ModeHaltDI
 			}
 		}
 	})
-	DefineInstruction(0xF3, "DI", func(c *CPU) { c.irq.IME = false })
+	DefineInstruction(0xF3, "DI", func(c *CPU) { c.IRQ.IME = false })
 	DefineInstruction(0xFB, "EI", func(c *CPU) { c.mode = ModeEnableIME })
 
 	for _, opcode := range disallowedOpcodes {

@@ -41,7 +41,10 @@ func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
 			var colourNum = int((high >> (7 - tileX)) & 1)
 			colourNum |= int((low>>(7-tileX))&1) << 1
 			rgb := palette.GetColour(uint8(colourNum))
-			img.Set(x, y, color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 0xff})
+			img.Pix[(y*img.Stride)+(x*4)] = rgb[0]
+			img.Pix[(y*img.Stride)+(x*4)+1] = rgb[1]
+			img.Pix[(y*img.Stride)+(x*4)+2] = rgb[2]
+			img.Pix[(y*img.Stride)+(x*4)+3] = 0xff
 		}
 	}
 }

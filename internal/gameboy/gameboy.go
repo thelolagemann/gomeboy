@@ -5,6 +5,7 @@ package gameboy
 
 import (
 	"fmt"
+	"fyne.io/fyne/v2"
 	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
@@ -17,10 +18,13 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/pkg/display/pixelgl"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"image"
 	"image/png"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -69,6 +73,7 @@ const (
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
 // It is the main entry point for the emulator.
 type GameBoy struct {
+	sync.RWMutex
 	CPU *cpu.CPU
 	MMU *mmu.MMU
 	PPU *ppu.PPU
@@ -88,6 +93,134 @@ type GameBoy struct {
 	ticks         uint16
 	previousFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 	frameQueue    bool
+}
+
+func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
+	// setup fps counter
+	g.frames = 0
+	start := time.Now()
+	frameStart := time.Now()
+	frameTimes := make([]time.Duration, 0, FrameRate)
+	renderTimes := make([]time.Duration, 0, FrameRate)
+	g.APU.Play()
+
+	// set initial image
+	avgRenderTimes := make([]time.Duration, 0, FrameRate)
+
+	// start a ticker
+	ticker := time.NewTicker(FrameTime)
+	frameBuffer := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
+	var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
+
+	for {
+		select {
+		case p := <-pressed:
+			g.Joypad.Press(p)
+		case r := <-released:
+			g.Joypad.Release(r)
+		case <-ticker.C:
+			// lock the gameboy
+			g.Lock()
+			// update the fps counter
+			g.frames++
+
+			if !g.paused && !g.CPU.Paused {
+				// render frame
+				frameStart = time.Now()
+
+				frame = g.Frame()
+				renderTimes = append(renderTimes, time.Since(frameStart))
+
+			} else {
+				frame = g.previousFrame
+			}
+			frameStart = time.Now()
+
+			// turn frame into image
+			for y := 0; y < ppu.ScreenHeight; y++ {
+				for x := 0; x < ppu.ScreenWidth; x++ {
+					frameBuffer[(y*ppu.ScreenWidth+x)*3] = frame[y][x][0]
+					frameBuffer[(y*ppu.ScreenWidth+x)*3+1] = frame[y][x][1]
+					frameBuffer[(y*ppu.ScreenWidth+x)*3+2] = frame[y][x][2]
+				}
+			}
+
+			if time.Since(start) > time.Second {
+				// average frame time
+				avgFrameTime := avgTime(frameTimes)
+				avgRenderTime := avgTime(renderTimes)
+				frameTimes = frameTimes[:0]
+				renderTimes = renderTimes[:0]
+
+				// append to avg render times
+				avgRenderTimes = append(avgRenderTimes, avgRenderTime)
+				total := avgFrameTime + avgRenderTime
+
+				totalAvgRenderTime := avgTime(avgRenderTimes)
+
+				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
+				g.frames = 0
+				start = time.Now()
+
+				// make sure avg render times doesn't get too big
+				if len(avgRenderTimes) > 144 {
+					avgRenderTimes = avgRenderTimes[1:]
+				}
+			}
+
+			// send frame events
+			events <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
+				Registers struct {
+					AF uint16
+					BC uint16
+					DE uint16
+					HL uint16
+					SP uint16
+					PC uint16
+				}
+			}{Registers: struct {
+				AF uint16
+				BC uint16
+				DE uint16
+				HL uint16
+				SP uint16
+				PC uint16
+			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
+
+			// send frame
+			frames <- frameBuffer
+
+			// update frame times
+			frameTimes = append(frameTimes, time.Since(frameStart))
+
+			// unlock the gameboy
+			g.Unlock()
+		}
+	}
+
+}
+
+func (g *GameBoy) Pause() {
+	g.paused = true
+}
+
+func (g *GameBoy) Unpause() {
+	g.paused = false
+}
+
+func (g *GameBoy) TogglePause() {
+	g.paused = !g.paused
+}
+
+var keyboardBindings = map[fyne.KeyName]joypad.Button{
+	fyne.KeyUp:        joypad.ButtonUp,
+	fyne.KeyDown:      joypad.ButtonDown,
+	fyne.KeyLeft:      joypad.ButtonLeft,
+	fyne.KeyRight:     joypad.ButtonRight,
+	fyne.KeyA:         joypad.ButtonA,
+	fyne.KeyS:         joypad.ButtonB,
+	fyne.KeyReturn:    joypad.ButtonStart,
+	fyne.KeyBackspace: joypad.ButtonSelect,
 }
 
 type GameBoyOpt func(gb *GameBoy)
@@ -130,6 +263,13 @@ func AsModel(m Model) func(gb *GameBoy) {
 	return func(gb *GameBoy) {
 		gb.SetModel(m)
 		gb.initializeCPU()
+	}
+}
+
+func WithLogger(log log.Logger) GameBoyOpt {
+	return func(gb *GameBoy) {
+		gb.Logger = log
+		gb.MMU.Log = log
 	}
 }
 
@@ -227,71 +367,6 @@ func (g *GameBoy) initializeCPU() {
 
 }
 
-// Start starts the Game Boy emulation. It will run until the game is closed.
-func (g *GameBoy) Start(mon *display.Display) {
-	// setup fps counter
-	g.frames = 0
-	start := time.Now()
-	frameStart := time.Now()
-	frameTimes := make([]time.Duration, 0, FrameRate)
-	renderTimes := make([]time.Duration, 0, FrameRate)
-	g.APU.Play()
-
-	avgRenderTimes := make([]time.Duration, 0, FrameRate)
-
-	// create a ticker to update the display
-	ticker := time.NewTicker(FrameTime)
-
-	for !mon.IsClosed() {
-		g.frames++
-
-		g.ProcessInputs(mon.PollKeys())
-		if !g.paused {
-			// render frame
-			frameStart = time.Now()
-
-			frame := g.Frame()
-			renderTimes = append(renderTimes, time.Since(frameStart))
-			frameStart = time.Now()
-
-			mon.Render(frame)
-
-			// update frametime
-			frameTimes = append(frameTimes, time.Since(frameStart))
-		} else {
-			// render last frame
-			mon.Render(g.previousFrame)
-		}
-		if time.Since(start) > time.Second {
-			// average frame time
-			avgFrameTime := avgTime(frameTimes)
-			avgRenderTime := avgTime(renderTimes)
-			frameTimes = frameTimes[:0]
-			renderTimes = renderTimes[:0]
-
-			// append to avg render times
-			avgRenderTimes = append(avgRenderTimes, avgRenderTime)
-			total := avgFrameTime + avgRenderTime
-
-			totalAvgRenderTime := avgTime(avgRenderTimes)
-
-			title := fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())
-			mon.SetTitle(title)
-
-			g.frames = 0
-			start = time.Now()
-
-			// make sure avg render times doesn't get too big
-			if len(avgRenderTimes) > 144 {
-				avgRenderTimes = avgRenderTimes[1:]
-			}
-		}
-
-		// wait for tick
-		<-ticker.C
-	}
-}
-
 func avgTime(t []time.Duration) time.Duration {
 	if len(t) == 0 {
 		return 0
@@ -370,18 +445,19 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 		},
 		10: func() {
-			img := g.PPU.DumpTileMap()
+			var img1, img2 *image.RGBA
+			g.PPU.DumpTileMaps(img1, img2)
 
 			f, err := os.Create("tilemap.png")
 			if err != nil {
 				panic(err)
 			}
 			defer f.Close()
-			if err := png.Encode(f, img); err != nil {
+			if err := png.Encode(f, img1); err != nil {
 				panic(err)
 			}
 
-			img = g.PPU.DumpTiledata()
+			img1 = g.PPU.DumpTiledata().(*image.RGBA)
 
 			f, err = os.Create("tiledata.png")
 			if err != nil {
@@ -389,7 +465,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 			}
 			defer f.Close()
 
-			if err := png.Encode(f, img); err != nil {
+			if err := png.Encode(f, img1); err != nil {
 				panic(err)
 			}
 
@@ -413,7 +489,7 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 }
 
 // ProcessInputs processes the inputs.
-func (g *GameBoy) ProcessInputs(inputs display.Inputs) {
+func (g *GameBoy) ProcessInputs(inputs pixelgl.Inputs) {
 	for _, key := range inputs.Pressed {
 		// check if it's a gameboy key
 		if key <= joypad.ButtonDown {

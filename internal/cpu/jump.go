@@ -130,7 +130,7 @@ func (c *CPU) retConditional(condition bool) {
 //
 //	RETI
 func (c *CPU) retInterrupt() {
-	c.irq.IME = true
+	c.IRQ.IME = true
 	c.ret()
 }
 

@@ -16,6 +16,7 @@ func LoadFile(filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
 	// read the file into a byte slice
 	data := make([]byte, 0)

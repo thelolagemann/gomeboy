@@ -5,7 +5,6 @@ package mmu
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"github.com/thelolagemann/go-gameboy/internal/boot"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
@@ -70,6 +69,7 @@ func (m *MMU) init() {
 		func(v uint8) {
 			// it's assumed any write to this register will disable the boot rom
 			m.bootROMDone = true
+			m.Log.Infof("boot ROM disabled with write to BDIS register: %v", v)
 		}, func() uint8 {
 			// TODO return different values depending on hardware (DMG/SGB/CGB)
 			if m.bootROMDone {
@@ -141,14 +141,6 @@ func writeOffset(write func(uint16, uint8), offset uint16) func(uint16, uint8) {
 
 // NewMMU returns a new MMU.
 func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
-	l := logrus.New()
-	l.SetLevel(logrus.DebugLevel)
-	l.Formatter = &logrus.TextFormatter{
-		DisableColors:    true,
-		DisableTimestamp: true,
-		DisableSorting:   true,
-		DisableQuote:     true,
-	}
 	m := &MMU{
 		Cart: cart,
 		wRAM: NewWRAM(),
@@ -156,7 +148,6 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 		zRAM: ram.NewRAM(0x80), // 128 bytes
 
 		Sound:       sound,
-		Log:         l,
 		isGBC:       cart.Header().Hardware() == "CGB",
 		bootROMDone: true, // only set to false if boot rom is enabled
 	}
@@ -166,6 +157,10 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 	m.init()
 
 	return m
+}
+
+func (m *MMU) SetLogger(l log.Logger) {
+	m.Log = l
 }
 
 // Map is to be called after all components have been initialized.

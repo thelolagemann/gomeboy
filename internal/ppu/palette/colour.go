@@ -12,7 +12,7 @@ import (
 // CGBPalette is a palette used by the CGB to provide
 // up to 32768 colors.
 type CGBPalette struct {
-	Palettes     [8][4][3]uint8
+	Palettes     [8]Palette
 	Index        byte
 	Incrementing bool
 }
@@ -90,23 +90,10 @@ func (p *CGBPalette) GetColour(paletteIndex byte, colourIndex byte) [3]uint8 {
 }
 
 func NewCGBPallette() *CGBPalette {
-	pal := [8][4][3]uint8{}
+	pal := [8]Palette{}
 	for i := 0; i < 8; i++ {
 		for j := 0; j < 4; j++ {
 			pal[i][j] = [3]uint8{0xFF, 0xFF, 0xFF}
-		}
-	}
-
-	return &CGBPalette{
-		Palettes: pal,
-	}
-}
-
-func NewCompatibilityCGBPalette(r, g, b uint32) *CGBPalette {
-	pal := [8][4][3]uint8{}
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 4; j++ {
-			pal[i][j] = [3]uint8{uint8(r), uint8(g), uint8(b)}
 		}
 	}
 

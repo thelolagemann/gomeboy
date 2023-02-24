@@ -16,6 +16,9 @@ import (
 // preventing the boot rom from being executed again.
 type ROM struct {
 	raw []byte
+
+	// the md5 checksum of the boot rom
+	checksum string // TODO make this a byte array
 }
 
 // NewBootROM returns a new boot rom for the Game
@@ -65,8 +68,12 @@ func LoadBootROM(raw []byte) *ROM {
 		panic(fmt.Sprintf("boot: invalid boot rom length: %d", len(raw)))
 	}
 
+	// calculate checksum
+	bootChecksum := md5.Sum(raw)
+
 	return &ROM{
-		raw: raw,
+		raw:      raw,
+		checksum: hex.EncodeToString(bootChecksum[:]),
 	}
 }
 
@@ -80,6 +87,38 @@ func (b *ROM) Read(addr uint16) byte {
 // is read only, and will panic if a write is attempted.
 func (b *ROM) Write(addr uint16, val byte) {
 	panic("boot: illegal write to boot")
+}
+
+// Checksum returns the md5 checksum of the boot rom.
+func (b *ROM) Checksum() string {
+	if b == nil {
+		return ""
+	}
+	return b.checksum
+}
+
+// Model returns the model of the boot rom. The model
+// is determined by the checksum of the boot rom.
+func (b *ROM) Model() string {
+	if b == nil {
+		return "none"
+	}
+	for model, checksum := range knownBootROMChecksums {
+		if checksum == b.checksum {
+			return model
+		}
+	}
+	return "unknown"
+}
+
+// knownBootROMChecksums is a map of known boot rom checksums,
+// with the key being the model, and the value being the checksum.
+var knownBootROMChecksums = map[string]string{
+	"DMG0": DMGEarlyBootROMChecksum,
+	"DMG":  DMBBootROMChecksum,
+	"MGB":  MGBBootROMChecksum,
+	"CGB0": CGBEarlyBootROMChecksum,
+	"CGB":  CGBBootROMChecksum,
 }
 
 // known boot rom checksums

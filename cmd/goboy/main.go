@@ -2,15 +2,15 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"github.com/faiface/pixel/pixelgl"
+	"fyne.io/fyne/v2/app"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/pkg/display/fyne"
+	"github.com/thelolagemann/go-gameboy/pkg/display/views"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
-	"time"
-
 	_ "net/http/pprof"
+	"strings"
+	"time"
 )
 
 func main() {
@@ -22,9 +22,13 @@ func main() {
 		}
 	}()
 
+	log := views.Log{}
+
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
+	debugViews := flag.Bool("debug", false, "Show debug views")
+	activeDebugViews := flag.String("active-debug", "cpu,log,mmu,ppu,vram", "Comma separated list of debug views to show")
 	flag.Parse()
 
 	// open the rom file
@@ -56,17 +60,31 @@ func main() {
 	}
 	opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	// create a new gameboy
+	opts = append(opts, gameboy.WithLogger(&log))
 	gb := gameboy.NewGameBoy(rom, opts...)
 
-	pixelgl.Run(func() {
-		// create a new pixel binding
-		mon := display.NewDisplay(gb.MMU.Cart.Header().String())
+	a := fyne.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"), gb)
 
-		// render boot animation
-		// mon.RenderBootAnimation()
-		fmt.Println("Boot animation finished")
+	if *debugViews {
+		for _, view := range strings.Split(*activeDebugViews, ",") {
+			switch view {
+			case "cpu":
+				a.NewWindow("CPU", views.NewCPU(gb.CPU))
+			case "ppu":
+				a.NewWindow("PPU", views.NewPPU(gb.PPU))
+			case "mmu":
+				a.NewWindow("MMU", views.NewMMU(gb.MMU))
+			case "vram":
+				a.NewWindow("VRAM", &views.VRAM{PPU: gb.PPU})
+			case "system":
+				a.NewWindow("System", &views.System{})
+			case "log":
+				a.NewWindow("Log", &log)
+			}
+		}
+	}
 
-		// start the gameboy
-		gb.Start(mon)
-	})
+	log.Infof("Loaded rom %s", *romFile)
+
+	a.Run()
 }

@@ -49,7 +49,7 @@ type CPU struct {
 	mmu     *mmu.MMU
 	stopped bool
 	Halted  bool
-	irq     *interrupts.Service
+	IRQ     *interrupts.Service
 
 	Debug           bool
 	DebugBreakpoint bool
@@ -62,6 +62,7 @@ type CPU struct {
 
 	currentTick uint16
 	mode        mode
+	Paused      bool
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
@@ -76,7 +77,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Co
 		Speed:     1,
 		stopped:   false,
 		Halted:    false,
-		irq:       irq,
+		IRQ:       irq,
 		dma:       dma,
 		timer:     timer,
 		ppu:       ppu,
@@ -159,7 +160,7 @@ func (c *CPU) Step() uint16 {
 		c.runInstruction(c.readInstruction())
 
 		// check for interrupts, in normal mode this requires the IME to be enabled
-		reqInt = c.irq.IME && c.hasInterrupts()
+		reqInt = c.IRQ.IME && c.hasInterrupts()
 	} else {
 		// execute step based on mode
 		switch c.mode {
@@ -178,21 +179,21 @@ func (c *CPU) Step() uint16 {
 			}
 		case ModeEnableIME:
 			// Enabling IME, and set mode to normal
-			c.irq.IME = true
+			c.IRQ.IME = true
 			c.mode = ModeNormal
 
 			// run one instruction
 			c.runInstruction(c.readInstruction())
 
 			// check for interrupts
-			reqInt = c.irq.IME && c.hasInterrupts()
+			reqInt = c.IRQ.IME && c.hasInterrupts()
 		case ModeHaltBug:
 			// TODO implement halt bug
 			instr := c.readInstruction()
 			c.PC--
 			c.runInstruction(instr)
 			c.mode = ModeNormal
-			reqInt = c.irq.IME && c.hasInterrupts()
+			reqInt = c.IRQ.IME && c.hasInterrupts()
 		}
 	}
 
@@ -231,7 +232,7 @@ func (c *CPU) hdmaTick4() {
 }
 
 func (c *CPU) hasInterrupts() bool {
-	return c.irq.Enable&c.irq.Flag != 0
+	return c.IRQ.Enable&c.IRQ.Flag != 0
 }
 
 // readInstruction reads the next instruction from memory.
@@ -312,12 +313,12 @@ func (c *CPU) runInstruction(opcode uint8) {
 
 func (c *CPU) executeInterrupt() {
 	// is IME enabled?
-	if c.irq.IME {
+	if c.IRQ.IME {
 		// save the high byte of the PC
 		c.SP--
 		c.writeByte(c.SP, uint8(c.PC>>8))
 
-		vector := c.irq.Vector()
+		vector := c.IRQ.Vector()
 
 		// save the low byte of the PC
 		c.SP--
@@ -325,7 +326,7 @@ func (c *CPU) executeInterrupt() {
 
 		// jump to the interrupt vector and disable IME
 		c.PC = uint16(vector)
-		c.irq.IME = false
+		c.IRQ.IME = false
 
 		// tick 12 times
 		c.tickCycle()
