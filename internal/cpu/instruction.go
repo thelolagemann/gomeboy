@@ -34,7 +34,7 @@ func init() {
 	DefineInstruction(0x10, "STOP", func(c *CPU) {
 		if c.mmu.IsGBCCompat() {
 			if c.mmu.Key()&0b0000_0001 == 1 {
-				c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
+				// c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
 				c.doubleSpeed = !c.doubleSpeed
 
 				if c.mmu.Key()&0b1000_0000 == 1 {
@@ -101,6 +101,12 @@ func init() {
 	})
 	DefineInstruction(0xF3, "DI", func(c *CPU) { c.IRQ.IME = false })
 	DefineInstruction(0xFB, "EI", func(c *CPU) { c.mode = ModeEnableIME })
+	generateBitInstructions()
+	generateLoadRegisterToRegisterInstructions()
+	generateLogicInstructions()
+	generateRotateInstructions()
+	generateRSTInstructions()
+	generateShiftInstructions()
 
 	for _, opcode := range disallowedOpcodes {
 		DefineInstruction(opcode, "disallowed", disallowedOpcode)
@@ -114,5 +120,5 @@ var disallowedOpcodes = []uint8{
 var InstructionSet [256]Instruction
 
 func disallowedOpcode(cpu *CPU) {
-	panic(fmt.Sprintf("disallowed opcode %X", cpu.mmu.Read(cpu.PC)))
+	panic(fmt.Sprintf("disallowed opcode %X at %04x", cpu.mmu.Read(cpu.PC), cpu.PC))
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"time"
 )
@@ -55,47 +56,36 @@ type CPU struct {
 	DebugBreakpoint bool
 
 	// components that need to be ticked
-	dma   *ppu.DMA
-	timer *timer.Controller
-	ppu   *ppu.PPU
-	sound *apu.APU
+	dma    *ppu.DMA
+	timer  *timer.Controller
+	ppu    *ppu.PPU
+	sound  *apu.APU
+	serial *serial.Controller
 
-	currentTick uint16
+	currentTick uint8
 	mode        mode
 	Paused      bool
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Controller, ppu *ppu.PPU, sound *apu.APU) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timer *timer.Controller, ppu *ppu.PPU, sound *apu.APU, serial *serial.Controller) *CPU {
 	c := &CPU{
-		PC:        0,
-		SP:        0,
-		Debug:     false,
 		Registers: Registers{},
 		mmu:       mmu,
 		Speed:     1,
-		stopped:   false,
-		Halted:    false,
 		IRQ:       irq,
 		dma:       dma,
 		timer:     timer,
 		ppu:       ppu,
 		sound:     sound,
+		serial:    serial,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
 	c.DE = &RegisterPair{&c.D, &c.E}
 	c.HL = &RegisterPair{&c.H, &c.L}
 	c.AF = &RegisterPair{&c.A, &c.F}
-
-	// generate instructions
-	c.generateBitInstructions()
-	c.generateLoadRegisterToRegisterInstructions()
-	c.generateLogicInstructions()
-	c.generateRSTInstructions()
-	c.generateRotateInstructions()
-	c.generateShiftInstructions()
 
 	return c
 }
@@ -144,14 +134,14 @@ func (c *CPU) registerName(reg *Register) string {
 
 // Step the CPU by one frame and returns the
 // number of ticks that have been executed.
-func (c *CPU) Step() uint16 {
+func (c *CPU) Step() uint8 {
 	// reset tick counter
 	c.currentTick = 0
 
 	// should we tick HDMA?
 	if c.mmu.HDMA != nil && c.mmu.HDMA.IsCopying() {
 		c.hdmaTick4()
-		return 0
+		return 0 // TODO determine correct value to return
 	}
 
 	reqInt := false
@@ -168,7 +158,8 @@ func (c *CPU) Step() uint16 {
 			// in stop, halt mode, the CPU ticks 4 times, but does not execute any instructions
 			c.tickCycle()
 
-			// check for interrupts, in stop mode the IME is ignored
+			// check for interrupts, in stop mode the IME is ignored, this
+			// is so that the CPU can be woken up by an interrupt while in halt, stop mode
 			reqInt = c.hasInterrupts()
 		case ModeHaltDI:
 			c.tickCycle()
@@ -188,7 +179,6 @@ func (c *CPU) Step() uint16 {
 			// check for interrupts
 			reqInt = c.IRQ.IME && c.hasInterrupts()
 		case ModeHaltBug:
-			// TODO implement halt bug
 			instr := c.readInstruction()
 			c.PC--
 			c.runInstruction(instr)
@@ -210,6 +200,7 @@ func (c *CPU) Step() uint16 {
 func (c *CPU) tickDoubleSpeed() {
 	c.dma.Tick()
 	c.timer.Tick()
+	c.serial.Tick(c.timer.Div)
 }
 
 func (c *CPU) hdmaTick4() {
@@ -249,13 +240,11 @@ func (c *CPU) readOperand() uint8 {
 	c.tickCycle()
 	value := c.mmu.Read(c.PC)
 	c.PC++
-	// fmt.Println("readOperand", value)
 	return value
 }
 
 func (c *CPU) skipOperand() {
 	c.tickCycle()
-	//c.mmu.Read(c.PC)
 	c.PC++
 }
 
@@ -278,35 +267,25 @@ func (c *CPU) runInstruction(opcode uint8) {
 	if opcode == 0xCB {
 		// read the next instruction
 		cbIns := InstructionSetCB[c.readOperand()]
-		if cbIns.fn == nil {
-			panic(fmt.Sprintf("invalid CB instruction: %x", opcode))
-		}
-
 		instruction = cbIns
 	} else {
 		// get the instruction
 		ins := InstructionSet[opcode]
-		if ins.fn == nil {
-			panic(fmt.Sprintf("invalid instruction: %x", opcode))
-		}
 		instruction = ins
 	}
 
 	// execute the instruction
 	instruction.fn(c)
-
 	if false {
 		fmt.Printf("%s (%d ticks)", instruction.name, c.currentTick)
 		fmt.Println()
 		fmt.Printf("A: %02x F: %02x B: %02x C: %02x D: %02x E: %02x H: %02x L: %02x SP: %04x PC: %04x\n", c.A, c.F, c.B, c.C, c.D, c.E, c.H, c.L, c.SP, currentPC)
 		time.Sleep(20 * time.Millisecond)
 	}
-
 	// check for debug
 	if c.Debug {
 		if instruction.name == "LD B, B" {
 			c.DebugBreakpoint = true
-			// panic("debug breakpoint")
 		}
 	}
 }
@@ -342,6 +321,7 @@ func (c *CPU) executeInterrupt() {
 func (c *CPU) tick() {
 	c.dma.Tick()
 	c.timer.Tick()
+	c.serial.Tick(c.timer.Div)
 	c.ppu.Tick()
 	c.sound.Tick()
 	c.currentTick++

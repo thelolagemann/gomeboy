@@ -5,10 +5,21 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 )
 
+var registerNameMap = map[uint8]string{
+	0: "B",
+	1: "C",
+	2: "D",
+	3: "E",
+	4: "H",
+	5: "L",
+	6: "(HL)",
+	7: "A",
+}
+
 // TODO update to new instruction format
 var InstructionSetCB = [256]Instruction{}
 
-func (c *CPU) generateRotateInstructions() {
+func generateRotateInstructions() {
 	// loop through each register (B, C, D, E, H, L, (HL), A)
 	for j := uint8(0); j < 8; j++ {
 		// (HL) needs to be handled differently as it is a memory address
@@ -44,34 +55,33 @@ func (c *CPU) generateRotateInstructions() {
 			continue
 		}
 
-		// get register from index
-		reg := c.registerIndex(j)
+		reg := j
 
 		// create the 4 rotate instructions for each register
 
 		// 0x00 - 0x07 - RLC r
-		DefineInstructionCB(0x00+j, fmt.Sprintf("RLC %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.rotateLeft(*reg)
+		DefineInstructionCB(0x00+j, fmt.Sprintf("RLC %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.rotateLeft(*cpu.registerIndex(reg))
 		})
 
 		// 0x08 - 0x0F - RRC r
-		DefineInstructionCB(0x08+j, fmt.Sprintf("RRC %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.rotateRight(*reg)
+		DefineInstructionCB(0x08+j, fmt.Sprintf("RRC %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.rotateRight(*cpu.registerIndex(reg))
 		})
 
 		// 0x10 - 0x17 - RL r
-		DefineInstructionCB(0x10+j, fmt.Sprintf("RL %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.rotateLeftThroughCarry(*reg)
+		DefineInstructionCB(0x10+j, fmt.Sprintf("RL %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.rotateLeftThroughCarry(*cpu.registerIndex(reg))
 		})
 
 		// 0x18 - 0x1F - RR r
-		DefineInstructionCB(0x18+j, fmt.Sprintf("RR %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.rotateRightThroughCarry(*reg)
+		DefineInstructionCB(0x18+j, fmt.Sprintf("RR %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.rotateRightThroughCarry(*cpu.registerIndex(reg))
 		})
 	}
 }
 
-func (c *CPU) generateShiftInstructions() {
+func generateShiftInstructions() {
 	// loop through each register (B, C, D, E, H, L, (HL), A)
 	for j := uint8(0); j < 8; j++ {
 		// (HL) needs to be handled differently as it is a memory address
@@ -108,28 +118,28 @@ func (c *CPU) generateShiftInstructions() {
 		}
 
 		// get register from index
-		reg := c.registerIndex(j)
+		reg := j
 
 		// create the 4 shift instructions for each register (SLA, SRA, SWAP, SRL)
 
 		// 0x20 - 0x27 - SLA r
-		DefineInstructionCB(0x20+j, fmt.Sprintf("SLA %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.shiftLeftIntoCarry(*reg)
+		DefineInstructionCB(0x20+j, fmt.Sprintf("SLA %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.shiftLeftIntoCarry(*cpu.registerIndex(reg))
 		})
 
 		// 0x28 - 0x2F - SRA r
-		DefineInstructionCB(0x28+j, fmt.Sprintf("SRA %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.shiftRightIntoCarry(*reg)
+		DefineInstructionCB(0x28+j, fmt.Sprintf("SRA %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.shiftRightIntoCarry(*cpu.registerIndex(reg))
 		})
 
 		// 0x30 - 0x37 - SWAP r
-		DefineInstructionCB(0x30+j, fmt.Sprintf("SWAP %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.swap(*reg)
+		DefineInstructionCB(0x30+j, fmt.Sprintf("SWAP %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.swap(*cpu.registerIndex(reg))
 		})
 
 		// 0x38 - 0x3F - SRL r
-		DefineInstructionCB(0x38+j, fmt.Sprintf("SRL %s", c.registerName(reg)), func(cpu *CPU) {
-			*reg = cpu.shiftRightLogical(*reg)
+		DefineInstructionCB(0x38+j, fmt.Sprintf("SRL %s", registerNameMap[reg]), func(cpu *CPU) {
+			*cpu.registerIndex(reg) = cpu.shiftRightLogical(*cpu.registerIndex(reg))
 		})
 	}
 }
@@ -143,12 +153,13 @@ func (c *CPU) generateShiftInstructions() {
 //	0x41 - BIT 0, C
 //	...
 //	0xFF - SET 7, A
-func (c *CPU) generateBitInstructions() {
+func generateBitInstructions() {
 	// Loop through each bit
 	for bit := uint8(0); bit <= 7; bit++ {
 		// Loop through each register
-		for reg := uint8(0); reg <= 7; reg++ {
+		for register := uint8(0); register <= 7; register++ {
 			currentBit := bit // create a copy of the current bit as it will be changed in the outer loop when fn is called
+			reg := register   // create a copy of the current register as it will be changed in the outer loop when fn is called
 			if reg == 6 {
 				// (HL) is not a register, it's a memory address pointed to by HL,
 				// so we need to handle it separately
@@ -176,21 +187,18 @@ func (c *CPU) generateBitInstructions() {
 				continue
 			}
 
-			// Get register from index
-			register := c.registerIndex(reg)
-
 			// Create BIT instruction
-			DefineInstructionCB(0x40+bit*8+reg, fmt.Sprintf("BIT %d, %s", bit, c.registerName(register)), func(cpu *CPU) {
-				cpu.testBit(*register, currentBit)
+			DefineInstructionCB(0x40+bit*8+reg, fmt.Sprintf("BIT %d, %s", bit, registerNameMap[reg]), func(cpu *CPU) {
+				cpu.testBit(*cpu.registerIndex(reg), currentBit)
 			})
 
 			// Create RES instruction
-			DefineInstructionCB(0x80+bit*8+reg, fmt.Sprintf("RES %d, %s", bit, c.registerName(register)), func(cpu *CPU) {
-				*register = utils.Reset(*register, currentBit)
+			DefineInstructionCB(0x80+bit*8+reg, fmt.Sprintf("RES %d, %s", bit, registerNameMap[reg]), func(cpu *CPU) {
+				*cpu.registerIndex(reg) = utils.Reset(*cpu.registerIndex(reg), currentBit)
 			})
 			// Create SET instruction
-			DefineInstructionCB(0xC0+bit*8+reg, fmt.Sprintf("SET %d, %s", bit, c.registerName(register)), func(cpu *CPU) {
-				*register = utils.Set(*register, currentBit)
+			DefineInstructionCB(0xC0+bit*8+reg, fmt.Sprintf("SET %d, %s", bit, registerNameMap[reg]), func(cpu *CPU) {
+				*cpu.registerIndex(reg) = utils.Set(*cpu.registerIndex(reg), currentBit)
 			})
 		}
 	}

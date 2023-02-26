@@ -149,7 +149,7 @@ func init() {
 //	0x41 LD B, C
 //	....
 //	0x7F LD A, A
-func (c *CPU) generateLoadRegisterToRegisterInstructions() {
+func generateLoadRegisterToRegisterInstructions() {
 	// Loop over each register
 	for i := uint8(0); i < 8; i++ {
 		// handle the special case of LD (HL), r
@@ -160,7 +160,7 @@ func (c *CPU) generateLoadRegisterToRegisterInstructions() {
 					continue
 				}
 				fromRegister := j
-				DefineInstruction(0x70+j, fmt.Sprintf("LD (HL), %s", c.registerName(c.registerIndex(fromRegister))), func(c *CPU) {
+				DefineInstruction(0x70+j, fmt.Sprintf("LD (HL), %s", registerNameMap[fromRegister]), func(c *CPU) {
 					c.loadRegisterToMemory(c.registerIndex(fromRegister), c.HL.Uint16())
 				})
 			}
@@ -174,7 +174,7 @@ func (c *CPU) generateLoadRegisterToRegisterInstructions() {
 			toRegister := i
 			// if j is 6, then we are loading from memory
 			if j == 6 {
-				DefineInstruction(0x40+i*8+j, fmt.Sprintf("LD %s, (HL)", c.registerName(c.registerIndex(toRegister))), func(c *CPU) {
+				DefineInstruction(0x40+i*8+j, fmt.Sprintf("LD %s, (HL)", registerNameMap[toRegister]), func(c *CPU) {
 					c.loadMemoryToRegister(c.registerIndex(toRegister), c.HL.Uint16())
 				})
 			} else {
@@ -183,7 +183,7 @@ func (c *CPU) generateLoadRegisterToRegisterInstructions() {
 				// Generate the instruction
 				DefineInstruction(
 					0x40+(i*8)+j,
-					fmt.Sprintf("LD %s, %s", c.registerName(c.registerIndex(toRegister)), c.registerName(c.registerIndex(fromRegister))),
+					fmt.Sprintf("LD %s, %s", registerNameMap[toRegister], registerNameMap[fromRegister]),
 					func(c *CPU) {
 						c.loadRegisterToRegister(c.registerIndex(toRegister), c.registerIndex(fromRegister))
 					})

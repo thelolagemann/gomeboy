@@ -134,7 +134,7 @@ func (c *CPU) compare(b uint8) {
 // Where n is one of the following:
 //
 //	A, B, C, D, E, H, L, (HL), d8
-func (c *CPU) generateLogicInstructions() {
+func generateLogicInstructions() {
 	// loop through the 8 instruction groups
 	for i := uint8(0); i < 8; i++ {
 		// loop through the 8 registers
@@ -148,36 +148,36 @@ func (c *CPU) generateLogicInstructions() {
 			// generate the instruction
 			switch i {
 			case 0:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADD A, %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.A = cpu.add(cpu.A, *c.registerIndex(currentReg), false)
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADD A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.A = cpu.add(cpu.A, *cpu.registerIndex(currentReg), false)
 				})
 			case 1:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADC A, %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.A = cpu.add(cpu.A, *c.registerIndex(currentReg), true)
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADC A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.A = cpu.add(cpu.A, *cpu.registerIndex(currentReg), true)
 				})
 			case 2:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SUB %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.A = cpu.sub(cpu.A, *c.registerIndex(currentReg), false)
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SUB %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.A = cpu.sub(cpu.A, *cpu.registerIndex(currentReg), false)
 				})
 			case 3:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SBC A, %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.A = cpu.sub(cpu.A, *c.registerIndex(currentReg), true)
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SBC A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.A = cpu.sub(cpu.A, *cpu.registerIndex(currentReg), true)
 				})
 			case 4:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("AND %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.andRegister(c.registerIndex(currentReg))
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("AND %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.andRegister(cpu.registerIndex(currentReg))
 				})
 			case 5:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("XOR %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.xorRegister(c.registerIndex(currentReg))
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("XOR %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.xorRegister(cpu.registerIndex(currentReg))
 				})
 			case 6:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("OR %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.orRegister(c.registerIndex(currentReg))
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("OR %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.orRegister(cpu.registerIndex(currentReg))
 				})
 			case 7:
-				DefineInstruction(0x80+i*8+j, fmt.Sprintf("CP %s", c.registerName(c.registerIndex(currentReg))), func(cpu *CPU) {
-					cpu.compareRegister(c.registerIndex(currentReg))
+				DefineInstruction(0x80+i*8+j, fmt.Sprintf("CP %s", registerNameMap[currentReg]), func(cpu *CPU) {
+					cpu.compareRegister(cpu.registerIndex(currentReg))
 				})
 			}
 		}
