@@ -4,7 +4,6 @@
 package mmu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/boot"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
@@ -69,7 +68,7 @@ func (m *MMU) init() {
 		func(v uint8) {
 			// it's assumed any write to this register will disable the boot rom
 			m.bootROMDone = true
-			m.Log.Infof("boot ROM disabled with write to BDIS register: %v", v)
+			//m.Log.Infof("boot ROM disabled with write to BDIS register: %v", v)
 		}, func() uint8 {
 			// TODO return different values depending on hardware (DMG/SGB/CGB)
 			if m.bootROMDone {
@@ -252,15 +251,13 @@ func (m *MMU) SetBootROM(rom []byte) {
 	}
 }
 
-func (m *MMU) SetModel(model uint8) {
+func (m *MMU) SetModel(model types.Model) {
 	switch model {
-	case 1:
+	case types.DMG0, types.DMGABC:
 		m.isGBC = false
-		fmt.Println("Setting model to DMG")
-	case 2:
+	case types.CGB0, types.CGBABC:
 		m.isGBC = true
 		m.HDMA = NewHDMA(m)
-		fmt.Println("Setting model to CGB")
 	}
 }
 
