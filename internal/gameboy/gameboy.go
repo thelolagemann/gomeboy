@@ -5,16 +5,15 @@ package gameboy
 
 import (
 	"fmt"
-	"fyne.io/fyne/v2"
 	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
 	"github.com/thelolagemann/go-gameboy/internal/cpu"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-	"github.com/thelolagemann/go-gameboy/internal/io"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
+	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
@@ -62,37 +61,140 @@ var startingRegisterValues = map[types.HardwareAddress]uint8{
 	types.BDIS: 0x01,
 }
 
-type Model = uint8
-
-const (
-	ModelAutomatic Model = iota
-	ModelDMG
-	ModelCGB
-)
-
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
 // It is the main entry point for the emulator.
 type GameBoy struct {
 	sync.RWMutex
-	CPU *cpu.CPU
-	MMU *mmu.MMU
-	PPU *ppu.PPU
+	CPU   *cpu.CPU
+	MMU   *mmu.MMU
+	PPU   *ppu.PPU
+	model types.Model
 
 	APU        *apu.APU
 	Joypad     *joypad.State
 	Interrupts *interrupts.Service
 	Timer      *timer.Controller
-	Serial     *io.Serial
+	Serial     *serial.Controller
 
 	log.Logger
 
 	currentCycle uint
 
-	paused        bool
-	frames        int
-	ticks         uint16
-	previousFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
-	frameQueue    bool
+	paused          bool
+	frames          int
+	ticks           uint16
+	previousFrame   [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
+	frameQueue      bool
+	attachedGameBoy *GameBoy
+	speed           float64
+}
+
+func (g *GameBoy) StartLinked(
+	frames1 chan<- []byte,
+	events1 chan<- display.Event,
+	pressed1 <-chan joypad.Button,
+	released1 <-chan joypad.Button,
+	frames2 chan<- []byte,
+	events2 chan<- display.Event,
+	pressed2 <-chan joypad.Button,
+	released2 <-chan joypad.Button,
+) {
+
+	// setup the frame buffer
+	frameBuffer1 := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
+	frameBuffer2 := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
+	frame1 := [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8{}
+	frame2 := [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8{}
+
+	// start a ticker
+	ticker := time.NewTicker(FrameTime)
+
+	for {
+		select {
+		case p := <-pressed1:
+			g.Joypad.Press(p)
+		case r := <-released1:
+			g.Joypad.Release(r)
+		case p := <-pressed2:
+			g.attachedGameBoy.Joypad.Press(p)
+		case r := <-released2:
+			g.attachedGameBoy.Joypad.Release(r)
+		case <-ticker.C:
+			// lock the gameboy
+			g.Lock()
+			// update the fps counter
+			g.frames++
+
+			// render frame
+			if !g.paused && !g.CPU.Paused {
+				frame1, frame2 = g.LinkFrame()
+			}
+
+			// turn frame into image
+			for y := 0; y < ppu.ScreenHeight; y++ {
+				for x := 0; x < ppu.ScreenWidth; x++ {
+					frameBuffer1[(y*ppu.ScreenWidth+x)*3] = frame1[y][x][0]
+					frameBuffer1[(y*ppu.ScreenWidth+x)*3+1] = frame1[y][x][1]
+					frameBuffer1[(y*ppu.ScreenWidth+x)*3+2] = frame1[y][x][2]
+
+					frameBuffer2[(y*ppu.ScreenWidth+x)*3] = frame2[y][x][0]
+					frameBuffer2[(y*ppu.ScreenWidth+x)*3+1] = frame2[y][x][1]
+					frameBuffer2[(y*ppu.ScreenWidth+x)*3+2] = frame2[y][x][2]
+				}
+			}
+
+			// TODO reimplment this
+			/*if time.Since(start) > time.Second {
+				// average frame time
+				avgFrameTime := avgTime(frameTimes)
+				avgRenderTime := avgTime(renderTimes)
+				frameTimes = frameTimes[:0]
+				renderTimes = renderTimes[:0]
+
+				// append to avg render times
+				avgRenderTimes = append(avgRenderTimes, avgRenderTime)
+				total := avgFrameTime + avgRenderTime
+
+				totalAvgRenderTime := avgTime(avgRenderTimes)
+
+				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
+				g.frames = 0
+				start = time.Now()
+
+				// make sure avg render times doesn't get too big
+				if len(avgRenderTimes) > 144 {
+					avgRenderTimes = avgRenderTimes[1:]
+				}
+			}*/
+
+			// send frame events
+			events1 <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
+				Registers struct {
+					AF uint16
+					BC uint16
+					DE uint16
+					HL uint16
+					SP uint16
+					PC uint16
+				}
+			}{Registers: struct {
+				AF uint16
+				BC uint16
+				DE uint16
+				HL uint16
+				SP uint16
+				PC uint16
+			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
+			events2 <- display.Event{Type: display.EventTypeFrame}
+
+			// send frames
+			frames1 <- frameBuffer1
+			frames2 <- frameBuffer2
+
+			// unlock the gameboy
+			g.Unlock()
+		}
+	}
 }
 
 func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
@@ -108,7 +210,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	avgRenderTimes := make([]time.Duration, 0, FrameRate)
 
 	// start a ticker
-	ticker := time.NewTicker(FrameTime)
+	ticker := time.NewTicker(FrameTime / time.Duration(g.speed))
 	frameBuffer := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
 	var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 
@@ -132,7 +234,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 				renderTimes = append(renderTimes, time.Since(frameStart))
 
 			} else {
-				frame = g.previousFrame
+				continue
 			}
 			frameStart = time.Now()
 
@@ -212,17 +314,6 @@ func (g *GameBoy) TogglePause() {
 	g.paused = !g.paused
 }
 
-var keyboardBindings = map[fyne.KeyName]joypad.Button{
-	fyne.KeyUp:        joypad.ButtonUp,
-	fyne.KeyDown:      joypad.ButtonDown,
-	fyne.KeyLeft:      joypad.ButtonLeft,
-	fyne.KeyRight:     joypad.ButtonRight,
-	fyne.KeyA:         joypad.ButtonA,
-	fyne.KeyS:         joypad.ButtonB,
-	fyne.KeyReturn:    joypad.ButtonStart,
-	fyne.KeyBackspace: joypad.ButtonSelect,
-}
-
 type GameBoyOpt func(gb *GameBoy)
 
 func Debug() GameBoyOpt {
@@ -259,10 +350,19 @@ func SerialDebugger(output *string) GameBoyOpt {
 	}
 }
 
-func AsModel(m Model) func(gb *GameBoy) {
+func AsModel(m types.Model) func(gb *GameBoy) {
 	return func(gb *GameBoy) {
 		gb.SetModel(m)
 		gb.initializeCPU()
+	}
+}
+
+func SerialConnection(gbFrom *GameBoy) GameBoyOpt {
+	return func(gbTo *GameBoy) {
+		gbTo.Serial.Attach(gbFrom.Serial)
+		gbFrom.Serial.Attach(gbTo.Serial)
+
+		gbFrom.attachedGameBoy = gbTo
 	}
 }
 
@@ -295,12 +395,18 @@ func WithBootROM(rom []byte) GameBoyOpt {
 	}
 }
 
+func Speed(speed float64) GameBoyOpt {
+	return func(gb *GameBoy) {
+		gb.speed = speed
+	}
+}
+
 // NewGameBoy returns a new GameBoy.
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	cart := cartridge.NewCartridge(rom)
 	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
-	serial := io.NewSerial()
+	serialCtl := serial.NewController(interrupt)
 	timerCtl := timer.NewController(interrupt)
 	sound := apu.NewAPU()
 	memBus := mmu.NewMMU(cart, sound)
@@ -308,7 +414,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus.AttachVideo(video)
 
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound),
+		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound, serialCtl),
 		MMU: memBus,
 		PPU: video,
 
@@ -316,28 +422,44 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Joypad:     pad,
 		Interrupts: interrupt,
 		Timer:      timerCtl,
-		Serial:     serial,
+		Serial:     serialCtl,
+		model:      types.Unset, // default to DMGABC
+		speed:      1.0,
 	}
-	g.initializeCPU()
 
+	// apply options
 	for _, opt := range opts {
 		opt(g)
 	}
 
+	// setup memory bus
 	memBus.Map()
+
+	// set model
+	if g.model == types.Unset {
+		if memBus.IsGBC() || memBus.IsGBCCompat() {
+			g.model = types.CGBABC
+		} else {
+			g.model = types.DMGABC
+		}
+	}
 
 	// setup starting register values
 	if g.MMU.BootROM == nil {
+		// TODO switch to using model to determine starting register values
 		for addr, val := range startingRegisterValues {
 			g.MMU.Write(addr, val)
 		}
 		g.PPU.Status.Mode = 3
+
+		g.initializeCPU()
 	}
 	if g.MMU.IsGBCCompat() {
 		video.LoadCompatibilityPalette()
 	}
 
 	video.StartRendering()
+
 	return g
 }
 
@@ -345,26 +467,12 @@ func (g *GameBoy) initializeCPU() {
 	// setup initial cpu state
 	g.CPU.PC = 0x100
 	g.CPU.SP = 0xFFFE
-	if g.MMU.IsGBCCompat() {
-		g.CPU.A = 0x11
-		g.CPU.F = 0x80
-		g.CPU.B = 0x00
-		g.CPU.C = 0x00
-		g.CPU.D = 0xFF
-		g.CPU.E = 0x56
-		g.CPU.H = 0x00
-		g.CPU.L = 0x0D
-	} else {
-		g.CPU.A = 0x01
-		g.CPU.F = 0xB0
-		g.CPU.B = 0x00
-		g.CPU.C = 0x13
-		g.CPU.D = 0x00
-		g.CPU.E = 0xD8
-		g.CPU.H = 0x01
-		g.CPU.L = 0x4D
-	}
 
+	// set CPU registers from model
+	registers := g.model.Registers()
+	for i, val := range []*uint8{&g.CPU.A, &g.CPU.F, &g.CPU.B, &g.CPU.C, &g.CPU.D, &g.CPU.E, &g.CPU.H, &g.CPU.L} {
+		*val = registers[i]
+	}
 }
 
 func avgTime(t []time.Duration) time.Duration {
@@ -378,25 +486,34 @@ func avgTime(t []time.Duration) time.Duration {
 	return avg / time.Duration(len(t))
 }
 
+// LinkFrame will step the emulation until the PPU has finished
+// rendering the current frame. It will then prepare the frame
+// for display, and return it.
+func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8) {
+	// step until the first GameBoy has finished rendering a frame
+	for !g.PPU.HasFrame() {
+		g.CPU.Step()
+		g.attachedGameBoy.CPU.Step()
+	}
+
+	// step until the second GameBoy has finished rendering a frame
+	for !g.attachedGameBoy.PPU.HasFrame() {
+		g.CPU.Step()
+		g.attachedGameBoy.CPU.Step()
+	}
+
+	// clear the refresh flags
+	g.PPU.ClearRefresh()
+	g.attachedGameBoy.PPU.ClearRefresh()
+
+	// return the prepared frames
+	return g.PPU.PreparedFrame, g.attachedGameBoy.PPU.PreparedFrame
+}
+
 // Frame will step the emulation until the PPU has finished
 // rendering the current frame. It will then prepare the frame
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
-	// was the last frame rendered? (by the PPU)
-	/*if g.frameQueue {
-		// if so, tick until the next frame is ready
-		for !g.PPU.HasFrame() {
-			g.CPU.Step()
-		}
-
-		// prepare the frame for display
-		g.PPU.ClearRefresh()
-
-		// return the frame and reset the frame queue
-		g.frameQueue = false
-		g.previousFrame = g.PPU.PreparedFrame
-		return g.previousFrame
-	}*/
 	ticks := uint32(0)
 	// step until the next frame or until tick threshold is reached
 	for ticks <= TicksPerFrame {
@@ -508,10 +625,8 @@ func (g *GameBoy) ProcessInputs(inputs pixelgl.Inputs) {
 	}
 }
 
-func (g *GameBoy) SetModel(m Model) {
+func (g *GameBoy) SetModel(m types.Model) {
 	// re-initialize MMU
 	g.MMU.SetModel(m)
-	// restart PPU rendering
-
-	// re-initialize CPU
+	g.model = m
 }

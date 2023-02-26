@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"os"
 )
 
 var (
@@ -12,7 +11,7 @@ var (
 // HardwareRegisters is a slice of hardware registers, which
 // can be read and written to. The slice is indexed by the
 // address of the hardware register ANDed with 0x007F.
-type HardwareRegisters [0x80]*Hardware
+type HardwareRegisters [0x80]*HardwareRegister
 
 // Read returns the value of the hardware register for
 // the given address. If the hardware register is not
@@ -30,25 +29,6 @@ func (h HardwareRegisters) Read(address uint16) uint8 {
 		return 0xFF
 	}
 	return h[address&0x007F].Read()
-}
-
-var paletteDump []struct {
-	address uint16
-	val     uint8
-}
-
-func SavePaletteDump() {
-	// save the current palette dump to a file
-	f, err := os.Create("palette-dump.txt")
-	if err != nil {
-		panic(err)
-	}
-
-	for _, d := range paletteDump {
-		fmt.Fprintf(f, "%04X: %02X\n", d.address, d.val)
-	}
-
-	f.Close()
 }
 
 // Write writes the given value to the hardware register
@@ -71,10 +51,10 @@ func CollectHardwareRegisters() HardwareRegisters {
 	return hardware
 }
 
-// Hardware represents a hardware register of the Game
+// HardwareRegister represents a hardware register of the Game
 // Boy. The hardware registers are used to control and
 // read the state of the hardware.
-type Hardware struct {
+type HardwareRegister struct {
 	address HardwareAddress
 	set     func(v uint8)
 	get     func() uint8
@@ -84,7 +64,7 @@ type Hardware struct {
 
 // HardwareOpt is a function that configures a hardware register,
 // such as making it readable, writable, or both.
-type HardwareOpt func(*Hardware)
+type HardwareOpt func(*HardwareRegister)
 
 // RegisterHardware registers a hardware register with the given
 // address and read/write functions. The read and write functions
@@ -93,7 +73,7 @@ type HardwareOpt func(*Hardware)
 // functions are called with the address of the register, and
 // the value to be written, or the value to be read, respectively.
 func RegisterHardware(address HardwareAddress, set func(v uint8), get func() uint8, opts ...HardwareOpt) {
-	h := &Hardware{
+	h := &HardwareRegister{
 		address: address,
 		set:     set,
 		get:     get,
@@ -107,14 +87,14 @@ func RegisterHardware(address HardwareAddress, set func(v uint8), get func() uin
 }
 
 func WithWriteHandler(writeHandler func(writeFn func())) HardwareOpt {
-	return func(h *Hardware) {
+	return func(h *HardwareRegister) {
 		h.writeHandler = writeHandler
 	}
 }
 
 type WriteHandler func(writeFn func())
 
-func (h *Hardware) Read() uint8 {
+func (h *HardwareRegister) Read() uint8 {
 	// was the hardware register get function set?
 	if h.get != nil {
 		return h.get()
@@ -124,7 +104,7 @@ func (h *Hardware) Read() uint8 {
 	panic(fmt.Sprintf("hardware: no read function for address 0x%04X", h.address))
 }
 
-func (h *Hardware) Write(value uint8) {
+func (h *HardwareRegister) Write(value uint8) {
 	// did the hardware register have a write handler?
 	if h.writeHandler != nil {
 		// was the hardware register write function set?
