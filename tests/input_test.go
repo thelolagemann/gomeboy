@@ -3,6 +3,8 @@ package tests
 import (
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"golang.org/x/image/draw"
 	"image"
 	"image/color"
@@ -15,7 +17,7 @@ type inputTest struct {
 	name              string
 	romPath           string
 	expectedImagePath string
-	model             gameboy.Model
+	model             types.Model
 	inputs            []testInput
 	passed            bool
 }
@@ -39,7 +41,7 @@ type testInput struct {
 	atEmulatedFrame int
 }
 
-func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, asModel gameboy.Model, name string, inputs ...testInput) bool {
+func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, asModel types.Model, name string, inputs ...testInput) bool {
 	passed := true
 	t.Run(name, func(t *testing.T) {
 		// load the rom
@@ -49,26 +51,33 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		}
 
 		// create a new gameboy
-		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel))
+		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(5))
 
-		// custom test loop
+		// setup frame, event and input channels
+		frames := make(chan []byte, 144)
+		events := make(chan display.Event, 144)
+		pressed := make(chan joypad.Button, 10)
+		released := make(chan joypad.Button, 10)
+
+		// start the gameboy
+		go func() {
+			gb.Start(frames, events, pressed, released)
+		}()
+
+		// custom test loop (emulate for 10 seconds TODO: make this configurable)
 		for frame := 0; frame < 60*10; frame++ {
-			for i := uint32(0); i < gameboy.TicksPerFrame; {
-				i += uint32(gb.CPU.Step())
-			}
+			// get the next frame
+			<-frames
 
-			// wait until frame is done
-			for !gb.PPU.HasFrame() {
-				gb.CPU.Step()
-			}
-			gb.PPU.ClearRefresh()
+			// empty the event channel
+			<-events
 
 			// check if we should press a button
 			for _, input := range inputs {
 				if input.atEmulatedFrame == frame {
-					gb.Joypad.Press(input.button)
+					pressed <- input.button
 				} else {
-					gb.Joypad.Release(input.button)
+					released <- input.button
 				}
 			}
 		}

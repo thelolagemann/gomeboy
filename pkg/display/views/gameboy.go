@@ -1,29 +1,15 @@
 package views
 
 import (
-	"github.com/thelolagemann/go-gameboy/pkg/display"
-	"image"
+	"fyne.io/fyne/v2"
+	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 )
 
 type Gameboy struct {
+	GB *gameboy.GameBoy
 }
 
-func (g *Gameboy) Run(frames <-chan []byte, events <-chan display.Event, img *image.RGBA) error {
-	for {
-		select {
-		case e := <-events:
-			switch e.Type {
-			case display.EventTypeQuit:
-				return nil
-			case display.EventTypeFrame:
-				// refresh canvas
+func (g *Gameboy) Run(window fyne.Window) error {
 
-			}
-		case f := <-frames:
-			// set the pixels of the image
-			for i := 0; i < len(f); i++ {
-				img.Pix[i] = f[i]
-			}
-		}
-	}
+	return nil
 }

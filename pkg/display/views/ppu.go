@@ -26,10 +26,10 @@ type PPU struct {
 	grid *fyne.Container
 }
 
-func (p *PPU) Run(w display.Window) error {
+func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 	// create the base grid and set it as the content of the window
 	grid := container.New(layout.NewVBoxLayout())
-	w.FyneWindow().SetContent(grid)
+	w.SetContent(grid)
 
 	// create a grid for the palettes
 	dmgPaletteGrid := container.NewGridWithRows(3)
@@ -94,9 +94,7 @@ func (p *PPU) Run(w display.Window) error {
 	// set the grid to the PPU struct
 	p.grid = grid
 
-	// handle events
-	events := w.Events()
-
+	// start the event loop
 	go func() {
 		for {
 			select {

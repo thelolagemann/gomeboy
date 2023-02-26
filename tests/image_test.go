@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
 	"image/color"
 	"image/draw"
@@ -21,7 +22,7 @@ type imageTest struct {
 	emulatedSeconds int
 	expectedImage   string
 	passed          bool
-	model           gameboy.Model
+	model           types.Model
 }
 
 type imageTestOption func(*imageTest)
@@ -32,13 +33,13 @@ func withEmulatedSeconds(secs int) imageTestOption {
 	}
 }
 
-func asModel(model gameboy.Model) imageTestOption {
+func asModel(model types.Model) imageTestOption {
 	return func(t *imageTest) {
 		t.model = model
 	}
 }
 
-func findImage(name string, model gameboy.Model) string {
+func findImage(name string, model types.Model) string {
 	// search for .png file in roms/name
 	dir := "roms/" + name
 
@@ -57,11 +58,11 @@ func findImage(name string, model gameboy.Model) string {
 			// check if file name contains model (last 3 chars before .png)
 			modelSuffix := d.Name()[len(d.Name())-7 : len(d.Name())-4]
 
-			if strings.Contains(modelSuffix, "dmg") && model == gameboy.ModelDMG {
+			if strings.Contains(modelSuffix, "dmg") && model == types.DMGABC {
 				imagePath = path
 				return nil
 			}
-			if strings.Contains(modelSuffix, "cgb") && model == gameboy.ModelCGB {
+			if strings.Contains(modelSuffix, "cgb") && model == types.CGBABC {
 				imagePath = path
 				return nil
 			}
@@ -132,13 +133,13 @@ func newImageTest(name string, opts ...imageTestOption) *imageTest {
 	t := &imageTest{
 		romPath:         romPath,
 		name:            name,
-		model:           gameboy.ModelDMG,
+		model:           types.DMGABC,
 		emulatedSeconds: 2,
 	}
 	for _, opt := range opts {
 		opt(t)
 	}
-	if t.model == gameboy.ModelCGB {
+	if t.model == types.CGBABC {
 		t.name = t.name + "-cgb"
 	}
 
@@ -208,7 +209,7 @@ func sqDiffUInt32(x, y uint32) uint64 {
 	return d * d
 }
 
-func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath string, asModel gameboy.Model, emulatedSeconds int, name string) bool {
+func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath string, asModel types.Model, emulatedSeconds int, name string) bool {
 	passed := true
 	t.Run(name, func(t *testing.T) {
 		// load the rom

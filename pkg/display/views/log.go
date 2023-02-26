@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
@@ -41,18 +42,18 @@ func (l *Log) Debugf(format string, args ...interface{}) {
 	l.entries = append(l.entries, "[DEBUG]"+fmt.Sprintf(format, args...))
 }
 
-func (l *Log) Run(window display.Window) error {
+func (l *Log) Run(window fyne.Window, events <-chan display.Event) error {
 	// create a log view
 	view := container.NewVBox()
 
 	// set the content of the window
-	window.FyneWindow().SetContent(view)
+	window.SetContent(view)
 
 	// handle events
 	go func() {
 		for {
 			select {
-			case <-window.Events():
+			case <-events:
 				if len(l.entries) == 0 {
 					continue
 				}
@@ -62,6 +63,11 @@ func (l *Log) Run(window display.Window) error {
 				}
 				// clear the entries
 				l.entries = []string{}
+
+				// make sure there's not too many entries
+				if len(view.Objects) > 20 {
+					view.Objects = view.Objects[len(view.Objects)-20:]
+				}
 				l.Unlock()
 
 				// refresh the window

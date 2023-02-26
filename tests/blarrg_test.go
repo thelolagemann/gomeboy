@@ -2,6 +2,7 @@ package tests
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,13 +17,13 @@ var (
 	// blarggImageTests holds all the tests that are image based,
 	// as they don't output any data to the 0xFF01 register
 	blarggImageTests = []ROMTest{
-		newImageTest("cgb_sound", asModel(gameboy.ModelCGB), withEmulatedSeconds(40)),
+		newImageTest("cgb_sound", asModel(types.CGBABC), withEmulatedSeconds(40)),
 		newImageTest("dmg_sound", withEmulatedSeconds(40)),
 		newImageTest("halt_bug", withEmulatedSeconds(20)),
-		newImageTest("halt_bug", asModel(gameboy.ModelCGB), withEmulatedSeconds(20)),
+		newImageTest("halt_bug", asModel(types.CGBABC), withEmulatedSeconds(20)),
 		newImageTest("instr_timing", withEmulatedSeconds(20)),
 		newImageTest("interrupt_time", withEmulatedSeconds(2)),
-		newImageTest("interrupt_time", asModel(gameboy.ModelCGB), withEmulatedSeconds(2)),
+		newImageTest("interrupt_time", asModel(types.CGBABC), withEmulatedSeconds(2)),
 	}
 )
 
@@ -34,7 +35,7 @@ type blarrgTest struct {
 	romPath string
 	name    string
 	passed  bool
-	model   gameboy.Model
+	model   types.Model
 }
 
 func newBlargTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {

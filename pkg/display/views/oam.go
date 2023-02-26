@@ -28,12 +28,12 @@ func (s sprite) MinSize(_ []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(8*4, 8*4)
 }
 
-func (o *OAM) Run(window display.Window) error {
+func (o *OAM) Run(window fyne.Window, events <-chan display.Event) error {
 	// create the grid (40 sprites, 10 sprites per row)
 	grid := container.NewGridWithRows(4)
 
 	// set the content of the window
-	window.FyneWindow().SetContent(grid)
+	window.SetContent(grid)
 
 	// create the sprites
 	for i := 0; i < 40; i++ {
@@ -48,7 +48,7 @@ func (o *OAM) Run(window display.Window) error {
 	go func() {
 		for {
 			select {
-			case <-window.Events():
+			case <-events:
 				//TODO handle events
 			}
 		}

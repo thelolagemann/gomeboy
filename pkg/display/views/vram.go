@@ -20,7 +20,7 @@ type VRAM struct {
 	*ppu.PPU
 }
 
-func (v *VRAM) Run(window display.Window) error {
+func (v *VRAM) Run(window fyne.Window, events <-chan display.Event) error {
 	bankGrid := container.NewHBox()
 
 	// bank 0
@@ -158,13 +158,13 @@ func (v *VRAM) Run(window display.Window) error {
 	bankGrid.Add(tileMap)
 
 	// set the content of the window
-	window.FyneWindow().SetContent(bankGrid)
+	window.SetContent(bankGrid)
 
 	// handle events
 	go func() {
 		for {
 			select {
-			case <-window.Events():
+			case <-events:
 				// update the tiles
 				for i, img := range tileImages {
 					// update the tile

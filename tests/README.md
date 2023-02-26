@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/67/?scale=100&title=passing%20106,%20failing%2052&width=500)
+![progress](https://progress-bar.dev/72/?scale=100&title=passing%20115,%20failing%2043&width=500)
 
-#### This document was automatically generated from commit 6badbf18
+#### This document was automatically generated from commit 1a464dbb
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -36,7 +36,7 @@ is compared against a reference image from a known good emulator.
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 85% | 18 | 3 | 21 |
 | little-things-gb | 100% | 3 | 0 | 3 |
-| mooneye | 71% | 81 | 33 | 114 |
+| mooneye | 78% | 90 | 24 | 114 |
 | samesuite | 7% | 1 | 12 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -160,7 +160,7 @@ Explore the individual tests for each suite using the table of contents below.
 | tellinglys | ✅ |
 | tellinglys-cgb | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/71/?scale=100&title=passing%2081,%20failing%2033&width=500)
+![progress](https://progress-bar.dev/78/?scale=100&title=passing%2090,%20failing%2024&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -172,23 +172,23 @@ Explore the individual tests for each suite using the table of contents below.
 | boot_hwio-S.gb | ❌ |
 | boot_hwio-dmg0.gb | ❌ |
 | boot_hwio-dmgABCmgb.gb | ✅ |
-| boot_regs-dmg0.gb | ❌ |
+| boot_regs-dmg0.gb | ✅ |
 | boot_regs-dmgABC.gb | ✅ |
-| boot_regs-mgb.gb | ❌ |
-| boot_regs-sgb.gb | ❌ |
-| boot_regs-sgb2.gb | ❌ |
+| boot_regs-mgb.gb | ✅ |
+| boot_regs-sgb.gb | ✅ |
+| boot_regs-sgb2.gb | ✅ |
 | call_cc_timing.gb | ✅ |
 | call_cc_timing2.gb | ✅ |
 | call_timing.gb | ✅ |
 | call_timing2.gb | ✅ |
-| di_timing-GS.gb | ❌ |
+| di_timing-GS.gb | ✅ |
 | div_timing.gb | ✅ |
 | ei_sequence.gb | ✅ |
 | ei_timing.gb | ✅ |
 | halt_ime0_ei.gb | ✅ |
-| halt_ime0_nointr_timing.gb | ❌ |
+| halt_ime0_nointr_timing.gb | ✅ |
 | halt_ime1_timing.gb | ✅ |
-| halt_ime1_timing2-GS.gb | ❌ |
+| halt_ime1_timing2-GS.gb | ✅ |
 | if_ie_registers.gb | ✅ |
 | intr_timing.gb | ✅ |
 | jp_cc_timing.gb | ✅ |
@@ -229,7 +229,7 @@ Explore the individual tests for each suite using the table of contents below.
 | Test | Passing |
 | ---- | ------- |
 | hblank_ly_scx_timing-GS.gb | ✅ |
-| intr_1_2_timing-GS.gb | ❌ |
+| intr_1_2_timing-GS.gb | ✅ |
 | intr_2_0_timing.gb | ✅ |
 | intr_2_mode0_timing.gb | ❌ |
 | intr_2_mode0_timing_sprites.gb | ❌ |
@@ -243,7 +243,7 @@ Explore the individual tests for each suite using the table of contents below.
 ## serial
 | Test | Passing |
 | ---- | ------- |
-| boot_sclk_align-dmgABCmgb.gb | ❌ |
+| boot_sclk_align-dmgABCmgb.gb | ✅ |
 ## timer
 | Test | Passing |
 | ---- | ------- |
@@ -362,4 +362,4 @@ Explore the individual tests for each suite using the table of contents below.
 | Test | Passing |
 | ---- | ------- |
 | strikethrough | ❌ |
-| strikethrough-cgb | ❌ |
+| strikethrough | ❌ |

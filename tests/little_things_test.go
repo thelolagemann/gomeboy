@@ -1,8 +1,8 @@
 package tests
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"testing"
 )
 
@@ -18,19 +18,19 @@ var (
 		{button: joypad.ButtonDown, atEmulatedFrame: 60 * 4},
 	}
 	littleThingsTests = []ROMTest{
-		newImageTest("firstwhite", asModel(gameboy.ModelDMG)),
+		newImageTest("firstwhite", asModel(types.DMGABC)),
 		&inputTest{
 			name:              "tellinglys",
 			romPath:           "roms/little-things-gb/tellinglys.gb",
 			expectedImagePath: "roms/little-things-gb/tellinglys-dmg.png",
-			model:             gameboy.ModelDMG,
+			model:             types.DMGABC,
 			inputs:            tellingLysInputSequence,
 		},
 		&inputTest{
 			name:              "tellinglys-cgb",
 			romPath:           "roms/little-things-gb/tellinglys.gb",
 			expectedImagePath: "roms/little-things-gb/tellinglys-cgb.png",
-			model:             gameboy.ModelCGB,
+			model:             types.CGBABC,
 			inputs:            tellingLysInputSequence,
 		},
 	}

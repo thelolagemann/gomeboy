@@ -22,10 +22,10 @@ type CPU struct {
 	flags []binding.BoolList
 }
 
-func (c *CPU) Run(window display.Window) error {
+func (c *CPU) Run(window fyne.Window, events <-chan display.Event) error {
 	grid := container.NewVBox()
 	// set the content of the window
-	window.FyneWindow().SetContent(grid)
+	window.SetContent(grid)
 
 	// create the labels
 	af := canvas.NewText("", color.White)
@@ -57,7 +57,7 @@ func (c *CPU) Run(window display.Window) error {
 	go func() {
 		for {
 			select {
-			case e := <-window.Events():
+			case e := <-events:
 				switch e.Type {
 				case display.EventTypeQuit:
 					return

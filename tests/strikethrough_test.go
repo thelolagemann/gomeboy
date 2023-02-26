@@ -1,14 +1,14 @@
 package tests
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"testing"
 )
 
 var (
 	strikethroughTests = []ROMTest{
 		newImageTest("strikethrough"),
-		newImageTest("strikethrough", asModel(gameboy.ModelCGB)),
+		newImageTest("strikethrough", asModel(types.DMGABC)),
 	}
 )
 

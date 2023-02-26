@@ -2,6 +2,7 @@ package tests
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,7 @@ type mooneyeTest struct {
 	romPath string
 	name    string
 	passed  bool
+	model   types.Model
 }
 
 func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
@@ -32,9 +34,37 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 			continue
 		}
 
+		// try to determine the model
+		model := types.DMGABC
+		// ends with -dmg0.gb
+		if file.Name()[len(file.Name())-8:] == "-dmg0.gb" {
+			model = types.DMG0
+		}
+		// ends with -mgb.gb
+		if file.Name()[len(file.Name())-7:] == "-mgb.gb" {
+			model = types.MGB
+		}
+		// ends with -sgb.gb
+		if file.Name()[len(file.Name())-7:] == "-sgb.gb" {
+			model = types.SGB
+		}
+		// ends with -sgb2.gb
+		if file.Name()[len(file.Name())-8:] == "-sgb2.gb" {
+			model = types.SGB2
+		}
+		// ends with -cgb0.gb
+		if file.Name()[len(file.Name())-8:] == "-cgb0.gb" {
+			model = types.CGB0
+		}
+		// ends with -cgb.gb
+		if file.Name()[len(file.Name())-7:] == "-cgb.gb" {
+			model = types.CGBABC
+		}
+
 		tc.Add(&mooneyeTest{
 			romPath: filepath.Join(romDir, file.Name()),
 			name:    file.Name(),
+			model:   model,
 		})
 	}
 
@@ -45,7 +75,7 @@ func (m *mooneyeTest) Name() string {
 }
 
 func (m *mooneyeTest) Run(t *testing.T) {
-	if pass := testMooneyeROM(t, m.romPath); pass {
+	if pass := testMooneyeROM(t, m.romPath, m.model); pass {
 		m.passed = true
 	}
 }
@@ -100,10 +130,17 @@ func testMooneye(t *testing.T, roms *TestTable) {
 	manualOnly := tS.NewTestCollection("manual-only")
 	manualOnly.Add(&imageTest{
 		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority.gb"),
-		expectedImage:   findImage("sprite_priority", gameboy.ModelDMG),
+		expectedImage:   findImage("sprite_priority", types.DMGABC),
 		name:            "sprite_priority",
 		emulatedSeconds: 5,
-		model:           gameboy.ModelDMG,
+		model:           types.DMGABC,
+	})
+	manualOnly.Add(&imageTest{
+		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority.gb"),
+		expectedImage:   findImage("sprite_priority", types.CGBABC),
+		name:            "sprite_priority",
+		emulatedSeconds: 5,
+		model:           types.CGBABC,
 	})
 }
 
@@ -136,7 +173,7 @@ func newMooneyeTestCollectionFromCollection(collection *TestCollection, s string
 // and writes the fibonacci sequence 3/5/8/13/21/34 to the
 // registers B, C, D, E, H, L. The test will then compare the
 // registers to the expected values.
-func testMooneyeROM(t *testing.T, romFile string) bool {
+func testMooneyeROM(t *testing.T, romFile string, model types.Model) bool {
 	passed := true
 	t.Run(filepath.Base(romFile), func(t *testing.T) {
 		// load the rom
@@ -146,7 +183,7 @@ func testMooneyeROM(t *testing.T, romFile string) bool {
 		}
 
 		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug())
+		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(model))
 
 		frame := 0
 		// run until breakpoint

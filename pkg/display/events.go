@@ -1,5 +1,9 @@
 package display
 
+// EventType defines the various event types
+// that can be sent to a view. The event type
+// indicates to the view what action should be
+// taken.
 type EventType int
 
 const (
@@ -9,10 +13,6 @@ const (
 	EventTypeFrame
 	// EventTypeTitle is the event type for when the title of the window should be changed
 	EventTypeTitle
-	// EventTypeKeyDown is the event type for when a key is pressed
-	EventTypeKeyDown
-	// EventTypeKeyUp is the event type for when a key is released
-	EventTypeKeyUp
 )
 
 type Event struct {

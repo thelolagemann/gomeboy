@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
@@ -15,9 +16,9 @@ var (
 type System struct {
 }
 
-func (s *System) Run(window display.Window) error {
+func (s *System) Run(window fyne.Window, events <-chan display.Event) error {
 	box := container.NewVBox()
-	window.FyneWindow().SetContent(box)
+	window.SetContent(box)
 
 	// Memory Usage
 	box.Add(widget.NewLabel("Memory Usage"))
@@ -35,7 +36,7 @@ func (s *System) Run(window display.Window) error {
 	go func() {
 		for {
 			select {
-			case <-window.Events():
+			case <-events:
 				// update the memory usage
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)

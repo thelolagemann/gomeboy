@@ -1,18 +1,18 @@
 package tests
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"testing"
 )
 
 var (
 	dmgAcid2Tests = []ROMTest{
 		newImageTest("dmg-acid2"),
-		newImageTest("dmg-acid2", asModel(gameboy.ModelCGB)),
+		newImageTest("dmg-acid2", asModel(types.CGBABC)),
 	}
 	cgbAcid2Tests = []ROMTest{
-		newImageTest("cgb-acid2", asModel(gameboy.ModelCGB)),
-		newImageTest("cgb-acid-hell", asModel(gameboy.ModelCGB)),
+		newImageTest("cgb-acid2", asModel(types.CGBABC)),
+		newImageTest("cgb-acid-hell", asModel(types.CGBABC)),
 	}
 )
 

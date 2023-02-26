@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
@@ -20,14 +21,14 @@ type MMU struct {
 	*mmu.MMU
 }
 
-func (M *MMU) Run(w display.Window) error {
+func (M *MMU) Run(w fyne.Window, events <-chan display.Event) error {
 	// create the base grid
 	grid := container.NewVBox()
 
 	// TODO change to textgrid
 
 	// set the content of the window
-	w.FyneWindow().SetContent(grid)
+	w.SetContent(grid)
 
 	// boot rom information
 	bootRomGrid := container.NewVBox()
@@ -86,7 +87,7 @@ Destination	` + M.Cart.Header().Destination() + `
 
 	go func() {
 		for {
-			<-w.Events() // MMU view does not react to events (yet)
+			<-events // MMU view does not react to events (yet)
 		}
 	}()
 
