@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/72/?scale=100&title=passing%20115,%20failing%2043&width=500)
+![progress](https://progress-bar.dev/74/?scale=100&title=passing%20117,%20failing%2041&width=500)
 
-#### This document was automatically generated from commit 1a464dbb
+#### This document was automatically generated from commit eae2c786
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -36,7 +36,7 @@ is compared against a reference image from a known good emulator.
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 85% | 18 | 3 | 21 |
 | little-things-gb | 100% | 3 | 0 | 3 |
-| mooneye | 78% | 90 | 24 | 114 |
+| mooneye | 80% | 92 | 22 | 114 |
 | samesuite | 7% | 1 | 12 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -160,7 +160,7 @@ Explore the individual tests for each suite using the table of contents below.
 | tellinglys | ✅ |
 | tellinglys-cgb | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/78/?scale=100&title=passing%2090,%20failing%2024&width=500)
+![progress](https://progress-bar.dev/80/?scale=100&title=passing%2092,%20failing%2022&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -311,8 +311,8 @@ Explore the individual tests for each suite using the table of contents below.
 | boot_div-cgb0.gb | ❌ |
 | boot_div-cgbABCDE.gb | ❌ |
 | boot_hwio-C.gb | ❌ |
-| boot_regs-A.gb | ❌ |
-| boot_regs-cgb.gb | ❌ |
+| boot_regs-A.gb | ✅ |
+| boot_regs-cgb.gb | ✅ |
 ## bits
 | Test | Passing |
 | ---- | ------- |

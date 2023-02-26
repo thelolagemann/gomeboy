@@ -66,6 +66,10 @@ func main() {
 		opts = append(opts, gameboy.AsModel(types.CGB0))
 	case "sgb":
 		opts = append(opts, gameboy.AsModel(types.SGB))
+	case "sgb2":
+		opts = append(opts, gameboy.AsModel(types.SGB2))
+	case "agb":
+		opts = append(opts, gameboy.AsModel(types.AGB))
 	}
 	opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	opts = append(opts, gameboy.Speed(*speed))

@@ -60,6 +60,10 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 		if file.Name()[len(file.Name())-7:] == "-cgb.gb" {
 			model = types.CGBABC
 		}
+		// ends with -A.gb
+		if file.Name()[len(file.Name())-5:] == "-A.gb" {
+			model = types.AGB
+		}
 
 		tc.Add(&mooneyeTest{
 			romPath: filepath.Join(romDir, file.Name()),

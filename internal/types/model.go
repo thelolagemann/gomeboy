@@ -25,6 +25,8 @@ const (
 	SGB
 	// SGB2 is the second SGB model.
 	SGB2
+	// AGB is the AGB model.
+	AGB
 )
 
 // String returns the string representation of the model.
@@ -44,6 +46,8 @@ func (m Model) String() string {
 		return "SGB"
 	case SGB2:
 		return "SGB2"
+	case AGB:
+		return "AGB"
 	}
 	return "Unknown"
 }
@@ -62,11 +66,7 @@ func (m Model) Registers() []uint8 {
 		return []uint8{
 			0x01, 0xB0, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D,
 		}
-	case CGB0:
-		return []uint8{
-			// TODO: CGB0 registers
-		}
-	case CGBABC:
+	case CGB0, CGBABC: // TODO does CGB0 have the same registers as CGBABC?
 		return []uint8{
 			0x11, 0x80, 0x00, 0x00, 0x00, 0x08, 0x00, 0x7C,
 		}
@@ -81,6 +81,10 @@ func (m Model) Registers() []uint8 {
 	case SGB2:
 		return []uint8{
 			0xFF, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60,
+		}
+	case AGB:
+		return []uint8{
+			0x11, 0x00, 0x01, 0x00, 0x00, 0x08, 0x00, 0x7C,
 		}
 	}
 
