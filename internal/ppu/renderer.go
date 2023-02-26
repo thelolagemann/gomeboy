@@ -36,8 +36,6 @@ type Pixel = uint8
 // RenderScanlineDMG renders the given pixel data into a format that can be
 // displayed on the screen. The pixel data is a slice of bytes
 // that represent the pixels on the screen.
-//
-// TODO merge common functionality with RenderScanlineCGB
 func RenderScanlineDMG(job RenderJob, scanline *[160][3]uint8) {
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	tileOffset := job.XStart % 8

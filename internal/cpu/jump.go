@@ -135,7 +135,7 @@ func (c *CPU) retInterrupt() {
 }
 
 func init() {
-	// 0x18 - JR n // TODO variable cycles
+	// 0x18 - JR n
 	DefineInstruction(0x18, "JR n", func(c *CPU) { c.jumpRelative() })
 	DefineInstruction(0x20, "JR NZ, n", func(c *CPU) {
 		c.jumpRelativeConditional(!c.isFlagSet(FlagZero))

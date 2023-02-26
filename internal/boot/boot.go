@@ -18,7 +18,7 @@ type ROM struct {
 	raw []byte
 
 	// the md5 checksum of the boot rom
-	checksum string // TODO make this a byte array
+	checksum [16]byte
 }
 
 // NewBootROM returns a new boot rom for the Game
@@ -73,7 +73,7 @@ func LoadBootROM(raw []byte) *ROM {
 
 	return &ROM{
 		raw:      raw,
-		checksum: hex.EncodeToString(bootChecksum[:]),
+		checksum: bootChecksum,
 	}
 }
 
@@ -94,7 +94,7 @@ func (b *ROM) Checksum() string {
 	if b == nil {
 		return ""
 	}
-	return b.checksum
+	return hex.EncodeToString(b.checksum[:])
 }
 
 // Model returns the model of the boot rom. The model
@@ -104,7 +104,7 @@ func (b *ROM) Model() string {
 		return "none"
 	}
 	for model, checksum := range knownBootROMChecksums {
-		if checksum == b.checksum {
+		if checksum == hex.EncodeToString(b.checksum[:]) {
 			return model
 		}
 	}
@@ -146,9 +146,9 @@ const (
 // DMGBootROM is a boot rom for the DMG. This boot rom
 // should be 256 bytes in length, and will be used to
 // initialize the DMG hardware.
-var DMGBootROM = [0x100]byte{}
+type DMGBootROM [0x100]byte
 
 // CGBBootROM is a boot rom for the CGB. This boot rom
 // should be 2304 bytes in length, and will be used to
 // initialize the CGB hardware.
-var CGBBootROM = [0x900]byte{}
+type CGBBootROM [0x900]byte

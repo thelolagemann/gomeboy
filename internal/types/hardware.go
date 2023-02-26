@@ -23,9 +23,14 @@ func (h HardwareRegisters) Read(address uint16) uint8 {
 	if address == 0xFF02 {
 		return 0x7E // stubbed out for now
 	}
-	if h[address&0x007F] == nil || address == 0xFF7F { // TODO: remove this hack. when FF7F is read, it should return 0xFF
-		// however, as the address is ANDed with 0x007F, it will return the value of the
-		// hardware register at address 0xFFFF, which is the interrupt enable register.
+	// is the hardware register the IE register? as the HardwareRegisters
+	// slice is indexed by the address ANDed with 0x007F, the IE register
+	// is at index 0x7F, so we need to check for the IE register separately
+	if address == 0xFFFF {
+		return h[0x7F].Read()
+	}
+	// does the hardware register exist? if not, return 0xFF
+	if h[address&0x007F] == nil || address == 0xFF7F {
 		return 0xFF
 	}
 	return h[address&0x007F].Read()
