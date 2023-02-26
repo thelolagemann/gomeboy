@@ -13,17 +13,16 @@ import (
 // interrupts at a specific frequency. The frequency can be
 // configured using the types.TAC register.
 type Controller struct {
-	div  uint16
-	tima uint8
-	tma  uint8
-	tac  uint8
-
-	enabled    bool
-	currentBit uint16
-	lastBit    bool
-
-	overflow           bool
+	Div                uint16
+	currentBit         uint16
+	tima               uint8
 	ticksSinceOverflow uint8
+	tma                uint8
+	tac                uint8
+
+	enabled  bool
+	lastBit  bool
+	overflow bool
 
 	irq *interrupts.Service
 }
@@ -33,17 +32,18 @@ func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
 		irq:        irq,
 		currentBit: bits[0],
-		div:        0xAC << 8,
+		Div:        0xABCC,
+		tac:        0xF8,
 	}
 	// set up types
 	types.RegisterHardware(
 		types.DIV,
 		func(v uint8) {
-			c.div = 0 // any write to DIV resets it
+			c.Div = 0 // any write to DIV resets it
 		},
 		func() uint8 {
 			// return bits 6-13 of divider register
-			return uint8(c.div >> 8) // TODO actually return bits 6-13
+			return uint8(c.Div >> 8) // TODO actually return bits 6-13
 		},
 	)
 	types.RegisterHardware(
@@ -99,14 +99,14 @@ func NewController(irq *interrupts.Service) *Controller {
 // Tick ticks the timer controller.
 func (c *Controller) Tick() {
 	// increment internalDivider register
-	c.div++
+	c.Div++
 
 	// check if timer is enabled
 	if !c.enabled {
 		return
 	}
 
-	newBit := (c.div & c.currentBit) != 0
+	newBit := (c.Div & c.currentBit) != 0
 
 	// detect a falling edge
 	if c.lastBit && !newBit {
@@ -146,8 +146,8 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 		return
 	}
 
-	if c.div&oldBit != 0 {
-		if !c.enabled || !(c.div&c.currentBit != 0) {
+	if c.Div&oldBit != 0 {
+		if !c.enabled || !(c.Div&c.currentBit != 0) {
 			c.tima++
 
 			if c.tima == 0 {
