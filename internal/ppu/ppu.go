@@ -204,7 +204,6 @@ func (p *PPU) init() {
 	)
 
 	// CGB registers
-
 	types.RegisterHardware(
 		types.VBK,
 		func(v uint8) {
@@ -214,7 +213,7 @@ func (p *PPU) init() {
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.vRAMBank
+				return p.vRAMBank | 0xFE
 			}
 			return 0xFF
 		},
@@ -228,7 +227,7 @@ func (p *PPU) init() {
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.ColourPalette.GetIndex()
+				return p.ColourPalette.GetIndex() | 0x40
 			}
 			return 0xFF
 		},
@@ -256,7 +255,7 @@ func (p *PPU) init() {
 		},
 		func() uint8 {
 			if p.bus.IsGBCCompat() {
-				return p.ColourSpritePalette.GetIndex()
+				return p.ColourSpritePalette.GetIndex() | 0x40
 			}
 			return 0xFF
 		},
@@ -296,43 +295,10 @@ func (p *PPU) init() {
 
 // TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
-	output := make(chan *RenderOutput, ScreenHeight)
-	// setup renderer
-	renderJobs := make(chan RenderJob, 20)
-	p.renderer = NewRenderer(renderJobs, output)
-
-	if p.bus.IsGBCCompat() || (p.bus.IsGBC() && p.bus.BootROM != nil) {
-		p.renderer.renderMode = true
-	}
 	if p.bus.IsGBCCompat() {
 		p.vRAM[1] = ram.NewRAM(0x2000)
 		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
 	}
-
-	// create goroutine to handle rendering
-	go func() {
-		var renderOutput *RenderOutput
-		for i := 0; i < ScreenHeight; i++ { // the last 8 scanlines are rendered as they are needed to avoid flickering
-			renderOutput = <-output
-			if p.scanlineHit[renderOutput.Line] {
-				p.scanlineQueue[renderOutput.Line] = renderOutput
-			} else {
-				p.PreparedFrame[renderOutput.Line] = renderOutput.Scanline
-				p.scanlineHit[renderOutput.Line] = true
-			}
-
-			if i == ScreenHeight-1 {
-				// the last scanline has been rendered, so the frame is ready
-				i = 0
-
-				// reset scanline hit
-				p.scanlineHit = [ScreenHeight]bool{}
-
-				// process any queued scanlines TODO
-				p.scanlineQueue = [ScreenHeight]*RenderOutput{}
-			}
-		}
-	}()
 }
 
 func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
@@ -370,7 +336,7 @@ func (p *PPU) LoadCompatibilityPalette() {
 	}
 	paletteEntry, ok := palette.GetCompatibilityPaletteEntry(entryWord)
 	if !ok {
-		p.bus.Log.Debugf("no compatibility palette entry found for %s, hash %02x", p.bus.Cart.Header().Title, hash)
+		//p.bus.Log.Debugf("no compatibility palette entry found for %s, hash %02x", p.bus.Cart.Header().Title, hash)
 		// load default palette
 		paletteEntry = palette.CompatibilityPalettes[0x1C][0x03]
 	}
@@ -650,11 +616,6 @@ func (p *PPU) Tick() {
 	// update the current cycle
 	p.currentCycle++
 
-	// 80, 172, 196-204, 456 are the only cycles that we care about
-	if !(p.currentCycle == 80 || p.currentCycle == 172 || (p.currentCycle >= 196 && p.currentCycle <= 204) || p.currentCycle == 456) {
-		return // avoid switch statement for performance (albeit a small one)
-	}
-
 	// step logic (ordered by number of ticks required to optimize calls)
 	switch p.Status.Mode {
 	case lcd.HBlank:
@@ -686,7 +647,7 @@ func (p *PPU) Tick() {
 			// check if we've reached the end of the visible screen
 			// and need to enter VBlank
 			if p.CurrentScanline == 144 {
-				// enter VBBlank mode and trigger VBlank interrupt
+				// enter VBlank mode and trigger VBlank interrupt
 				p.Mode = lcd.VBlank
 				p.checkStatInterrupts(true)
 
@@ -735,7 +696,7 @@ func (p *PPU) Tick() {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 
-			if p.CurrentScanline >= 153 {
+			if p.CurrentScanline == 154 {
 				// reset scanline and enter OAM mode
 				p.Mode = lcd.OAM
 				p.CurrentScanline = 0
@@ -765,11 +726,6 @@ func (p *PPU) renderScanline() {
 		p.renderSprites()
 	}
 
-	// TODO use event queue to handle this
-	if p.bus.IsGBCCompat() && p.bus.IsBootROMDone() && !p.bus.IsGBC() {
-		p.renderer.renderMode = false
-	}
-
 	// send job to the renderer
 	job := RenderJob{
 		XStart:            p.ScrollX,
@@ -780,7 +736,11 @@ func (p *PPU) renderScanline() {
 		Line:              p.CurrentScanline,
 		BackgroundEnabled: p.BackgroundEnabled,
 	}
-	p.renderer.AddJob(job)
+	if p.bus.IsGBC() || p.bus.IsGBCCompat() && !p.bus.IsBootROMDone() {
+		RenderScanlineCGB(job, &p.PreparedFrame[p.CurrentScanline])
+	} else {
+		RenderScanlineDMG(job, &p.PreparedFrame[p.CurrentScanline])
+	}
 
 	// clear scanline data
 	p.scanlineData = [ScanlineSize]uint8{}

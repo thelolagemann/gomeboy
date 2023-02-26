@@ -38,9 +38,8 @@ type Pixel = uint8
 // that represent the pixels on the screen.
 //
 // TODO merge common functionality with RenderScanlineCGB
-func RenderScanlineDMG(job RenderJob, scanline *RenderOutput) {
+func RenderScanlineDMG(job RenderJob, scanline *[160][3]uint8) {
 	spriteXPerScreen := [ScreenWidth]uint8{}
-	scanline.Line = job.Line
 	tileOffset := job.XStart % 8
 	b1 := job.Scanline[0]
 	b2 := job.Scanline[1]
@@ -71,7 +70,7 @@ func RenderScanlineDMG(job RenderJob, scanline *RenderOutput) {
 			high = 2
 		}
 
-		scanline.Scanline[x] = job.palettes[0].GetColour(uint8(low + high))
+		scanline[x] = job.palettes[0].GetColour(uint8(low + high))
 	}
 
 	// draw sprites
@@ -115,7 +114,7 @@ func RenderScanlineDMG(job RenderJob, scanline *RenderOutput) {
 				// we can do this by looking at the tile info byte
 				// first we need to determine which of the 20/21 tiles the pixel is in
 
-				if scanline.Scanline[startX+x] != job.palettes[0].GetColour(0) {
+				if scanline[startX+x] != job.palettes[0].GetColour(0) {
 					continue
 				}
 			}
@@ -125,7 +124,7 @@ func RenderScanlineDMG(job RenderJob, scanline *RenderOutput) {
 				continue
 			}
 
-			scanline.Scanline[startX+x] = job.objPalette[job.Sprites[i*SpriteSizeInBytes+2]>>4&0x1].GetColour(colourNum)
+			scanline[startX+x] = job.objPalette[job.Sprites[i*SpriteSizeInBytes+2]>>4&0x1].GetColour(colourNum)
 
 			// mark the pixel as occupied by a sprite
 			spriteXPerScreen[startX+x] = startX
@@ -133,9 +132,8 @@ func RenderScanlineDMG(job RenderJob, scanline *RenderOutput) {
 	}
 }
 
-func RenderScanlineCGB(job RenderJob, scanline *RenderOutput) {
+func RenderScanlineCGB(job RenderJob, scanline *[160][3]uint8) {
 	spriteXPerScreen := [ScreenWidth]uint8{}
-	scanline.Line = job.Line
 	tileOffset := job.XStart % 8
 
 	// load the inital data
@@ -175,7 +173,7 @@ func RenderScanlineCGB(job RenderJob, scanline *RenderOutput) {
 		}
 		colorNum := low + high
 
-		scanline.Scanline[x] = job.palettes[(tileInfo&0x07)+1].GetColour(uint8(colorNum))
+		scanline[x] = job.palettes[(tileInfo&0x07)+1].GetColour(uint8(colorNum))
 	}
 	// get palette index of the background tile
 	// draw sprites
@@ -225,7 +223,7 @@ func RenderScanlineCGB(job RenderJob, scanline *RenderOutput) {
 					// then we need to get the tile info byte
 					eTileInfo := job.Scanline[tileNum*TileSizeInBytes+2]
 
-					if scanline.Scanline[startX+x] != job.palettes[(eTileInfo&0x07)+1].GetColour(0) {
+					if scanline[startX+x] != job.palettes[(eTileInfo&0x07)+1].GetColour(0) {
 						continue
 					}
 				}
@@ -237,7 +235,7 @@ func RenderScanlineCGB(job RenderJob, scanline *RenderOutput) {
 			}
 
 			palNumber := job.Sprites[i*SpriteSizeInBytes+2] & 0x07
-			scanline.Scanline[startX+x] = job.objPalette[palNumber+2].GetColour(uint8(colorNum))
+			scanline[startX+x] = job.objPalette[palNumber+2].GetColour(uint8(colorNum))
 
 			// mark pixel as occupied by sprite
 			spriteXPerScreen[startX+x] = startX
@@ -286,15 +284,7 @@ func NewRenderer(jobs chan RenderJob, output chan<- *RenderOutput) *Renderer {
 }
 
 func (r *Renderer) RenderScanline(jobs <-chan RenderJob, output chan<- *RenderOutput) {
-	scanline := &RenderOutput{}
-	for job := range jobs {
-		if r.renderMode {
-			RenderScanlineCGB(job, scanline)
-		} else {
-			RenderScanlineDMG(job, scanline)
-		}
-		output <- scanline
-	}
+
 }
 
 func (r *Renderer) AddJob(job RenderJob) {
