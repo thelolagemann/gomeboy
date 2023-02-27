@@ -17,12 +17,6 @@ type HardwareRegisters [0x80]*HardwareRegister
 // the given address. If the hardware register is not
 // readable, it returns 0xFF.
 func (h HardwareRegisters) Read(address uint16) uint8 {
-	if address == 0xFF01 {
-		return 0x00 // stubbed out for now
-	}
-	if address == 0xFF02 {
-		return 0x7E // stubbed out for now
-	}
 	// is the hardware register the IE register? as the HardwareRegisters
 	// slice is indexed by the address ANDed with 0x007F, the IE register
 	// is at index 0x7F, so we need to check for the IE register separately
