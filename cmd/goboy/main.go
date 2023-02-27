@@ -3,10 +3,12 @@ package main
 import (
 	"flag"
 	"fyne.io/fyne/v2/app"
+	"github.com/sirupsen/logrus"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display/fyne"
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
+	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
 	_ "net/http/pprof"
@@ -23,7 +25,12 @@ func main() {
 		}
 	}()
 
-	log := views.Log{}
+	var logger log.Logger = logrus.New()
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("unrecoverable error: %v", r)
+		}
+	}()
 
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
@@ -74,7 +81,7 @@ func main() {
 	opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	opts = append(opts, gameboy.Speed(*speed))
 	// create a new gameboy
-	opts = append(opts, gameboy.WithLogger(&log))
+	opts = append(opts, gameboy.WithLogger(logger))
 	gb := gameboy.NewGameBoy(rom, opts...)
 
 	a := fyne.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"), gb)
@@ -90,15 +97,17 @@ func main() {
 				a.NewWindow("MMU", views.NewMMU(gb.MMU))
 			case "vram":
 				a.NewWindow("VRAM", &views.VRAM{PPU: gb.PPU})
+			case "logger":
+				l := &views.Log{}
+				gb.Logger = logger
+				a.NewWindow("Log", l)
 			case "system":
 				a.NewWindow("System", &views.System{})
-			case "log":
-				a.NewWindow("Log", &log)
 			}
 		}
 	}
 
-	log.Infof("Loaded rom %s", *romFile)
+	logger.Infof("Loaded rom %s", *romFile)
 
 	if *dualView {
 		opts = append(opts, gameboy.SerialConnection(gb))
