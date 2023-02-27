@@ -67,7 +67,7 @@ func NewCartridge(rom []byte) *Cartridge {
 	case MBC5, MBC5RAM, MBC5RAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge5(rom, header)
 	default:
-		panic(fmt.Sprintf("cartridge type %d not implemented", header.CartridgeType))
+		panic(fmt.Sprintf("cartridge type %s not implemented", nameMap[header.CartridgeType]))
 	}
 
 	// load the save file if it exists
