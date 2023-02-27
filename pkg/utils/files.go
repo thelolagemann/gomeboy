@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"fmt"
+	"github.com/bodgit/sevenzip"
 	"io"
 	"os"
 	"path/filepath"
@@ -58,7 +59,20 @@ func LoadFile(filename string) ([]byte, error) {
 
 		// open the file in the zip file
 		decoder, err = zipFile.Open()
+		if err != nil {
+			return nil, err
+		}
+	case ".7z":
+		r, err := sevenzip.NewReader(f, int64(len(data)))
+		if err != nil {
+			return nil, err
+		}
 
+		// read the first file in the archive
+		zipFile := r.File[0]
+
+		// open the file in the archive
+		decoder, err = zipFile.Open()
 	default:
 		return nil, fmt.Errorf("unknown compression type: %s", ext)
 	}
