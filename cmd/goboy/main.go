@@ -5,6 +5,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"github.com/sirupsen/logrus"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display/fyne"
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
@@ -38,6 +39,7 @@ func main() {
 	debugViews := flag.Bool("debug", false, "Show debug views")
 	activeDebugViews := flag.String("active-debug", "cpu,log,mmu,ppu,vram", "Comma separated list of debug views to show")
 	dualView := flag.Bool("dual", false, "Show dual view")
+	printer := flag.Bool("printer", false, "Enable printer")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
 	flag.Parse()
 
@@ -57,6 +59,11 @@ func main() {
 		}
 
 		opts = append(opts, gameboy.WithBootROM(boot))
+	}
+
+	if *printer {
+		printer := accessories.NewPrinter()
+		opts = append(opts, gameboy.WithPrinter(printer))
 	}
 
 	switch strings.ToLower(*asModel) {
@@ -105,6 +112,10 @@ func main() {
 				a.NewWindow("System", &views.System{})
 			}
 		}
+	}
+
+	if *printer {
+		a.NewWindow("Printer", &views.Printer{Printer: gb.Printer})
 	}
 
 	logger.Infof("Loaded rom %s", *romFile)

@@ -14,6 +14,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/serial"
+	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
@@ -87,6 +88,7 @@ type GameBoy struct {
 	frameQueue      bool
 	attachedGameBoy *GameBoy
 	speed           float64
+	Printer         *accessories.Printer
 }
 
 func (g *GameBoy) StartLinked(
@@ -295,6 +297,11 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 			// update frame times
 			frameTimes = append(frameTimes, time.Since(frameStart))
 
+			// check printer for queued data
+			if g.Printer != nil && g.Printer.HasPrintJob() {
+				events <- display.Event{Type: display.EventTypePrint, Data: g.Printer.GetPrintJob()}
+			}
+
 			// unlock the gameboy
 			g.Unlock()
 		}
@@ -392,6 +399,13 @@ func WithBootROM(rom []byte) GameBoyOpt {
 		gb.CPU.E = 0x00
 		gb.CPU.H = 0x00
 		gb.CPU.L = 0x00
+	}
+}
+
+func WithPrinter(printer *accessories.Printer) GameBoyOpt {
+	return func(gb *GameBoy) {
+		gb.Printer = printer
+		gb.Serial.Attach(printer)
 	}
 }
 

@@ -13,6 +13,8 @@ const (
 	EventTypeFrame
 	// EventTypeTitle is the event type for when the title of the window should be changed
 	EventTypeTitle
+	// EventTypePrint is the event type for when a print job should be performed
+	EventTypePrint
 )
 
 type Event struct {
