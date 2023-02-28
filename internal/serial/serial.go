@@ -40,17 +40,18 @@ type Controller struct {
 	transferRequest bool  // if true, a transfer has been requested.
 
 	irq               *interrupts.Service // the interrupt service.
-	attachedDevice    *Controller         // the device that is attached to this controller.
+	attachedDevice    Device              // the device that is attached to this controller.
 	resultFallingEdge bool                // the result of the last falling edge. (Bit 8 of DIV: 8.192 kHz)
 }
 
-func (c *Controller) Attach(d *Controller) {
+func (c *Controller) Attach(d Device) {
 	c.attachedDevice = d
 }
 
 func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
-		irq: irq,
+		irq:            irq,
+		attachedDevice: nullDevice{},
 	}
 	types.RegisterHardware(types.SB, func(v uint8) {
 		c.data = v
@@ -74,8 +75,8 @@ func (c *Controller) Tick(div uint16) {
 		return
 	}
 	if c.resultFallingEdge && !c.getFallingEdge(div) {
-		bit := c.attachedDevice.send()
-		c.attachedDevice.receive(c.data&types.Bit7 == types.Bit7)
+		bit := c.attachedDevice.Send()
+		c.attachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
 
 		c.data = c.data << 1
 		if bit {
@@ -98,8 +99,7 @@ func (c *Controller) checkTransfer() {
 	}
 }
 
-// send returns the
-func (c *Controller) send() bool {
+func (c *Controller) Send() bool {
 	// if c is nil, or this is the master, return true.
 	if c == nil || c.internalClock {
 		return true
@@ -107,7 +107,7 @@ func (c *Controller) send() bool {
 	return (c.data & types.Bit7) == types.Bit7
 }
 
-func (c *Controller) receive(bit bool) {
+func (c *Controller) Receive(bit bool) {
 	if c == nil {
 		return
 	}
@@ -124,3 +124,8 @@ func (c *Controller) receive(bit bool) {
 func (c *Controller) getFallingEdge(div uint16) bool {
 	return ((div & (1 << 8)) != 0) && c.internalClock && c.transferRequest
 }
+
+type nullDevice struct{}
+
+func (n nullDevice) Receive(bool) {}
+func (n nullDevice) Send() bool   { return true }
