@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fyne.io/fyne/v2/app"
-	"github.com/sirupsen/logrus"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/types"
@@ -11,22 +10,20 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
-	"net/http"
-	_ "net/http/pprof"
 	"strings"
 	"time"
 )
 
 func main() {
 	// start pprof
-	go func() {
+	/*go func() {
 		err := http.ListenAndServe("localhost:6060", nil)
 		if err != nil {
 			return
 		}
-	}()
+	}()*/
 
-	var logger log.Logger = logrus.New()
+	var logger = log.New()
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Errorf("unrecoverable error: %v", r)

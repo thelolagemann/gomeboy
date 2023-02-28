@@ -6,7 +6,6 @@ require (
 	fyne.io/fyne/v2 v2.3.1
 	github.com/bodgit/sevenzip v1.4.0
 	github.com/hajimehoshi/ebiten/v2 v2.4.15
-	github.com/sirupsen/logrus v1.9.0
 	golang.org/x/image v0.2.0
 )
 
