@@ -18,7 +18,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
-	"github.com/thelolagemann/go-gameboy/pkg/display/pixelgl"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image"
 	"image/png"
@@ -616,26 +615,6 @@ func (g *GameBoy) keyHandlers() map[uint8]func() {
 		15: func() {
 			g.PPU.SaveCompatibilityPalette()
 		},
-	}
-}
-
-// ProcessInputs processes the inputs.
-func (g *GameBoy) ProcessInputs(inputs pixelgl.Inputs) {
-	for _, key := range inputs.Pressed {
-		// check if it's a gameboy key
-		if key <= joypad.ButtonDown {
-			g.Joypad.Press(key)
-		} else {
-			// check if it's a debug key
-			if handler, ok := g.keyHandlers()[key]; ok {
-				handler()
-			}
-		}
-	}
-	for _, key := range inputs.Released {
-		if key <= joypad.ButtonDown {
-			g.Joypad.Release(key)
-		}
 	}
 }
 
