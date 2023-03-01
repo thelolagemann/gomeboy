@@ -47,13 +47,13 @@ func (s *Status) init(handler types.WriteHandler) {
 			s.VBlankInterrupt = utils.Test(v, 4)
 			s.HBlankInterrupt = utils.Test(v, 3)
 
-			s.raw = v & 0xF8
+			s.raw = v & 0b0111_1000
 		}, func() uint8 {
-			coin := uint8(0)
+			v := types.Bit7 | s.raw | uint8(s.Mode)
 			if s.Coincidence {
-				coin = 1
+				v |= types.Bit2
 			}
-			return types.Bit7 | s.raw | uint8(s.Mode) | (coin << 2)
+			return v
 		},
 		types.WithWriteHandler(handler),
 	)

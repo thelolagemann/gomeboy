@@ -78,6 +78,12 @@ type PPU struct {
 func (p *PPU) init() {
 	// setup components
 	p.Controller = lcd.NewController(func(writeFn func()) {
+		// TODO lcdon_timing
+		// cycle 0x11 (17) currently reports 0x87 (0b10000111) instead of 0x84 (0b10000100)
+		// so we're entering mode 0 (hblank) too late?
+		// "lcd-on is special, the oam scan period is 4 cycles shorter in the first line (and doesn't actually scan oam, the mode reads as 0)
+		//[13:31]
+		//or I guess it effectively starts at cycle 4 in the line " - @calc
 		wasOn := p.Enabled
 		writeFn()
 
@@ -99,6 +105,9 @@ func (p *PPU) init() {
 		} else if !wasOn && p.Enabled {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
+
+			// enter hblank
+			p.Mode = lcd.HBlank
 			// if the screen was turned on, reset the clock
 			p.currentCycle = 4
 			p.delayedTick = true
@@ -631,12 +640,16 @@ func (p *PPU) Tick() {
 
 				// go to mode 3
 				p.Mode = lcd.VRAM
-				return
 			}
+			return
 		}
 
 		// have we reached the cycle threshold for the next scanline?
 		if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
+			// notify HDMA that we're in HBlank
+			if p.bus.IsGBC() {
+				p.bus.HDMA.SetHBlank()
+			}
 			// reset cycle and increment scanline
 			p.currentCycle = 0
 			p.CurrentScanline++
@@ -675,10 +688,6 @@ func (p *PPU) Tick() {
 			p.currentCycle = 0
 			p.Mode = lcd.HBlank
 
-			// notify HDMA that we're in HBlank
-			if p.bus.IsGBC() {
-				p.bus.HDMA.SetHBlank()
-			}
 			p.checkStatInterrupts(false)
 			p.renderScanline()
 		}
