@@ -96,3 +96,15 @@ func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
 	s.State = utils.Set(s.State, button)
 }
+
+var _ types.Stater = (*State)(nil)
+
+func (s *State) Load(st *types.State) {
+	s.Register = st.Read8()
+	s.State = st.Read8()
+}
+
+func (s *State) Save(st *types.State) {
+	st.Write8(s.Register)
+	st.Write8(s.State)
+}

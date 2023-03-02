@@ -2,6 +2,7 @@ package cartridge
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 // MemoryBankedCartridge1 represents a MemoryBankedCartridge1 cartridge. This cartridge type has external RAM and
@@ -37,6 +38,24 @@ type MemoryBankedCartridge1 struct {
 	mode bool // 0x6000 - 0x7FFF
 
 	isMultiCart bool
+}
+
+func (m *MemoryBankedCartridge1) Load(s *types.State) {
+	s.ReadData(m.ram)
+	m.ramg = s.ReadBool()
+	m.bank1 = s.Read8()
+	m.bank2 = s.Read8()
+	m.mode = s.ReadBool()
+	m.isMultiCart = s.ReadBool()
+}
+
+func (m *MemoryBankedCartridge1) Save(s *types.State) {
+	s.WriteData(m.ram)
+	s.WriteBool(m.ramg)
+	s.Write8(m.bank1)
+	s.Write8(m.bank2)
+	s.WriteBool(m.mode)
+	s.WriteBool(m.isMultiCart)
 }
 
 // NewMemoryBankedCartridge1 returns a new MemoryBankedCartridge1 cartridge.
@@ -142,13 +161,13 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 	}
 }
 
-// Save returns the RAM of the cartridge.
-func (m *MemoryBankedCartridge1) Save() []byte {
+// SaveRAM returns the RAM of the cartridge.
+func (m *MemoryBankedCartridge1) SaveRAM() []byte {
 	return m.ram
 }
 
-// Load loads the RAM of the cartridge.
-func (m *MemoryBankedCartridge1) Load(data []byte) {
+// LoadRAM loads the RAM of the cartridge.
+func (m *MemoryBankedCartridge1) LoadRAM(data []byte) {
 	copy(m.ram, data)
 }
 

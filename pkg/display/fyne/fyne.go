@@ -91,6 +91,15 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 		fmt.Printf("Render Job: %d\n", unsafe.Sizeof(ppu.RenderJob{}))
 		fmt.Printf("Render Output: %d\n", unsafe.Sizeof(ppu.RenderOutput{}))
 	},
+	fyne.KeyS: func(gb *gameboy.GameBoy) {
+		st := types.NewState()
+		gb.Save(st)
+		if err := st.SaveToFile("state.json"); err != nil {
+			gb.Logger.Errorf("failed to save state: %v", err)
+		} else {
+			gb.Logger.Infof("saved state to state.json")
+		}
+	},
 }
 
 type fyneWindow struct {

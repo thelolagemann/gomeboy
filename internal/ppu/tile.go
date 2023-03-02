@@ -64,8 +64,7 @@ func NewTileMap() TileMap {
 	for y := 0; y < 32; y++ {
 		for x := 0; x < 32; x++ {
 			tileMap[y][x] = TileMapEntry{
-				TileID:     0,
-				Attributes: &TileAttributes{},
+				TileID: 0,
 			}
 		}
 	}
@@ -74,7 +73,7 @@ func NewTileMap() TileMap {
 
 type TileMapEntry struct {
 	TileID     uint8
-	Attributes *TileAttributes
+	Attributes TileAttributes
 }
 
 func (t *TileMapEntry) GetID(signed bool) int16 {

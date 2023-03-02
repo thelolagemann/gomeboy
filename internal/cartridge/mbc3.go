@@ -2,6 +2,7 @@ package cartridge
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"time"
 )
 
@@ -82,6 +83,26 @@ type MemoryBankedCartridge3 struct {
 	latchedRTC []byte
 	latched    bool
 	header     *Header
+}
+
+func (m *MemoryBankedCartridge3) Load(s *types.State) {
+	m.romBank = s.Read32()
+	s.ReadData(m.ram)
+	m.ramBank = int32(s.Read32())
+	m.ramEnabled = s.ReadBool()
+	m.rtcEnabled = s.ReadBool()
+	s.ReadData(m.latchedRTC)
+	m.latched = s.ReadBool()
+}
+
+func (m *MemoryBankedCartridge3) Save(s *types.State) {
+	s.Write32(m.romBank)
+	s.WriteData(m.ram)
+	s.Write32(uint32(m.ramBank))
+	s.WriteBool(m.ramEnabled)
+	s.WriteBool(m.rtcEnabled)
+	s.WriteData(m.latchedRTC)
+	s.WriteBool(m.latched)
 }
 
 // NewMemoryBankedCartridge3 returns a new MemoryBankedCartridge3 cartridge.
@@ -208,12 +229,12 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 }
 
 // Load loads the cartridge's RAM from the given data.
-func (m *MemoryBankedCartridge3) Load(data []byte) {
+func (m *MemoryBankedCartridge3) LoadRAM(data []byte) {
 	copy(m.ram, data)
 }
 
 // Save saves the cartridge's RAM to the given data.
-func (m *MemoryBankedCartridge3) Save() []byte {
+func (m *MemoryBankedCartridge3) SaveRAM() []byte {
 	data := make([]byte, len(m.ram))
 	copy(data, m.ram)
 	return data

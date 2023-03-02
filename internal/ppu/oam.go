@@ -48,3 +48,16 @@ func (o *OAM) Write(address uint16, value uint8) {
 	// update raw data so that it can be easily read back
 	o.data[address] = value
 }
+
+var _ types.Stater = (*OAM)(nil)
+
+func (o *OAM) Load(s *types.State) {
+	s.ReadData(o.data[:])
+	for i := 0; i < len(o.data); i++ {
+		o.Write(uint16(i), o.data[i])
+	}
+}
+
+func (o *OAM) Save(s *types.State) {
+	s.WriteData(o.data[:])
+}

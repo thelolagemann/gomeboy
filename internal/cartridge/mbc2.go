@@ -1,5 +1,7 @@
 package cartridge
 
+import "github.com/thelolagemann/go-gameboy/internal/types"
+
 type MemoryBankedCartridge2 struct {
 	rom    []byte
 	ram    []byte
@@ -7,6 +9,18 @@ type MemoryBankedCartridge2 struct {
 
 	ramg bool
 	romb uint8
+}
+
+func (m *MemoryBankedCartridge2) Load(s *types.State) {
+	s.ReadData(m.ram)
+	m.ramg = s.ReadBool()
+	m.romb = s.Read8()
+}
+
+func (m *MemoryBankedCartridge2) Save(s *types.State) {
+	s.WriteData(m.ram)
+	s.WriteBool(m.ramg)
+	s.Write8(m.romb)
 }
 
 // NewMemoryBankedCartridge2 returns a new MemoryBankedCartridge2 cartridge.

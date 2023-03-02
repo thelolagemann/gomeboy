@@ -125,6 +125,28 @@ func (c *Controller) getFallingEdge(div uint16) bool {
 	return ((div & (1 << 8)) != 0) && c.internalClock && c.transferRequest
 }
 
+var _ types.Stater = (*Controller)(nil)
+
+func (c *Controller) Load(s *types.State) {
+	c.data = s.Read8()
+	c.control = s.Read8()
+
+	c.transferRequest = s.ReadBool()
+	c.count = s.Read8()
+	c.internalClock = s.ReadBool()
+	c.resultFallingEdge = s.ReadBool()
+}
+
+func (c *Controller) Save(s *types.State) {
+	s.Write8(c.data)
+	s.Write8(c.control)
+
+	s.WriteBool(c.transferRequest)
+	s.Write8(c.count)
+	s.WriteBool(c.internalClock)
+	s.WriteBool(c.resultFallingEdge)
+}
+
 type nullDevice struct{}
 
 func (n nullDevice) Receive(bool) {}

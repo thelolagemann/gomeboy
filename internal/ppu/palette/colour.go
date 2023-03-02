@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"io"
 	"os"
 )
 
@@ -143,11 +142,18 @@ func (p *CGBPalette) SaveExample(imgOutput string) {
 	}
 }
 
-func (p *CGBPalette) LoadState(r io.Reader) error {
-	// TODO
-	return nil
+func (p *CGBPalette) Load(s *types.State) {
+	for i := range p.Palettes {
+		p.Palettes[i] = LoadPaletteFromState(s)
+	}
+	p.Index = s.Read8()
+	p.Incrementing = s.ReadBool()
 }
 
-func (p *CGBPalette) SaveState(w io.Writer) {
-
+func (p *CGBPalette) Save(s *types.State) {
+	for _, pa := range p.Palettes {
+		pa.Save(s)
+	}
+	s.Write8(p.Index)
+	s.WriteBool(p.Incrementing)
 }

@@ -309,3 +309,31 @@ func (m *MMU) Read(address uint16) uint8 {
 func (m *MMU) Write(address uint16, value uint8) {
 	m.raw[address].Write(address, value)
 }
+
+var _ types.Stater = (*MMU)(nil)
+
+func (m *MMU) Load(s *types.State) {
+
+	m.key0 = s.Read8()
+	m.key1 = s.Read8()
+	m.bootROMDone = s.ReadBool()
+	m.zRAM.Load(s)
+	m.wRAM.Load(s)
+	if m.HDMA != nil {
+		m.HDMA.Load(s)
+	}
+	m.Cart.MemoryBankController.Load(s)
+}
+
+func (m *MMU) Save(s *types.State) {
+	s.Write8(m.key0)
+	s.Write8(m.key1)
+	s.WriteBool(m.bootROMDone)
+	m.zRAM.Save(s)
+	m.wRAM.Save(s)
+
+	if m.HDMA != nil {
+		m.HDMA.Save(s)
+	}
+	m.Cart.MemoryBankController.Save(s)
+}

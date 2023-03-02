@@ -15,14 +15,9 @@ type Cartridge struct {
 	MD5    string
 }
 
-type MemoryBankController interface {
-	Read(address uint16) uint8
-	Write(address uint16, value uint8)
-}
-
 type RAMController interface {
-	Load([]byte)
-	Save() []byte
+	LoadRAM([]byte)
+	SaveRAM() []byte
 }
 
 func (c *Cartridge) Header() *Header {
@@ -43,7 +38,7 @@ func (c *Cartridge) Filename() string {
 
 // Save saves the cartridge RAM to a file.
 func (c *Cartridge) Save() {
-	data := c.MemoryBankController.(RAMController).Save()
+	data := c.MemoryBankController.(RAMController).SaveRAM()
 	if err := os.WriteFile(c.Filename(), data, 0644); err != nil {
 		panic(err)
 	}
@@ -78,7 +73,7 @@ func NewCartridge(rom []byte) *Cartridge {
 			panic(err)
 		}
 
-		ram.Load(saveData)
+		ram.LoadRAM(saveData)
 	}
 
 	// calculate the md5 hash of the cartridge

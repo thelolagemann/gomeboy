@@ -78,3 +78,22 @@ func NewStatus(writeHandler types.WriteHandler) *Status {
 func (s *Status) SetMode(mode Mode) {
 	s.Mode = mode
 }
+
+var _ types.Stater = (*Status)(nil)
+
+func (s *Status) Load(state *types.State) {
+	v := state.Read8()
+	s.CoincidenceInterrupt = utils.Test(v, 6)
+	s.OAMInterrupt = utils.Test(v, 5)
+	s.VBlankInterrupt = utils.Test(v, 4)
+	s.HBlankInterrupt = utils.Test(v, 3)
+	s.raw = v & 0b0111_1000
+	s.Mode = Mode(state.Read8())
+	s.Coincidence = state.ReadBool()
+}
+
+func (s *Status) Save(state *types.State) {
+	state.Write8(s.raw)
+	state.Write8(uint8(s.Mode))
+	state.WriteBool(s.Coincidence)
+}

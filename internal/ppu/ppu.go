@@ -50,8 +50,8 @@ type PPU struct {
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
 
-	TileData [2][384]*Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
-	tileMaps [2]TileMap    // 32x32 tiles, 8x8 pixels each
+	TileData [2][384]Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
+	tileMaps [2]TileMap   // 32x32 tiles, 8x8 pixels each
 
 	irq *interrupts.Service
 
@@ -64,10 +64,7 @@ type PPU struct {
 
 	currentCycle       uint16
 	bus                *mmu.MMU
-	screenCleared      bool
 	statInterruptDelay bool
-	cleared            bool
-	offClock           uint32
 	refreshScreen      bool
 	DMA                *DMA
 	delayedTick        bool
@@ -287,7 +284,7 @@ func (p *PPU) init() {
 	// initialize tile data
 	for i := 0; i < 2; i++ {
 		for j := 0; j < len(p.TileData[0]); j++ {
-			p.TileData[i][j] = &Tile{}
+			p.TileData[i][j] = Tile{}
 		}
 	}
 
@@ -305,7 +302,6 @@ func (p *PPU) init() {
 // TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
 	if p.bus.IsGBCCompat() {
-		p.vRAM[1] = ram.NewRAM(0x2000)
 		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
 	}
 }
@@ -314,12 +310,13 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	oam := NewOAM()
 	p := &PPU{
 		Background: background.NewBackground(),
-		TileData:   [2][384]*Tile{},
+		TileData:   [2][384]Tile{},
 
 		bus: mmu,
 		irq: irq,
 		oam: oam,
 		vRAM: [2]*ram.RAM{
+			ram.NewRAM(8192),
 			ram.NewRAM(8192),
 		},
 		DMA: NewDMA(mmu, oam),
@@ -489,48 +486,53 @@ func (p *PPU) colorPaletteUnlocked() bool {
 }
 
 func (p *PPU) WriteVRAM(address uint16, value uint8) {
-	// is the VRAM currently locked?
-	// FIXME: Boot ROM logo appears garbled when this is enabled (why? otherwise it's fine)
-	if !p.vramUnlocked() {
+
+	if address <= 0x2000 {
+		// write to the current VRAM bank
+		p.vRAM[p.vRAMBank].Write(address, value)
+
+		// are we writing to the tile data?
+		if address <= 0x17FF {
+			p.UpdateTile(address, value)
+			// update the tile data
+		} else if address <= 0x1FFF {
+			if p.vRAMBank == 0 {
+				// which offset are we writing to?
+				if address >= 0x1800 && address <= 0x1BFF {
+					// tilemap 0
+					p.UpdateTileMap(address, 0)
+				}
+				if address >= 0x1C00 && address <= 0x1FFF {
+					// tilemap 1
+					p.UpdateTileMap(address, 1)
+				}
+			}
+			if p.vRAMBank == 1 {
+				// update the tile attributes
+				if address >= 0x1800 && address <= 0x1BFF {
+					// tilemap 0
+					p.UpdateTileAttributes(address, 0, value)
+				}
+				if address >= 0x1C00 && address <= 0x1FFF {
+					// tilemap 1
+					p.UpdateTileAttributes(address, 1, value)
+				}
+			}
+		}
 		return
 	}
 
-	// write to the current VRAM bank
-	p.vRAM[p.vRAMBank].Write(address, value)
-
-	// are we writing to the tile data?
-	if address <= 0x17FF {
-		p.UpdateTile(address, value)
-		// update the tile data
-	} else if address <= 0x1FFF {
-		if p.vRAMBank == 0 {
-			// which offset are we writing to?
-			if address >= 0x1800 && address <= 0x1BFF {
-				// tilemap 0
-				p.UpdateTileMap(address, 0)
-			}
-			if address >= 0x1C00 && address <= 0x1FFF {
-				// tilemap 1
-				p.UpdateTileMap(address, 1)
-			}
-		}
-		if p.vRAMBank == 1 {
-			// update the tile attributes
-			if address >= 0x1800 && address <= 0x1BFF {
-				// tilemap 0
-				p.UpdateTileAttributes(address, 0, value)
-			}
-			if address >= 0x1C00 && address <= 0x1FFF {
-				// tilemap 1
-				p.UpdateTileAttributes(address, 1, value)
-			}
-		}
-	}
+	// out of bounds
+	panic(fmt.Sprintf("ppu: write to out of bounds VRAM address %04X", address))
 }
 
 func (p *PPU) Write(address uint16, value uint8) {
 	// VRAM (0x8000 - 0x9FFF)
 	if address >= 0x8000 && address <= 0x9FFF {
+		// is the VRAM currently locked?
+		if !p.vramUnlocked() {
+			return
+		}
 		p.WriteVRAM(address-0x8000, value)
 		return
 	}
@@ -945,4 +947,61 @@ func (p *PPU) ClearRefresh() {
 func (p *PPU) SaveCGBPalettes() {
 	p.ColourPalette.SaveExample("bg.png")
 	p.ColourSpritePalette.SaveExample("sprite.png")
+}
+
+var _ types.Stater = (*PPU)(nil)
+
+func (p *PPU) Load(s *types.State) {
+	p.Background.Load(s)
+	p.Controller.Load(s)
+	p.Status.Load(s)
+	p.CurrentScanline = s.Read8()
+	p.LYCompare = s.Read8()
+	p.WindowX = s.Read8()
+	p.WindowY = s.Read8()
+	p.WindowYInternal = s.Read8()
+	for i := uint16(0); i < 0x2000; i++ {
+		p.vRAMBank = 0
+		p.WriteVRAM(i, s.Read8())
+	}
+	for i := uint16(0); i < 0x2000; i++ {
+		p.vRAMBank = 1
+		p.WriteVRAM(i, s.Read8())
+	}
+	// load the vRAM data
+	p.vRAMBank = s.Read8()
+	p.DMA.Load(s)
+	p.currentCycle = s.Read16()
+	p.refreshScreen = s.ReadBool()
+	p.statInterruptDelay = s.ReadBool()
+	p.delayedTick = s.ReadBool()
+	p.Palette = palette.LoadPaletteFromState(s)
+	p.SpritePalettes[0] = palette.LoadPaletteFromState(s)
+	p.SpritePalettes[1] = palette.LoadPaletteFromState(s)
+	p.ColourPalette.Load(s)
+	p.ColourSpritePalette.Load(s)
+}
+
+func (p *PPU) Save(s *types.State) {
+	p.Background.Save(s)        // 14 bytes
+	p.Controller.Save(s)        // 1 byte
+	p.Status.Save(s)            // 3 byte
+	s.Write8(p.CurrentScanline) // 1 byte
+	s.Write8(p.LYCompare)       // 1 byte
+	s.Write8(p.WindowX)         // 1 byte
+	s.Write8(p.WindowY)         // 1 byte
+	s.Write8(p.WindowYInternal) // 1 byte
+	p.vRAM[0].Save(s)           // 8192 bytes
+	p.vRAM[1].Save(s)           // 8192 bytes
+	s.Write8(p.vRAMBank)        // 1 byte
+	p.DMA.Save(s)
+	s.Write16(p.currentCycle)
+	s.WriteBool(p.refreshScreen)
+	s.WriteBool(p.statInterruptDelay)
+	s.WriteBool(p.delayedTick)
+	p.Palette.Save(s)
+	p.SpritePalettes[0].Save(s)
+	p.SpritePalettes[1].Save(s)
+	p.ColourPalette.Save(s)
+	p.ColourSpritePalette.Save(s)
 }

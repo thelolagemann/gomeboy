@@ -99,3 +99,17 @@ func (s *Service) Vector() Address {
 
 	return 0
 }
+
+var _ types.Stater = (*Service)(nil)
+
+func (s *Service) Load(st *types.State) {
+	s.IME = st.ReadBool()
+	s.Flag = st.Read8()
+	s.Enable = st.Read8()
+}
+
+func (s *Service) Save(st *types.State) {
+	st.WriteBool(s.IME)
+	st.Write8(s.Flag)
+	st.Write8(s.Enable)
+}

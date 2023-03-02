@@ -1,6 +1,9 @@
 package cartridge
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type MemoryBankedCartridge5 struct {
 	rom        []byte
@@ -10,6 +13,20 @@ type MemoryBankedCartridge5 struct {
 	ramBank    int
 
 	header *Header
+}
+
+func (m *MemoryBankedCartridge5) Load(s *types.State) {
+	s.ReadData(m.ram)
+	m.ramEnabled = s.ReadBool()
+	m.romBank = int(s.Read8())
+	m.ramBank = int(s.Read8())
+}
+
+func (m *MemoryBankedCartridge5) Save(s *types.State) {
+	s.WriteData(m.ram)
+	s.WriteBool(m.ramEnabled)
+	s.Write8(uint8(m.romBank))
+	s.Write8(uint8(m.ramBank))
 }
 
 func NewMemoryBankedCartridge5(rom []byte, header *Header) *MemoryBankedCartridge5 {
@@ -79,10 +96,10 @@ func (m *MemoryBankedCartridge5) Write(address uint16, value uint8) {
 	}
 }
 
-func (m *MemoryBankedCartridge5) Load(data []byte) {
+func (m *MemoryBankedCartridge5) LoadRAM(data []byte) {
 	copy(m.ram, data)
 }
 
-func (m *MemoryBankedCartridge5) Save() []byte {
+func (m *MemoryBankedCartridge5) SaveRAM() []byte {
 	return m.ram
 }

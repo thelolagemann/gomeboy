@@ -1,9 +1,19 @@
 package cartridge
 
+import "github.com/thelolagemann/go-gameboy/internal/types"
+
 // ROMCartridge represents a ROM cartridge. This cartridge type is the simplest
 // cartridge type and has no external RAM or MBCm.
 type ROMCartridge struct {
 	rom []byte
+}
+
+func (r *ROMCartridge) Load(s *types.State) {
+	// do nothing as ROM is read-only
+}
+
+func (r *ROMCartridge) Save(s *types.State) {
+	// do nothing as ROM is read-only
 }
 
 // NewROMCartridge returns a new ROM cartridge.

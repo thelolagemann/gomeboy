@@ -24,14 +24,10 @@ func main() {
 	}()*/
 
 	var logger = log.New()
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("unrecoverable error: %v", r)
-		}
-	}()
 
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
+	state := flag.String("state", "", "The state file to load") // TODO determine state file from ROM file
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	debugViews := flag.Bool("debug", false, "Show debug views")
 	activeDebugViews := flag.String("active-debug", "cpu,log,mmu,ppu,vram", "Comma separated list of debug views to show")
@@ -61,6 +57,14 @@ func main() {
 	if *printer {
 		printer := accessories.NewPrinter()
 		opts = append(opts, gameboy.WithPrinter(printer))
+	}
+
+	if *state != "" {
+		state, err := utils.LoadFile(*state)
+		if err != nil {
+			panic(err)
+		}
+		opts = append(opts, gameboy.WithState(state))
 	}
 
 	switch strings.ToLower(*asModel) {
@@ -124,5 +128,14 @@ func main() {
 		a.AddGameBoy(gb2)
 	}
 
-	a.Run()
+	if err := a.Run(); err != nil {
+		panic(err)
+	}
+
+	// save the state after the gameboy has been closed
+	st := types.NewState()
+	gb.Save(st)
+	if err := st.SaveToFile("state.json"); err != nil {
+		panic(err)
+	}
 }

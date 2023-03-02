@@ -8,6 +8,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
 	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 	"time"
 )
 
@@ -47,10 +48,8 @@ type CPU struct {
 
 	doubleSpeed bool
 
-	mmu     *mmu.MMU
-	stopped bool
-	Halted  bool
-	IRQ     *interrupts.Service
+	mmu *mmu.MMU
+	IRQ *interrupts.Service
 
 	Debug           bool
 	DebugBreakpoint bool
@@ -64,7 +63,6 @@ type CPU struct {
 
 	currentTick uint8
 	mode        mode
-	Paused      bool
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
@@ -348,4 +346,38 @@ func (c *CPU) shouldZeroFlag(value uint8) {
 	} else {
 		c.clearFlag(FlagZero)
 	}
+}
+
+var _ types.Stater = (*CPU)(nil)
+
+func (c *CPU) Load(s *types.State) {
+	c.A = s.Read8()
+	c.F = s.Read8()
+	c.B = s.Read8()
+	c.C = s.Read8()
+	c.D = s.Read8()
+	c.E = s.Read8()
+	c.H = s.Read8()
+	c.L = s.Read8()
+	c.SP = s.Read16()
+	c.PC = s.Read16()
+	c.mode = s.Read8()
+	c.doubleSpeed = s.ReadBool()
+	c.IRQ.Load(s)
+}
+
+func (c *CPU) Save(s *types.State) {
+	s.Write8(c.A)
+	s.Write8(c.F)
+	s.Write8(c.B)
+	s.Write8(c.C)
+	s.Write8(c.D)
+	s.Write8(c.E)
+	s.Write8(c.H)
+	s.Write8(c.L)
+	s.Write16(c.SP)
+	s.Write16(c.PC)
+	s.Write8(c.mode)
+	s.WriteBool(c.doubleSpeed)
+	c.IRQ.Save(s)
 }

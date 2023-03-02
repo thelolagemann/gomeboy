@@ -3,7 +3,10 @@
 // other hardware components.
 package ram
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 // RAM represents a block of RAM. It is used for the internal
 // RAM and various other hardware components. It has a maximum
@@ -38,4 +41,14 @@ func (r *RAM) Write(address uint16, value uint8) {
 		panic(fmt.Sprintf("RAM: address out of bounds: %d with len %d", address, r.size))
 	}
 	r.data[address] = value
+}
+
+var _ types.Stater = (*RAM)(nil)
+
+func (r *RAM) Load(s *types.State) {
+	s.ReadData(r.data)
+}
+
+func (r *RAM) Save(s *types.State) {
+	s.WriteData(r.data)
 }

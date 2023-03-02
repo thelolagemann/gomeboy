@@ -1,5 +1,7 @@
 package mmu
 
+import "github.com/thelolagemann/go-gameboy/internal/types"
+
 type WRAM struct {
 	bank uint8
 	raw  [8][0x1000]uint8
@@ -48,4 +50,20 @@ func (w *WRAM) Write(addr uint16, v uint8) {
 	}
 	// are we writing to the echo?
 	w.raw[w.bank][addr&0xFFF] = v
+}
+
+var _ types.Stater = (*WRAM)(nil)
+
+func (w *WRAM) Load(s *types.State) {
+	w.bank = s.Read8()
+	for i := range w.raw {
+		s.ReadData(w.raw[i][:])
+	}
+}
+
+func (w *WRAM) Save(s *types.State) {
+	s.Write8(w.bank)
+	for i := range w.raw {
+		s.WriteData(w.raw[i][:])
+	}
 }

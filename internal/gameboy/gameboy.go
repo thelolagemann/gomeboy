@@ -65,10 +65,11 @@ var startingRegisterValues = map[types.HardwareAddress]uint8{
 // It is the main entry point for the emulator.
 type GameBoy struct {
 	sync.RWMutex
-	CPU   *cpu.CPU
-	MMU   *mmu.MMU
-	PPU   *ppu.PPU
-	model types.Model
+	CPU             *cpu.CPU
+	MMU             *mmu.MMU
+	PPU             *ppu.PPU
+	model           types.Model
+	loadedFromState bool
 
 	APU        *apu.APU
 	Joypad     *joypad.State
@@ -127,7 +128,7 @@ func (g *GameBoy) StartLinked(
 			g.frames++
 
 			// render frame
-			if !g.paused && !g.CPU.Paused {
+			if !g.paused {
 				frame1, frame2 = g.LinkFrame()
 			}
 
@@ -227,7 +228,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 			// update the fps counter
 			g.frames++
 
-			if !g.paused && !g.CPU.Paused {
+			if !g.paused {
 				// render frame
 				frameStart = time.Now()
 
@@ -379,6 +380,15 @@ func WithLogger(log log.Logger) GameBoyOpt {
 	}
 }
 
+func WithState(b []byte) GameBoyOpt {
+	return func(gb *GameBoy) {
+		// get state from bytes
+		state := types.StateFromBytes(b)
+		gb.Load(state)
+		gb.loadedFromState = true
+	}
+}
+
 // WithBootROM sets the boot ROM for the emulator.
 func WithBootROM(rom []byte) GameBoyOpt {
 	return func(gb *GameBoy) {
@@ -427,9 +437,10 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus.AttachVideo(video)
 
 	g := &GameBoy{
-		CPU: cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound, serialCtl),
-		MMU: memBus,
-		PPU: video,
+		CPU:    cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound, serialCtl),
+		MMU:    memBus,
+		PPU:    video,
+		Logger: log.New(),
 
 		APU:        sound,
 		Joypad:     pad,
@@ -458,7 +469,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	}
 
 	// setup starting register values
-	if g.MMU.BootROM == nil {
+	if g.MMU.BootROM == nil && !g.loadedFromState {
 		// TODO switch to using model to determine starting register values
 		for addr, val := range startingRegisterValues {
 			g.MMU.Write(addr, val)
@@ -466,9 +477,9 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		g.PPU.Status.Mode = 3
 
 		g.initializeCPU()
-	}
-	if g.MMU.IsGBCCompat() {
-		video.LoadCompatibilityPalette()
+		if g.MMU.IsGBCCompat() {
+			video.LoadCompatibilityPalette()
+		}
 	}
 
 	video.StartRendering()
@@ -477,6 +488,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 }
 
 func (g *GameBoy) initializeCPU() {
+	g.Logger.Debugf("initializing CPU with model %s", g.model)
 	// setup initial cpu state
 	g.CPU.PC = 0x100
 	g.CPU.SP = 0xFFFE
@@ -622,4 +634,26 @@ func (g *GameBoy) SetModel(m types.Model) {
 	// re-initialize MMU
 	g.MMU.SetModel(m)
 	g.model = m
+}
+
+var _ types.Stater = (*GameBoy)(nil)
+
+func (g *GameBoy) Load(s *types.State) {
+	g.CPU.Load(s)
+	g.MMU.Load(s)
+	g.PPU.Load(s)
+	// g.APU.LoadRAM(s) TODO implement APU state
+	g.Timer.Load(s)
+	g.Joypad.Load(s)
+	g.Serial.Load(s)
+}
+
+func (g *GameBoy) Save(s *types.State) {
+	g.CPU.Save(s)
+	g.MMU.Save(s)
+	g.PPU.Save(s)
+	// g.APU.SaveRAM(s) TODO implement APU state
+	g.Timer.Save(s)
+	g.Joypad.Save(s)
+	g.Serial.Save(s)
 }

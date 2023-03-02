@@ -161,3 +161,35 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 }
 
 var bits = [4]uint16{512, 8, 32, 128}
+
+var (
+	_ types.Stater = (*Controller)(nil)
+)
+
+// Load loads the state of the controller.
+func (c *Controller) Load(s *types.State) {
+	c.Div = s.Read16()
+	c.tima = s.Read8()
+	c.tma = s.Read8()
+	c.tac = s.Read8()
+
+	c.enabled = s.ReadBool()
+	c.currentBit = s.Read16()
+	c.lastBit = s.ReadBool()
+	c.overflow = s.ReadBool()
+	c.ticksSinceOverflow = s.Read8()
+}
+
+// Save saves the state of the controller.
+func (c *Controller) Save(s *types.State) {
+	s.Write16(c.Div)
+	s.Write8(c.tima)
+	s.Write8(c.tma)
+	s.Write8(c.tac)
+
+	s.WriteBool(c.enabled)
+	s.Write16(c.currentBit)
+	s.WriteBool(c.lastBit)
+	s.WriteBool(c.overflow)
+	s.Write8(c.ticksSinceOverflow)
+}

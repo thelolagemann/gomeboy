@@ -55,6 +55,7 @@ type Controller struct {
 	// background and window are enabled.
 	BackgroundEnabled bool
 
+	raw      uint8
 	cleared  bool
 	isSigned bool
 }
@@ -89,33 +90,9 @@ func (c *Controller) init(onWrite types.WriteHandler) {
 			c.SpriteSize = 8 + uint8(utils.Val(v, 2))*8
 			c.SpriteEnabled = utils.Test(v, 1)
 			c.BackgroundEnabled = utils.Test(v, 0)
+			c.raw = v
 		}, func() uint8 {
-			var value uint8
-			if c.Enabled {
-				value |= 1 << 7
-			}
-			if c.WindowTileMapAddress == 0x9C00 {
-				value |= 1 << 6
-			}
-			if c.WindowEnabled {
-				value |= 1 << 5
-			}
-			if c.TileDataAddress == 0x8000 {
-				value |= 1 << 4
-			}
-			if c.BackgroundTileMapAddress == 0x9C00 {
-				value |= 1 << 3
-			}
-			if c.SpriteSize == 16 {
-				value |= 1 << 2
-			}
-			if c.SpriteEnabled {
-				value |= 1 << 1
-			}
-			if c.BackgroundEnabled {
-				value |= 1 << 0
-			}
-			return value
+			return c.raw
 		},
 		types.WithWriteHandler(onWrite),
 	)
@@ -149,4 +126,40 @@ func (c *Controller) Clear() {
 
 func (c *Controller) Cleared() bool {
 	return c.cleared
+}
+
+var _ types.Stater = (*Controller)(nil)
+
+func (c *Controller) Load(state *types.State) {
+	v := state.Read8()
+	if !c.Enabled && utils.Test(v, 7) {
+		c.cleared = false
+	}
+	c.Enabled = utils.Test(v, 7)
+	if utils.Test(v, 6) {
+		c.WindowTileMapAddress = 0x9C00
+	} else {
+		c.WindowTileMapAddress = 0x9800
+	}
+	c.WindowEnabled = utils.Test(v, 5)
+	if utils.Test(v, 4) {
+		c.TileDataAddress = 0x8000
+		c.isSigned = false
+	} else {
+		c.TileDataAddress = 0x8800
+		c.isSigned = true
+	}
+	if utils.Test(v, 3) {
+		c.BackgroundTileMapAddress = 0x9C00
+	} else {
+		c.BackgroundTileMapAddress = 0x9800
+	}
+	c.SpriteSize = 8 + uint8(utils.Val(v, 2))*8
+	c.SpriteEnabled = utils.Test(v, 1)
+	c.BackgroundEnabled = utils.Test(v, 0)
+	c.raw = v
+}
+
+func (c *Controller) Save(s *types.State) {
+	s.Write8(c.raw)
 }

@@ -143,3 +143,23 @@ func (h *HDMA) SetHBlank() {
 func (h *HDMA) AttachVRAM(vramWriteFunc func(uint16, uint8)) {
 	h.vRAMWriteFunc = vramWriteFunc
 }
+
+var _ types.Stater = (*HDMA)(nil)
+
+func (h *HDMA) Load(s *types.State) {
+	h.transferring = s.ReadBool()
+	h.copying = s.ReadBool()
+	h.mode = s.Read8()
+	h.source = s.Read16()
+	h.destination = s.Read16()
+	h.blocks = s.Read8()
+}
+
+func (h *HDMA) Save(s *types.State) {
+	s.WriteBool(h.transferring)
+	s.WriteBool(h.copying)
+	s.Write8(h.mode)
+	s.Write16(h.source)
+	s.Write16(h.destination)
+	s.Write8(h.blocks)
+}

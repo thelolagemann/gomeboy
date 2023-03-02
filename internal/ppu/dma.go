@@ -9,7 +9,7 @@ type DMA struct {
 	enabled    bool
 	restarting bool
 
-	timer  uint
+	timer  uint16
 	source uint16
 	value  uint8
 
@@ -80,4 +80,24 @@ func (d *DMA) Tick() {
 
 func (d *DMA) IsTransferring() bool {
 	return d.timer > 4 || d.restarting
+}
+
+var _ types.Stater = (*DMA)(nil)
+
+func (d *DMA) Load(s *types.State) {
+	d.enabled = s.ReadBool()
+	d.restarting = s.ReadBool()
+	d.timer = s.Read16()
+	d.source = s.Read16()
+	d.value = s.Read8()
+	d.oam.Load(s)
+}
+
+func (d *DMA) Save(s *types.State) {
+	s.WriteBool(d.enabled)
+	s.WriteBool(d.restarting)
+	s.Write16(d.timer)
+	s.Write16(d.source)
+	s.Write8(d.value)
+	d.oam.Save(s)
 }
