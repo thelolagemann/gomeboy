@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
@@ -28,7 +27,7 @@ func (p *Printer) Run(window fyne.Window, events <-chan display.Event) error {
 	c := canvas.NewImageFromImage(p.image)
 	c.SetMinSize(fyne.NewSize(160*4, 200*4))
 	c.ScaleMode = canvas.ImageScalePixels
-	c.FillMode = canvas.ImageFillOriginal
+	c.FillMode = canvas.ImageFillContain
 
 	// set the canvas as the content of the window
 	window.SetContent(c)
@@ -39,7 +38,6 @@ func (p *Printer) Run(window fyne.Window, events <-chan display.Event) error {
 			case e := <-events:
 				switch e.Type {
 				case display.EventTypePrint:
-					fmt.Println("printing")
 					// process the print job
 					job := e.Data.(image.Image)
 
@@ -47,7 +45,7 @@ func (p *Printer) Run(window fyne.Window, events <-chan display.Event) error {
 					oldImage := p.image
 
 					// create a new image to accommodate the new data
-					p.image = image.NewRGBA(image.Rect(0, 0, 160, p.lastY+200))
+					p.image = image.NewRGBA(image.Rect(0, 0, 160, p.lastY+job.Bounds().Dy()))
 					c.Image = p.image
 
 					// draw the old image onto the new one

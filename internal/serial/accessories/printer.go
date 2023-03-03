@@ -97,12 +97,12 @@ type Printer struct {
 	checksum          uint16
 	status            uint8
 	keepAlive         bool
-	imageData         [160 * 200]byte
+	imageData         [160 * 144]byte
 	imageOffset       int
 	timeRemaining     int
-	packetSize        uint
 	hasJob            bool
 	printJob          image.Image
+	totalLength       uint16
 }
 
 func NewPrinter() *Printer {
@@ -113,7 +113,7 @@ func NewPrinter() *Printer {
 func (p *Printer) Send() bool {
 	bit := p.byteToSend&types.Bit7 != 0
 	p.byteToSend <<= 1
-
+	//fmt.Println("send\t", p.position, bit)
 	return bit
 }
 
@@ -124,6 +124,7 @@ func (p *Printer) Receive(bit bool) {
 		p.byteBeingReceived |= types.Bit0
 	}
 
+	//fmt.Println("receive\t", p.position, bit)
 	if p.counter++; p.counter == 8 {
 		p.onReceive(p.byteBeingReceived)
 		p.byteBeingReceived = 0
@@ -133,86 +134,83 @@ func (p *Printer) Receive(bit bool) {
 
 // onReceive is called when the printer receives a byte
 func (p *Printer) onReceive(b byte) {
-	if p.position != CommandPositionData {
-		fmt.Printf("received %x at %s (%d)\n", b, p.position, p.commandLength)
-	}
+	// reset the byte to send
+	p.byteToSend = 0
 
 	// decode the position of the command
 	switch p.position {
 	case CommandPositionMagic1:
-		if b != 0x88 {
+		if b != 0x88 && b != 0x10 { // Pokemon Pinball sometimes sends 0x10 instead of 0x88 for some reason
 			return
 		}
-		p.status = 0
 		p.commandLength = 0
-		p.checksum = 0
-
+		p.lengthLeft = 0
+		p.totalLength = 0
+		p.position = CommandPositionMagic2
 	case CommandPositionMagic2:
 		if b != 0x33 {
-			if b != 0x88 {
-				// reset
-				p.position = CommandPositionMagic1
-			}
+			// reset
+			p.position = CommandPositionMagic1
 			return
 		}
-		p.byteToSend = 0
+		p.position = CommandPositionID
 	case CommandPositionID:
-		p.id = b
-		p.packetSize++
-
+		// is it a valid command?
+		if b != CommandInit && b != CommandStart && b != CommandData && b != CommandStatus {
+			p.position = CommandPositionMagic1
+		} else {
+			p.position = CommandPositionCompression
+			p.id = b
+		}
 	case CommandPositionCompression:
-		p.compression = b&types.Bit0 == types.Bit0
+		p.compression = b&types.Bit0 == types.Bit0 // TODO implement compression
+		p.position = CommandPositionLengthLow
 	case CommandPositionLengthLow:
-		p.lengthLeft = uint16(b)
+		p.totalLength = uint16(b)
+		p.position = CommandPositionLengthHigh
 	case CommandPositionLengthHigh:
-		p.lengthLeft |= uint16(b&3) << 8
-		if p.lengthLeft == 0 {
-			p.position++
+		p.totalLength |= uint16(b) << 8
+		if p.totalLength == 0 {
+			// don't need to receive any data
+			p.position = CommandPositionChecksumLow
+		} else {
+			p.position = CommandPositionData
+			p.lengthLeft = p.totalLength
 		}
 	case CommandPositionData:
 		p.data[p.commandLength] = b
 		p.commandLength++
 		if p.lengthLeft > 0 {
 			p.lengthLeft--
+		} else {
+			p.position = CommandPositionChecksumLow
+		}
+		if p.commandLength == p.totalLength {
+			p.position = CommandPositionChecksumLow
 		}
 	case CommandPositionChecksumLow:
 		p.checksum ^= uint16(b)
+		p.position = CommandPositionChecksumHigh
 	case CommandPositionChecksumHigh:
 		p.checksum ^= uint16(b) << 8
 		// TODO verify checksum
-		if p.checksum != 0 {
-			// checksum error
-			p.status |= 1
-			p.position = CommandPositionMagic1
-
-			fmt.Printf("checksum error: %x", p.checksum)
-			return
-		}
-
 		p.byteToSend = 0x81
+		p.position = CommandPositionKeepAlive
 	case CommandPositionKeepAlive:
 		if p.id == CommandInit {
 			p.byteToSend = 0
 		} else {
-			if p.status == 6 && p.timeRemaining == 0 {
-				p.status = 4 // ready
+			if p.status == 6 {
+				p.status = 4
 			}
-			p.byteToSend = p.status
+			p.byteToSend = 8
 		}
-		p.keepAlive = b&types.Bit0 == types.Bit0
+		p.position = CommandPositionStatus
 	case CommandPositionStatus:
 		if b == 0 {
-			// GB Printer expects 2 0x0s.
-			p.packetSize++
-			// Send back 0x81 to GB on 1st 0x0
-			if p.packetSize == 1 {
-				p.byteToSend = 0x81
-			} else if p.packetSize == 2 {
-				p.runCommand(p.id)
-				p.byteToSend = p.status
-				p.packetSize = 0
-				p.position = CommandPositionMagic1
-			}
+			p.runCommand(p.id)
+
+			p.position = CommandPositionMagic1
 		}
 		return
 	default:
@@ -222,30 +220,19 @@ func (p *Printer) onReceive(b byte) {
 	if p.position >= CommandPositionID && p.position < CommandPositionChecksumLow {
 		p.checksum += uint16(b)
 	}
-
-	if p.position != CommandPositionData {
-		p.position++
-	}
-	if p.position == CommandPositionData && p.lengthLeft == 0 {
-		p.position++
-	}
-
-	fmt.Printf("sending %x at %s (%d)\n", p.byteToSend, p.position, p.commandLength)
 }
 
 // runCommand runs the current command
 func (p *Printer) runCommand(cmd Command) {
-	//fmt.Printf("running command cmd=%d, length=%d, compression=%t status=%d, keepAlive=%t, timeRemaining=%d\n", cmd, p.commandLength, p.compression, p.status, p.keepAlive, p.timeRemaining)
 	switch cmd {
 	case CommandInit:
 		// initialize printer
 		p.status = 0
 		p.imageOffset = 0
 	case CommandStart:
+		// update status
 		if p.commandLength == 4 {
-			// update status
 			p.status = byte(0x04)
-
 			// decode the imageData
 			colourData := make([]color.RGBA, p.imageOffset)
 			pal := p.data[2]
@@ -268,6 +255,8 @@ func (p *Printer) runCommand(cmd Command) {
 			// has job
 			p.hasJob = true
 			p.printJob = img
+
+			p.imageOffset = 0
 		}
 
 	case CommandData:
@@ -278,19 +267,15 @@ func (p *Printer) runCommand(cmd Command) {
 			// p.imageOffset = 0
 			currentByte := 0
 			for row := 0; row < 2; row++ {
-				for col := 0; col < 20; col++ {
-					for y := 0; y < 8; y++ {
+				for tileX := 0; tileX < 20; tileX++ {
+					for tileY := 0; tileY < 8; tileY++ {
 						for x := 0; x < 8; x++ {
-							bit1 := (p.data[(col*8+y)*2] >> 7) & 0x01
-							bit2 := (p.data[(col*8+y)*2+1] >> 6) & 0x02
+							bit1 := (p.data[currentByte] >> (7 - x)) & 1
+							bit2 := (p.data[currentByte+1] >> (7 - x)) & 1
 
-							p.imageData[int(p.imageOffset)+(col*8)+(y*160)+x] = bit1 | bit2
-
-							p.data[(col*8+y)*2] <<= 1
-							p.data[(col*8+y)*2+1] <<= 1
+							p.imageData[p.imageOffset+tileY*160+tileX*8+x] = (bit2 << 1) | bit1
 						}
-
-						currentByte++
+						currentByte += 2
 					}
 				}
 
@@ -299,14 +284,16 @@ func (p *Printer) runCommand(cmd Command) {
 
 		} else if p.commandLength != 0 {
 			// still receiving data
-			// p.status = 0x06
-			fmt.Println("still receiving data")
+		} else {
+			// p.status = 0x08
 		}
 	case CommandStatus:
 		p.status |= 0
 	default:
 		panic(fmt.Sprintf("unknown command: %x", cmd))
 	}
+	p.commandLength = 0
+	p.byteToSend = p.status
 }
 
 func (p *Printer) HasPrintJob() bool {
