@@ -48,7 +48,7 @@ const (
 	MBC5RUMBLE        Type = 0x1C
 	MBC5RUMBLERAM     Type = 0x1D
 	MBC5RUMBLERAMBATT Type = 0x1E
-	POCKETCAMERA      Type = 0x1F
+	POCKETCAMERA      Type = 0xFC
 	BANDAITAMA5       Type = 0xFD
 	HUDSONHUC3        Type = 0xFE
 	HUDSONHUC1        Type = 0xFF
