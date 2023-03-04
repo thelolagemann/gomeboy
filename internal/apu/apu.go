@@ -59,40 +59,45 @@ type buffer struct {
 	readPosition   int
 	writePosition  int
 	size           int
-	bytesCollected int
-
+	bytesToCollect int
 	sync.RWMutex
+
+	sampleChan chan [2]uint16
+}
+
+func (b *buffer) start() {
+	go func() {
+		for {
+			select {
+			case sample := <-b.sampleChan:
+				b.Lock()
+				b.data[b.writePosition] = byte(sample[0])
+				b.data[b.writePosition+1] = byte(sample[0] >> 8)
+				b.data[b.writePosition+2] = byte(sample[1])
+				b.data[b.writePosition+3] = byte(sample[1] >> 8)
+				b.writePosition = (b.writePosition + 4) % b.size
+				b.bytesToCollect += 4
+				b.Unlock()
+			}
+		}
+	}()
 }
 
 func (b *buffer) Read(p []byte) (int, error) {
 	b.RLock()
 	defer b.RUnlock()
-	var n int
-	if b.bytesCollected > 0 {
-		n = copy(p, b.data[b.readPosition:])
-		if n < len(p) {
-			m := copy(p[n:], b.data[:b.readPosition])
-			n += m
-		}
-		b.bytesCollected -= n
-	} else {
-		n = copy(p, make([]byte, len(p)))
+	// copy the next len(p) bytes from the buffer by reading from the channel
+	// and writing to the buffer
+	for i := 0; i < b.bytesToCollect; i += 4 {
+		p[i] = b.data[b.readPosition]
+		p[i+1] = b.data[b.readPosition+1]
+		p[i+2] = b.data[b.readPosition+2]
+		p[i+3] = b.data[b.readPosition+3]
+		b.readPosition = (b.readPosition + 4) % b.size
 	}
-	b.readPosition = (b.readPosition + n) % len(b.data)
-	return n, nil
-}
-
-func (b *buffer) Write(p []byte) (int, error) {
-	b.Lock()
-	defer b.Unlock()
-	b.data[b.writePosition] = p[0]
-	b.data[b.writePosition+1] = p[1]
-	b.data[b.writePosition+2] = p[2]
-	b.data[b.writePosition+3] = p[3]
-	b.writePosition = (b.writePosition + 4) % b.size
-	b.bytesCollected += 4
-	return 4, nil
-
+	v := b.bytesToCollect
+	b.bytesToCollect = 0
+	return v, nil
 }
 
 var orMasks = []byte{
@@ -303,10 +308,11 @@ func (a *APU) init() {
 
 // NewAPU returns a new APU.
 func NewAPU() *APU {
+	b := &buffer{data: make([]byte, 48000*1), size: 48000 * 1, sampleChan: make(chan [2]uint16, 48000)}
 	a := &APU{
 		playing:     false,
 		waveformRam: make([]byte, 0x20),
-		audioBuffer: &buffer{data: make([]byte, 512*1024), size: 512 * 1024},
+		audioBuffer: b,
 	}
 	a.init()
 
@@ -331,12 +337,8 @@ func NewAPU() *APU {
 		panic(fmt.Sprintf("failed to create player: %v", err))
 	}
 	a.player = player
-
-	// set buffer to 512 samples
 	a.player.SetBufferSize(100)
-	a.Play()
-	// seems to be a bug in ebiten, and is delaying the audio by roughly 2 x sampleRate
-
+	b.start()
 	return a
 }
 
@@ -363,9 +365,8 @@ func (a *APU) Tick() {
 	valL := uint16((chn1l+chn2l+chn3l+chn4l)/4) * 128
 	valR := uint16((chn1r+chn2r+chn3r+chn4r)/4) * 128
 
-	if _, err := a.audioBuffer.Write([]byte{byte(valL), byte(valL >> 8), byte(valR), byte(valR >> 8)}); err != nil {
-		panic(err)
-	}
+	// write to buffer
+	a.audioBuffer.sampleChan <- [2]uint16{valL, valR}
 }
 
 var squareLimits = []float64{
