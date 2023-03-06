@@ -57,7 +57,7 @@ func (d *DMA) Tick() {
 	if d.timer > 4 {
 		d.restarting = false
 		if d.timer < 644 {
-			offset := uint16(d.timer-4) >> 2
+			offset := (d.timer - 4) >> 2
 			currentSource := d.source + (offset)
 
 			// is a DMA trying to read from the OAM?
