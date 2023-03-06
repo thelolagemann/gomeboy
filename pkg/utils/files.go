@@ -19,14 +19,9 @@ func LoadFile(filename string) ([]byte, error) {
 	defer f.Close()
 
 	// read the file into a byte slice
-	data := make([]byte, 0)
-	buf := make([]byte, 1024)
-	for {
-		n, err := f.Read(buf)
-		if err != nil {
-			break
-		}
-		data = append(data, buf[:n]...)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
 	}
 
 	// is the file compressed?
@@ -82,16 +77,7 @@ func LoadFile(filename string) ([]byte, error) {
 	}
 
 	// read the decompressed data into a byte slice
-	data = make([]byte, 0)
-	buf = make([]byte, 1024)
-
-	for {
-		n, err := decoder.Read(buf)
-		if err != nil {
-			break
-		}
-		data = append(data, buf[:n]...)
-	}
+	data, err = io.ReadAll(decoder)
 
 	return data, nil
 }
