@@ -25,6 +25,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
+)
+
+const (
+	maxArraySize = 1 << 30                                // 1 GB
+	frameSize    = ppu.ScreenWidth * ppu.ScreenHeight * 3 // 0.75 MB
 )
 
 var (
@@ -66,6 +72,7 @@ var startingRegisterValues = map[types.HardwareAddress]uint8{
 type GameBoy struct {
 	sync.RWMutex
 	CPU             *cpu.CPU
+	Close           chan struct{}
 	MMU             *mmu.MMU
 	PPU             *ppu.PPU
 	model           types.Model
@@ -113,6 +120,8 @@ func (g *GameBoy) StartLinked(
 
 	for {
 		select {
+		case <-g.Close:
+			return
 		case p := <-pressed1:
 			g.Joypad.Press(p)
 		case r := <-released1:
@@ -204,7 +213,6 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	g.frames = 0
 	start := time.Now()
 	frameStart := time.Now()
-	frameTimes := make([]time.Duration, 0, FrameRate)
 	renderTimes := make([]time.Duration, 0, FrameRate)
 	g.APU.Play()
 
@@ -216,8 +224,17 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	frameBuffer := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
 	var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 
+	// Get a pointer to the first element of the frame array
+	framePtr := unsafe.Pointer(&frame[0][0][0])
+
+	// Get a pointer to the first element of the frameBuffer array
+	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
+
+emuLoop:
 	for {
 		select {
+		case <-g.Close:
+			break emuLoop
 		case p := <-pressed:
 			g.Joypad.Press(p)
 		case r := <-released:
@@ -240,29 +257,20 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 			}
 			frameStart = time.Now()
 
-			// turn frame into image
-			for y := 0; y < ppu.ScreenHeight; y++ {
-				for x := 0; x < ppu.ScreenWidth; x++ {
-					frameBuffer[(y*ppu.ScreenWidth+x)*3] = frame[y][x][0]
-					frameBuffer[(y*ppu.ScreenWidth+x)*3+1] = frame[y][x][1]
-					frameBuffer[(y*ppu.ScreenWidth+x)*3+2] = frame[y][x][2]
-				}
-			}
+			// copy the memory block from frame to frameBuffer
+			copy((*[maxArraySize]byte)(frameBufferPtr)[:frameSize:frameSize], (*[maxArraySize]byte)(framePtr)[:frameSize:frameSize])
 
 			if time.Since(start) > time.Second {
 				// average frame time
-				avgFrameTime := avgTime(frameTimes)
 				avgRenderTime := avgTime(renderTimes)
-				frameTimes = frameTimes[:0]
 				renderTimes = renderTimes[:0]
 
 				// append to avg render times
 				avgRenderTimes = append(avgRenderTimes, avgRenderTime)
-				total := avgFrameTime + avgRenderTime
 
 				totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
+				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
 				g.frames = 0
 				start = time.Now()
 
@@ -273,29 +281,10 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 			}
 
 			// send frame events
-			events <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
-				Registers struct {
-					AF uint16
-					BC uint16
-					DE uint16
-					HL uint16
-					SP uint16
-					PC uint16
-				}
-			}{Registers: struct {
-				AF uint16
-				BC uint16
-				DE uint16
-				HL uint16
-				SP uint16
-				PC uint16
-			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
+			events <- display.Event{Type: display.EventTypeFrame}
 
 			// send frame
 			frames <- frameBuffer
-
-			// update frame times
-			frameTimes = append(frameTimes, time.Since(frameStart))
 
 			// check printer for queued data
 			if g.Printer != nil && g.Printer.HasPrintJob() {
@@ -307,6 +296,9 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 		}
 	}
 
+	// once the gameboy is closed, stop the ticker
+	ticker.Stop()
+	g.Logger.Debugf("closing gameboy")
 }
 
 func (g *GameBoy) Pause() {
@@ -449,6 +441,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Serial:     serialCtl,
 		model:      types.Unset, // default to DMGABC
 		speed:      1.0,
+		Close:      make(chan struct{}),
 	}
 
 	// apply options
