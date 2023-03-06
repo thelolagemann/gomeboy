@@ -18,6 +18,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/pkg/emu"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image"
 	"image/png"
@@ -96,6 +97,7 @@ type GameBoy struct {
 	attachedGameBoy *GameBoy
 	speed           float64
 	Printer         *accessories.Printer
+	save            *emu.Save
 }
 
 func (g *GameBoy) StartLinked(
@@ -216,6 +218,20 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	renderTimes := make([]time.Duration, 0, FrameRate)
 	g.APU.Play()
 
+	// check if the cartridge has a ram controller and start a ticker to save the ram
+	var saveTicker *time.Ticker
+	var ram cartridge.RAMController
+	if r, ok := g.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok {
+		// start a ticker
+		saveTicker = time.NewTicker(time.Second * 30)
+		ram = r
+	} else {
+		// create a fake ticker that never ticks
+		saveTicker = &time.Ticker{
+			C: make(chan time.Time),
+		}
+	}
+
 	// set initial image
 	avgRenderTimes := make([]time.Duration, 0, FrameRate)
 
@@ -293,12 +309,34 @@ emuLoop:
 
 			// unlock the gameboy
 			g.Unlock()
+		case <-saveTicker.C:
+			g.Lock()
+			// get the data from the RAM
+			data := ram.SaveRAM()
+			// write the data to the save
+			if err := g.save.SetBytes(data); err != nil {
+				g.Logger.Errorf("error saving emu: %v", err)
+				g.Unlock()
+			}
+			g.Unlock()
 		}
 	}
 
 	// once the gameboy is closed, stop the ticker
 	ticker.Stop()
 	g.Logger.Debugf("closing gameboy")
+
+	// close the save file
+	if g.save != nil {
+		b := ram.SaveRAM()
+		if err := g.save.SetBytes(b); err != nil {
+			g.Logger.Errorf("error saving emu: %v", err)
+		}
+		if err := g.save.Close(); err != nil {
+			g.Logger.Errorf("error closing save file: %v", err)
+		}
+	}
+
 }
 
 func (g *GameBoy) Pause() {
@@ -318,19 +356,6 @@ type GameBoyOpt func(gb *GameBoy)
 func Debug() GameBoyOpt {
 	return func(gb *GameBoy) {
 		gb.CPU.Debug = true
-	}
-}
-
-func SaveEvery(t time.Duration) GameBoyOpt {
-	return func(gb *GameBoy) {
-		if _, ok := gb.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok {
-			t := time.NewTicker(t)
-			go func() {
-				for range t.C {
-					gb.MMU.Cart.Save()
-				}
-			}()
-		}
 	}
 }
 
@@ -472,6 +497,34 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		g.initializeCPU()
 		if g.MMU.IsGBCCompat() {
 			video.LoadCompatibilityPalette()
+		}
+	}
+
+	// does the cartridge have RAM? (and therefore a save file)
+	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok {
+		// try to load the save file
+		saveFiles, err := emu.LoadSaves(g.MMU.Cart.Title())
+
+		if err != nil {
+			// was there an error loading the save files?
+			g.Logger.Errorf("error loading save files: %s", err)
+		} else {
+			// if there are no save files, create one
+			if saveFiles == nil || len(saveFiles) == 0 {
+				g.Logger.Debugf("no save file found for %s", g.MMU.Cart.Title())
+
+				g.save, err = emu.NewSave(g.MMU.Cart.Title(), g.MMU.Cart.Header().RAMSize)
+				if err != nil {
+					g.Logger.Errorf("error creating save file: %s", err)
+				} else {
+					g.Logger.Debugf("created save file %s : (%dKiB)", g.save.Path, len(g.save.Bytes())/1024)
+				}
+			} else {
+				// load the save file
+				g.save = saveFiles[0]
+				g.Logger.Debugf("loading save file %s", g.save.Path)
+			}
+			ram.LoadRAM(g.save.Bytes())
 		}
 	}
 

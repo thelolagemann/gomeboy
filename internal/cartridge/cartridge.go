@@ -1,12 +1,11 @@
 // Package cartridge provides a Cartridge interface for the DMG and CGB.
-// The cartridge holds the game ROM and any external RAM.
+// The cartridge holds the emu ROM and any external RAM.
 package cartridge
 
 import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"os"
 )
 
 type Cartridge struct {
@@ -15,6 +14,7 @@ type Cartridge struct {
 	MD5    string
 }
 
+// TODO add IsDirty() bool to RAMController interface
 type RAMController interface {
 	LoadRAM([]byte)
 	SaveRAM() []byte
@@ -33,15 +33,7 @@ func (c *Cartridge) Title() string {
 // simply an md5 hash of the cartridge title.
 func (c *Cartridge) Filename() string {
 	hash := md5.Sum([]byte(c.Title()))
-	return fmt.Sprintf("%s.sav", hex.EncodeToString(hash[:]))
-}
-
-// Save saves the cartridge RAM to a file.
-func (c *Cartridge) Save() {
-	data := c.MemoryBankController.(RAMController).SaveRAM()
-	if err := os.WriteFile(c.Filename(), data, 0644); err != nil {
-		panic(err)
-	}
+	return fmt.Sprintf("%s", hex.EncodeToString(hash[:]))
 }
 
 func NewCartridge(rom []byte) *Cartridge {
@@ -63,17 +55,6 @@ func NewCartridge(rom []byte) *Cartridge {
 		cart.MemoryBankController = NewMemoryBankedCartridge5(rom, header)
 	default:
 		panic(fmt.Sprintf("cartridge type %s not implemented", header.CartridgeType.String()))
-	}
-
-	// load the save file if it exists
-	if ram, ok := cart.MemoryBankController.(RAMController); ok {
-		// setup the cartridge RAM
-		saveData, err := os.ReadFile(cart.Filename())
-		if err != nil && !os.IsNotExist(err) {
-			panic(err)
-		}
-
-		ram.LoadRAM(saveData)
 	}
 
 	// calculate the md5 hash of the cartridge

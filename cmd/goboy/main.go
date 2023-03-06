@@ -10,23 +10,25 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
+	"net/http"
+	_ "net/http/pprof"
 	"strings"
-	"time"
 )
 
 func main() {
 	// start pprof
-	/*go func() {
+	go func() {
 		err := http.ListenAndServe("localhost:6060", nil)
 		if err != nil {
 			return
 		}
-	}()*/
+	}()
 
 	var logger = log.New()
 
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
+	// saveFolder := flag.String("save", "", "The folder to ")
 	state := flag.String("state", "", "The state file to load") // TODO determine state file from ROM file
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	debugViews := flag.Bool("debug", false, "Show debug views")
@@ -86,7 +88,7 @@ func main() {
 	case "agb":
 		opts = append(opts, gameboy.AsModel(types.AGB))
 	}
-	opts = append(opts, gameboy.SaveEvery(time.Second*10))
+	// opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	opts = append(opts, gameboy.Speed(*speed))
 	// create a new gameboy
 	opts = append(opts, gameboy.WithLogger(logger))
@@ -131,6 +133,9 @@ func main() {
 	if err := a.Run(); err != nil {
 		panic(err)
 	}
+
+	// send the close signal to the gameboy
+	gb.Close <- struct{}{}
 
 	// save the state after the gameboy has been closed
 	st := types.NewState()
