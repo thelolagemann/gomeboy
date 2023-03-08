@@ -37,6 +37,9 @@ func (c *Cartridge) Filename() string {
 }
 
 func NewCartridge(rom []byte) *Cartridge {
+	if len(rom) < 0x150 {
+		return NewEmptyCartridge()
+	}
 	// parse the cartridge header (0x0100 - 0x014F)
 	header := parseHeader(rom[0x100:0x150])
 
