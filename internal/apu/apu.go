@@ -39,7 +39,7 @@ func init() {
 // channel that can be set in RAM. Channel 4 is a noise channel that
 // can be used to play white noise.
 type APU struct {
-	playing bool
+	playing, enabled bool
 
 	memory      [52]byte
 	waveformRam []byte
@@ -51,7 +51,6 @@ type APU struct {
 	audioBuffer  *buffer
 	player       *audio.Player
 	currentIndex uint32
-	preBuffer    chan [2]uint16
 }
 
 type buffer struct {
@@ -71,10 +70,9 @@ func (b *buffer) start() {
 			select {
 			case sample := <-b.sampleChan:
 				b.Lock()
-				b.data[b.writePosition] = byte(sample[0])
-				b.data[b.writePosition+1] = byte(sample[0] >> 8)
-				b.data[b.writePosition+2] = byte(sample[1])
-				b.data[b.writePosition+3] = byte(sample[1] >> 8)
+				// copy sample to buffer
+				copy(b.data[b.writePosition:b.writePosition+4], []byte{byte(sample[0]), byte(sample[0] >> 8), byte(sample[1]), byte(sample[1] >> 8)})
+
 				b.writePosition = (b.writePosition + 4) % b.size
 				b.bytesToCollect += 4
 				b.Unlock()
@@ -86,18 +84,18 @@ func (b *buffer) start() {
 func (b *buffer) Read(p []byte) (int, error) {
 	b.RLock()
 	defer b.RUnlock()
-	// copy the next len(p) bytes from the buffer by reading from the channel
-	// and writing to the buffer
-	for i := 0; i < b.bytesToCollect; i += 4 {
+	var bytesCollected int
+	for i := 0; i < b.bytesToCollect && i < len(p); i += 4 {
 		p[i] = b.data[b.readPosition]
 		p[i+1] = b.data[b.readPosition+1]
 		p[i+2] = b.data[b.readPosition+2]
 		p[i+3] = b.data[b.readPosition+3]
 		b.readPosition = (b.readPosition + 4) % b.size
+		bytesCollected += 4
 	}
-	v := b.bytesToCollect
-	b.bytesToCollect = 0
-	return v, nil
+
+	b.bytesToCollect -= bytesCollected
+	return bytesCollected, nil
 }
 
 var orMasks = []byte{
@@ -308,7 +306,7 @@ func (a *APU) init() {
 
 // NewAPU returns a new APU.
 func NewAPU() *APU {
-	b := &buffer{data: make([]byte, 48000*1), size: 48000 * 1, sampleChan: make(chan [2]uint16, 48000)}
+	b := &buffer{data: make([]byte, sampleRate*10), size: sampleRate * 10, sampleChan: make(chan [2]uint16, sampleRate)}
 	a := &APU{
 		playing:     false,
 		waveformRam: make([]byte, 0x20),
@@ -338,14 +336,13 @@ func NewAPU() *APU {
 	}
 	a.player = player
 	a.player.SetBufferSize(100)
-	b.start()
 	return a
 }
 
 // Step advances the APU by the given number of CPU ticks and
 // speed given.
 func (a *APU) Tick() {
-	if !a.playing {
+	if !a.playing || !a.enabled {
 		return
 	}
 
@@ -414,10 +411,14 @@ func (a *APU) extractEnvelope(value uint8) (volume, direction, sweep byte) {
 // Pause pauses the APU.
 func (a *APU) Pause() {
 	a.playing = false
+	a.enabled = false
+	a.player.Pause()
 }
 
 // Play resumes the APU.
 func (a *APU) Play() {
 	a.playing = true
+	a.enabled = true
+	a.audioBuffer.start()
 	a.player.Play()
 }
