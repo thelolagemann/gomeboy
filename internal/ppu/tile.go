@@ -9,7 +9,7 @@ import (
 // Tile represents a tile. Each tile has a size of 8x8 pixels and a color
 // depth of 4 colors/gray shades. Tiles can be displayed as sprites or as
 // background/window tiles.
-type Tile [8][2]uint8
+type Tile [16]uint8
 
 type TileAttributes struct {
 	// UseBGPriority is the BG Priority bit. When set, the tile is displayed
@@ -37,7 +37,7 @@ func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
 		for tileX := 0; tileX < 8; tileX++ {
 			var x = i + tileX
 			var y = i2 + tileY
-			high, low := t[tileY][0], t[tileY][1]
+			high, low := t[tileY], t[tileY+8]
 			var colourNum = int((high >> (7 - tileX)) & 1)
 			colourNum |= int((low>>(7-tileX))&1) << 1
 			rgb := palette.GetColour(uint8(colourNum))
@@ -72,7 +72,7 @@ func NewTileMap() TileMap {
 }
 
 type TileMapEntry struct {
-	TileID     uint8
+	TileID     uint16
 	Attributes TileAttributes
 }
 
@@ -123,9 +123,9 @@ func (t *TileAttributes) Draw(img *image.RGBA, i int, i2 int) {
 			// mix with current colour
 			currentColor := img.At(x, y)
 			r, g, b, a := currentColor.RGBA()
-			rgb[0] = uint8((rgb[0] + uint8(r)) / 2)
-			rgb[1] = uint8((rgb[1] + uint8(g)) / 2)
-			rgb[2] = uint8((rgb[2] + uint8(b)) / 2)
+			rgb[0] = (rgb[0] + uint8(r)) / 2
+			rgb[1] = (rgb[1] + uint8(g)) / 2
+			rgb[2] = (rgb[2] + uint8(b)) / 2
 			img.Set(x, y, color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: uint8(a)})
 
 		}

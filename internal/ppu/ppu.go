@@ -57,6 +57,8 @@ type PPU struct {
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
+	tileFrame [2][256][256][3]uint8
+
 	scanlineData [ScanlineSize]uint8
 	spriteData   [40]uint8 // 10 sprites, 4 bytes each. byte 1 and 2 are tile data, byte 3 is attributes, byte 4 is x position
 
@@ -151,6 +153,7 @@ func (p *PPU) init() {
 					palNum := v >> (i * 2) & 0x3
 					p.Background.Palette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
 				}
+				p.recacheByColor(v)
 			}
 		},
 		func() uint8 {
@@ -559,6 +562,9 @@ func (p *PPU) UpdateTile(address uint16, value uint8) {
 
 	// set the tile data
 	p.TileData[p.vRAMBank][tileID][row+((address%2)*8)] = value
+
+	// recache tilemap
+	//p.recacheByID(tileID)
 }
 
 func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
@@ -567,7 +573,57 @@ func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
 	x := address & 0x1F
 
 	// update the tilemap
-	p.tileMaps[tilemapIndex][y][x].TileID = p.vRAM[0].Read(address)
+	p.tileMaps[tilemapIndex][y][x].TileID = uint16(p.vRAM[0].Read(address))
+
+	// recache the tile
+	//p.recacheTile(x, y, tilemapIndex)
+}
+
+func (p *PPU) recacheByColor(color uint8) {
+	// recache the tiles in the tilemap which use this tile ID
+	for tileY := uint16(0); tileY < 32; tileY++ {
+		for tileX := uint16(0); tileX < 32; tileX++ {
+			if p.tileMaps[0][tileY][tileX].Attributes.PaletteNumber == color {
+				p.recacheTile(tileX, tileY, 0)
+			}
+			if p.tileMaps[1][tileY][tileX].Attributes.PaletteNumber == color {
+				p.recacheTile(tileX, tileY, 1)
+			}
+		}
+	}
+}
+
+func (p *PPU) recacheByID(id uint16) {
+	// recache the tiles in the tilemap which use this tile ID
+	for tileY := uint16(0); tileY < 32; tileY++ {
+		for tileX := uint16(0); tileX < 32; tileX++ {
+			if p.tileMaps[0][tileY][tileX].GetID(p.UsingSignedTileData()) == int16(id) {
+				p.recacheTile(tileX, tileY, 0)
+			}
+			if p.tileMaps[1][tileY][tileX].GetID(p.UsingSignedTileData()) == int16(id) {
+				p.recacheTile(tileX, tileY, 1)
+			}
+		}
+	}
+}
+
+func (p *PPU) recacheTile(x, y uint16, tilemapIndex uint8) {
+	tileEntry := p.tileMaps[tilemapIndex][y][x]
+	tileFrame := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+
+	for xPixelPos := uint16(0); xPixelPos < 8; xPixelPos++ {
+		for yPixelPos := uint16(0); yPixelPos < 8; yPixelPos++ {
+			b1, b2 := tileFrame[yPixelPos], tileFrame[yPixelPos+8]
+			pixel := (b1 >> (7 - xPixelPos)) & 0x1
+			pixel |= ((b2 >> (7 - xPixelPos)) & 0x1) << 1
+
+			if p.bus.IsGBC() {
+				p.tileFrame[tilemapIndex][(y*8)+yPixelPos][(x*8)+xPixelPos] = p.ColourPalette.GetColour(tileEntry.Attributes.PaletteNumber, pixel)
+			} else {
+				p.tileFrame[tilemapIndex][(y*8)+yPixelPos][(x*8)+xPixelPos] = p.Palette.GetColour(pixel)
+			}
+		}
+	}
 }
 
 func (p *PPU) UpdateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
@@ -578,6 +634,7 @@ func (p *PPU) UpdateTileAttributes(index uint16, tilemapIndex uint8, value uint8
 
 	// update the tilemap
 	p.tileMaps[tilemapIndex][y][x].Attributes.Write(value)
+	// p.recacheTile(x, y, tilemapIndex)
 }
 
 // checkLYC checks if the LYC interrupt should be triggered.
@@ -946,6 +1003,19 @@ func (p *PPU) renderBackgroundScanline() {
 	// determine map offset
 	mapOffset := uint8(p.BackgroundTileMapAddress / 0x9C00) // 0x9800 = 0, 0x9c00 = 1
 
+	// do we need to wrap around?
+	/*if uint16(p.ScrollX)+ScreenWidth > 256 {
+		// copy the first part of the scanline to the end
+		n := copy(p.PreparedFrame[p.CurrentScanline][:],
+			p.tileFrame[mapOffset][yPos][p.ScrollX:])
+		copy(p.PreparedFrame[p.CurrentScanline][n:],
+			p.tileFrame[mapOffset][yPos][:p.ScrollX])
+		return
+	}
+
+	// copy from tileFrame to preparedFrame
+	copy(p.PreparedFrame[p.CurrentScanline][:], p.tileFrame[mapOffset][yPos][p.ScrollX:])
+	*/
 	tileEntry := p.calculateTileID(tileYIndex, p.ScrollX/8, mapOffset)
 	tileID := tileEntry.GetID(p.UsingSignedTileData())
 	for i := uint8(0); i < ScreenWidth; i++ {

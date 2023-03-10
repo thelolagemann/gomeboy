@@ -40,7 +40,7 @@ func (s *Sprite) Update(address uint16, value uint8) {
 		s.Priority = value&0x80 == 0
 		s.FlipY = value&0x40 != 0
 		s.FlipX = value&0x20 != 0
-		s.UseSecondPalette = value & 0x10 >> 1
+		s.UseSecondPalette = value & 0x10 >> 4
 		s.VRAMBank = (value >> 3) & 0x01
 		s.CGBPalette = value & 0x07
 	}
