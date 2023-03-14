@@ -282,12 +282,12 @@ emuLoop:
 				frameStart = time.Now()
 
 				frame = g.Frame()
-				renderTimes = append(renderTimes, time.Since(frameStart))
+				frameEnd := time.Now()
+				renderTimes = append(renderTimes, frameEnd.Sub(frameStart))
 
 			} else {
 				continue
 			}
-			frameStart = time.Now()
 
 			// copy the memory block from frame to frameBuffer
 			copy((*[maxArraySize]byte)(frameBufferPtr)[:frameSize:frameSize], (*[maxArraySize]byte)(framePtr)[:frameSize:frameSize])
