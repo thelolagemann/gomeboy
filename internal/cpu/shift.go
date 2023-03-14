@@ -6,7 +6,7 @@ package cpu
 //	SLA n
 //	n = A, B, C, D, E, H, L, (HL)
 //
-// IF affected:
+// Flags affected:
 //
 //	Z - Set if result is zero.
 //	N - Reset.
@@ -32,7 +32,7 @@ func (c *CPU) shiftLeftIntoCarry(value uint8) uint8 {
 //	SRA n
 //	n = A, B, C, D, E, H, L, (HL)
 //
-// IF affected:
+// Flags affected:
 //
 //	Z - Set if result is zero.
 //	N - Reset.
@@ -57,7 +57,7 @@ func (c *CPU) shiftRightIntoCarry(value uint8) uint8 {
 //	SRL n
 //	n = A, B, C, D, E, H, L, (HL)
 //
-// IF affected:
+// Flags affected:
 //
 //	Z - Set if result is zero.
 //	N - Reset.

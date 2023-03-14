@@ -1,11 +1,9 @@
 package cpu
 
-import "github.com/thelolagemann/go-gameboy/pkg/utils"
-
 // increment the given value and set the flags accordingly.
 //
 //	INC n
-//	n = 8-bit register
+//	n = 8-bit value
 //
 // Flags affected:
 //
@@ -17,7 +15,7 @@ func (c *CPU) increment(value uint8) uint8 {
 	incremented := value + 0x01
 	c.clearFlag(FlagSubtract)
 	c.shouldZeroFlag(incremented)
-	if utils.HalfCarryAdd(value, 1) {
+	if value&0xF == 0xF {
 		c.setFlag(FlagHalfCarry)
 	} else {
 		c.clearFlag(FlagHalfCarry)
@@ -33,7 +31,7 @@ func (c *CPU) increment(value uint8) uint8 {
 // Flags affected:
 //
 //	Z - Not affected.
-//	N - Reset.
+//	N - Not affected.
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) incrementNN(register *RegisterPair) {
@@ -44,13 +42,13 @@ func (c *CPU) incrementNN(register *RegisterPair) {
 // decrement the given value and set the flags accordingly.
 //
 //	DEC n
-//	n = 8-bit register
+//	n = 8-bit value
 //
 // Flags affected:
 //
 //	Z - Set if result is zero.
 //	N - Set.
-//	H - Set if no borrow from bit 4.
+//	H - Set if carry from bit 3.
 //	C - Not affected.
 func (c *CPU) decrement(value uint8) uint8 {
 	decremented := value - 0x01
@@ -76,10 +74,7 @@ func (c *CPU) decrement(value uint8) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) decrementNN(register *RegisterPair) {
-	value := uint16(*register.High)<<8 | uint16(*register.Low)
-	value--
-	*register.High = uint8(value >> 8)
-	*register.Low = uint8(value & 0xFF)
+	register.SetUint16(register.Uint16() - 1)
 	c.tickCycle()
 }
 
@@ -193,7 +188,7 @@ func (c *CPU) addUint16Signed(a uint16, b int8) uint16 {
 func (c *CPU) sub(a, b uint8, shouldCarry bool) uint8 {
 	newCarry := c.isFlagSet(FlagCarry) && shouldCarry
 	sub := int16(a) - int16(b)
-	subHalf := int16(a&0x0F) - int16(b&0x0F)
+	subHalf := int16(a&0xF) - int16(b&0xF)
 	if newCarry {
 		sub--
 		subHalf--
