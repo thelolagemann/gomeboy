@@ -92,7 +92,7 @@ func init() {
 		if c.IRQ.IME {
 			c.mode = ModeHalt
 		} else {
-			if c.IRQ.Flag&c.IRQ.Enable != 0 {
+			if c.IRQ.HasInterrupts() {
 				c.mode = ModeHaltBug
 			} else {
 				c.mode = ModeHaltDI
