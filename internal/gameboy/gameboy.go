@@ -89,7 +89,7 @@ type GameBoy struct {
 
 	currentCycle uint
 
-	paused          bool
+	paused, running bool
 	frames          int
 	ticks           uint16
 	previousFrame   [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
@@ -211,12 +211,13 @@ func (g *GameBoy) StartLinked(
 }
 
 func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
+	g.running = true
 	// setup fps counter
 	g.frames = 0
 	start := time.Now()
 	frameStart := time.Now()
-	renderTimes := make([]time.Duration, 0, FrameRate)
-	g.APU.Play()
+	renderTimes := make([]time.Duration, 0, int(FrameRate))
+	// g.APU.Play()
 
 	// check if the cartridge has a ram controller and start a ticker to save the ram
 	var saveTicker *time.Ticker
@@ -233,7 +234,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	}
 
 	// set initial image
-	avgRenderTimes := make([]time.Duration, 0, FrameRate)
+	avgRenderTimes := make([]time.Duration, 0, int(FrameRate))
 
 	// start a ticker
 	ticker := time.NewTicker(FrameTime / time.Duration(g.speed))
@@ -250,6 +251,21 @@ emuLoop:
 	for {
 		select {
 		case <-g.Close:
+			// once the gameboy is closed, stop the ticker
+			ticker.Stop()
+			g.Logger.Debugf("closing gameboy")
+
+			// close the save file
+			if g.save != nil {
+				b := ram.SaveRAM()
+				if err := g.save.SetBytes(b); err != nil {
+					g.Logger.Errorf("error saving emu: %v", err)
+				}
+				if err := g.save.Close(); err != nil {
+					g.Logger.Errorf("error closing save file: %v", err)
+				}
+			}
+			g.running = false
 			break emuLoop
 		case p := <-pressed:
 			g.Joypad.Press(p)
@@ -319,21 +335,6 @@ emuLoop:
 				g.Unlock()
 			}
 			g.Unlock()
-		}
-	}
-
-	// once the gameboy is closed, stop the ticker
-	ticker.Stop()
-	g.Logger.Debugf("closing gameboy")
-
-	// close the save file
-	if g.save != nil {
-		b := ram.SaveRAM()
-		if err := g.save.SetBytes(b); err != nil {
-			g.Logger.Errorf("error saving emu: %v", err)
-		}
-		if err := g.save.Close(); err != nil {
-			g.Logger.Errorf("error closing save file: %v", err)
 		}
 	}
 
@@ -501,7 +502,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	}
 
 	// does the cartridge have RAM? (and therefore a save file)
-	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok {
+	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok && cart.Header().RAMSize > 0 {
 		// try to load the save file
 		saveFiles, err := emu.LoadSaves(g.MMU.Cart.Title())
 
@@ -534,7 +535,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 }
 
 func (g *GameBoy) initializeCPU() {
-	g.Logger.Debugf("initializing CPU with model %s", g.model)
+	// g.Logger.Debugf("initializing CPU with model %s", g.model)
 	// setup initial cpu state
 	g.CPU.PC = 0x100
 	g.CPU.SP = 0xFFFE
@@ -586,8 +587,8 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	ticks := uint32(0)
-	// step until the next frame or until tick threshold is reached
-	for ticks <= TicksPerFrame {
+	// step until the next frame
+	for ticks < TicksPerFrame {
 		ticks += uint32(g.CPU.Step())
 	}
 
@@ -612,11 +613,8 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 				}
 			}
 		}
-		// flag that the frame is not finished
-		g.frameQueue = true
 		return smoothedFrame
 	}
-
 }
 
 func (g *GameBoy) keyHandlers() map[uint8]func() {
@@ -702,4 +700,8 @@ func (g *GameBoy) Save(s *types.State) {
 	g.Timer.Save(s)
 	g.Joypad.Save(s)
 	g.Serial.Save(s)
+}
+
+func (g *GameBoy) IsRunning() bool {
+	return g.running
 }

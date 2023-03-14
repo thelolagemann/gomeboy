@@ -339,19 +339,20 @@ func NewAPU() *APU {
 	return a
 }
 
-// Step advances the APU by the given number of CPU ticks and
+// Tick advances the APU by the given number of CPU ticks and
 // speed given.
-func (a *APU) Tick() {
+// go:inline
+func (a *APU) Tick(count int) {
 	if !a.playing || !a.enabled {
 		return
 	}
 
-	a.tickCounter++
+	a.tickCounter += float64(count)
 	if a.tickCounter < cpuTicksPerSample {
 		return
 	}
-	a.tickCounter -= cpuTicksPerSample
 
+	a.tickCounter -= cpuTicksPerSample
 	// sample channels
 	chn1l, chn1r := a.chan1.Sample()
 	chn2l, chn2r := a.chan2.Sample()
@@ -364,6 +365,7 @@ func (a *APU) Tick() {
 
 	// write to buffer
 	a.audioBuffer.sampleChan <- [2]uint16{valL, valR}
+
 }
 
 var squareLimits = []float64{

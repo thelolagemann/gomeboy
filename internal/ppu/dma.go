@@ -44,11 +44,20 @@ func NewDMA(bus mmu.IOBus, oam *OAM) *DMA {
 	return d
 }
 
-func (d *DMA) Tick() {
+// TickM ticks the DMA by 1 M-cycle (4 T-cycles)
+func (d *DMA) TickM() {
 	if !d.enabled {
 		return
 	}
 
+	d.TickT()
+	d.TickT()
+	d.TickT()
+	d.TickT()
+}
+
+// TickT ticks the DMA by 1 T-cycle.
+func (d *DMA) TickT() {
 	// increment the timer
 	d.timer++
 

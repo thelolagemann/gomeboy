@@ -153,7 +153,6 @@ func (p *PPU) init() {
 					palNum := v >> (i * 2) & 0x3
 					p.Background.Palette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
 				}
-				p.recacheByColor(v)
 			}
 		},
 		func() uint8 {
@@ -579,53 +578,6 @@ func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
 	//p.recacheTile(x, y, tilemapIndex)
 }
 
-func (p *PPU) recacheByColor(color uint8) {
-	// recache the tiles in the tilemap which use this tile ID
-	for tileY := uint16(0); tileY < 32; tileY++ {
-		for tileX := uint16(0); tileX < 32; tileX++ {
-			if p.tileMaps[0][tileY][tileX].Attributes.PaletteNumber == color {
-				p.recacheTile(tileX, tileY, 0)
-			}
-			if p.tileMaps[1][tileY][tileX].Attributes.PaletteNumber == color {
-				p.recacheTile(tileX, tileY, 1)
-			}
-		}
-	}
-}
-
-func (p *PPU) recacheByID(id uint16) {
-	// recache the tiles in the tilemap which use this tile ID
-	for tileY := uint16(0); tileY < 32; tileY++ {
-		for tileX := uint16(0); tileX < 32; tileX++ {
-			if p.tileMaps[0][tileY][tileX].GetID(p.UsingSignedTileData()) == int16(id) {
-				p.recacheTile(tileX, tileY, 0)
-			}
-			if p.tileMaps[1][tileY][tileX].GetID(p.UsingSignedTileData()) == int16(id) {
-				p.recacheTile(tileX, tileY, 1)
-			}
-		}
-	}
-}
-
-func (p *PPU) recacheTile(x, y uint16, tilemapIndex uint8) {
-	tileEntry := p.tileMaps[tilemapIndex][y][x]
-	tileFrame := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-
-	for xPixelPos := uint16(0); xPixelPos < 8; xPixelPos++ {
-		for yPixelPos := uint16(0); yPixelPos < 8; yPixelPos++ {
-			b1, b2 := tileFrame[yPixelPos], tileFrame[yPixelPos+8]
-			pixel := (b1 >> (7 - xPixelPos)) & 0x1
-			pixel |= ((b2 >> (7 - xPixelPos)) & 0x1) << 1
-
-			if p.bus.IsGBC() {
-				p.tileFrame[tilemapIndex][(y*8)+yPixelPos][(x*8)+xPixelPos] = p.ColourPalette.GetColour(tileEntry.Attributes.PaletteNumber, pixel)
-			} else {
-				p.tileFrame[tilemapIndex][(y*8)+yPixelPos][(x*8)+xPixelPos] = p.Palette.GetColour(pixel)
-			}
-		}
-	}
-}
-
 func (p *PPU) UpdateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
 	// panic(fmt.Sprintf("updating tile %x with %b", index, value))
 	// determine the y and x position
@@ -669,14 +621,13 @@ func (p *PPU) HasFrame() bool {
 
 // Tick the PPU by one cycle. This will update the PPU's state and
 // render the current scanline if necessary.
-func (p *PPU) Tick() {
+func (p *PPU) Tick(cycles int) {
 	if !p.Enabled {
-		// p.Mode = lcd.HBlank
+		p.Mode = lcd.HBlank
 		return
 	}
-
 	// update the current cycle
-	p.currentCycle++
+	p.currentCycle += uint16(cycles)
 
 	// step logic (ordered by number of ticks required to optimize calls)
 	switch p.Status.Mode {

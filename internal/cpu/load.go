@@ -36,8 +36,8 @@ func (c *CPU) loadMemoryToRegister(reg *Register, address uint16) {
 //
 //	LD (HL), n
 //	n = A, B, C, D, E, H, L
-func (c *CPU) loadRegisterToMemory(reg *Register, address uint16) {
-	c.writeByte(address, *reg)
+func (c *CPU) loadRegisterToMemory(reg Register, address uint16) {
+	c.writeByte(address, reg)
 }
 
 // loadRegisterToHardware loads the value of the given Register into the given
@@ -63,7 +63,7 @@ func init() {
 	DefineInstruction(0x01, "LD BC, d16", func(c *CPU) {
 		c.loadRegister16(c.BC)
 	})
-	DefineInstruction(0x02, "LD (BC), A", func(c *CPU) { c.loadRegisterToMemory(&c.A, c.BC.Uint16()) })
+	DefineInstruction(0x02, "LD (BC), A", func(c *CPU) { c.loadRegisterToMemory(c.A, c.BC.Uint16()) })
 	DefineInstruction(0x06, "LD B, d8", func(c *CPU) { c.loadRegister8(&c.B) })
 	DefineInstruction(0x08, "LD (a16), SP", func(c *CPU) {
 		low := c.readOperand()
@@ -78,7 +78,7 @@ func init() {
 	DefineInstruction(0x11, "LD DE, d16", func(c *CPU) {
 		c.loadRegister16(c.DE)
 	})
-	DefineInstruction(0x12, "LD (DE), A", func(c *CPU) { c.loadRegisterToMemory(&c.A, c.DE.Uint16()) })
+	DefineInstruction(0x12, "LD (DE), A", func(c *CPU) { c.loadRegisterToMemory(c.A, c.DE.Uint16()) })
 	DefineInstruction(0x16, "LD D, d8", func(c *CPU) { c.loadRegister8(&c.D) })
 	DefineInstruction(0x1A, "LD A, (DE)", func(c *CPU) { c.loadMemoryToRegister(&c.A, c.DE.Uint16()) })
 	DefineInstruction(0x1E, "LD E, d8", func(c *CPU) { c.loadRegister8(&c.E) })
@@ -86,7 +86,7 @@ func init() {
 		c.loadRegister16(c.HL)
 	})
 	DefineInstruction(0x22, "LD (HL+), A", func(c *CPU) {
-		c.loadRegisterToMemory(&c.A, c.HL.Uint16())
+		c.loadRegisterToMemory(c.A, c.HL.Uint16())
 		c.HL.SetUint16(c.HL.Uint16() + 1)
 	})
 	DefineInstruction(0x26, "LD H, d8", func(c *CPU) { c.loadRegister8(&c.H) })
@@ -102,7 +102,7 @@ func init() {
 		c.SP = uint16(high)<<8 | uint16(low)
 	})
 	DefineInstruction(0x32, "LD (HL-), A", func(c *CPU) {
-		c.loadRegisterToMemory(&c.A, c.HL.Uint16())
+		c.loadRegisterToMemory(c.A, c.HL.Uint16())
 		c.HL.SetUint16(c.HL.Uint16() - 1)
 	})
 	DefineInstruction(0x36, "LD (HL), d8", func(c *CPU) {
@@ -120,7 +120,7 @@ func init() {
 	DefineInstruction(0xEA, "LD (a16), A", func(c *CPU) {
 		low := c.readOperand()
 		high := c.readOperand()
-		c.loadRegisterToMemory(&c.A, uint16(high)<<8|uint16(low))
+		c.loadRegisterToMemory(c.A, uint16(high)<<8|uint16(low))
 	})
 	DefineInstruction(0xF0, "LDH A, (a8)", func(c *CPU) {
 		address := uint16(0xff00) + uint16(c.readOperand())
@@ -175,7 +175,7 @@ func generateLoadRegisterToRegisterInstructions() {
 			// if j is 6, then we are loading from memory
 			if j == 6 {
 				DefineInstruction(0x40+i*8+j, fmt.Sprintf("LD %s, (HL)", registerNameMap[toRegister]), func(c *CPU) {
-					c.loadMemoryToRegister(c.registerIndex(toRegister), c.HL.Uint16())
+					c.loadMemoryToRegister(c.registerPointer(toRegister), c.HL.Uint16())
 				})
 			} else {
 				// get the register to load from
@@ -185,7 +185,7 @@ func generateLoadRegisterToRegisterInstructions() {
 					0x40+(i*8)+j,
 					fmt.Sprintf("LD %s, %s", registerNameMap[toRegister], registerNameMap[fromRegister]),
 					func(c *CPU) {
-						c.loadRegisterToRegister(c.registerIndex(toRegister), c.registerIndex(fromRegister))
+						c.loadRegisterToRegister(c.registerPointer(toRegister), c.registerPointer(fromRegister))
 					})
 			}
 		}

@@ -61,22 +61,22 @@ func generateRotateInstructions() {
 
 		// 0x00 - 0x07 - RLC r
 		DefineInstructionCB(0x00+j, fmt.Sprintf("RLC %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.rotateLeft(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.rotateLeft(*cpu.registerPointer(reg))
 		})
 
 		// 0x08 - 0x0F - RRC r
 		DefineInstructionCB(0x08+j, fmt.Sprintf("RRC %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.rotateRight(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.rotateRight(*cpu.registerPointer(reg))
 		})
 
 		// 0x10 - 0x17 - RL r
 		DefineInstructionCB(0x10+j, fmt.Sprintf("RL %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.rotateLeftThroughCarry(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.rotateLeftThroughCarry(*cpu.registerPointer(reg))
 		})
 
 		// 0x18 - 0x1F - RR r
 		DefineInstructionCB(0x18+j, fmt.Sprintf("RR %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.rotateRightThroughCarry(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.rotateRightThroughCarry(*cpu.registerPointer(reg))
 		})
 	}
 }
@@ -124,22 +124,22 @@ func generateShiftInstructions() {
 
 		// 0x20 - 0x27 - SLA r
 		DefineInstructionCB(0x20+j, fmt.Sprintf("SLA %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.shiftLeftIntoCarry(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.shiftLeftIntoCarry(*cpu.registerPointer(reg))
 		})
 
 		// 0x28 - 0x2F - SRA r
 		DefineInstructionCB(0x28+j, fmt.Sprintf("SRA %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.shiftRightIntoCarry(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.shiftRightIntoCarry(*cpu.registerPointer(reg))
 		})
 
 		// 0x30 - 0x37 - SWAP r
 		DefineInstructionCB(0x30+j, fmt.Sprintf("SWAP %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.swap(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.swap(*cpu.registerPointer(reg))
 		})
 
 		// 0x38 - 0x3F - SRL r
 		DefineInstructionCB(0x38+j, fmt.Sprintf("SRL %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerIndex(reg) = cpu.shiftRightLogical(*cpu.registerIndex(reg))
+			*cpu.registerPointer(reg) = cpu.shiftRightLogical(*cpu.registerPointer(reg))
 		})
 	}
 }
@@ -189,16 +189,16 @@ func generateBitInstructions() {
 
 			// Create BIT instruction
 			DefineInstructionCB(0x40+bit*8+reg, fmt.Sprintf("BIT %d, %s", bit, registerNameMap[reg]), func(cpu *CPU) {
-				cpu.testBit(*cpu.registerIndex(reg), currentBit)
+				cpu.testBit(cpu.registerIndex(reg), currentBit)
 			})
 
 			// Create RES instruction
 			DefineInstructionCB(0x80+bit*8+reg, fmt.Sprintf("RES %d, %s", bit, registerNameMap[reg]), func(cpu *CPU) {
-				*cpu.registerIndex(reg) = utils.Reset(*cpu.registerIndex(reg), currentBit)
+				*cpu.registerPointer(reg) = utils.Reset(cpu.registerIndex(reg), currentBit)
 			})
 			// Create SET instruction
 			DefineInstructionCB(0xC0+bit*8+reg, fmt.Sprintf("SET %d, %s", bit, registerNameMap[reg]), func(cpu *CPU) {
-				*cpu.registerIndex(reg) = utils.Set(*cpu.registerIndex(reg), currentBit)
+				*cpu.registerPointer(reg) = utils.Set(cpu.registerIndex(reg), currentBit)
 			})
 		}
 	}

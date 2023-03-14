@@ -96,16 +96,28 @@ func NewController(irq *interrupts.Service) *Controller {
 	return c
 }
 
-// Tick ticks the timer controller.
-func (c *Controller) Tick() {
-	// increment internalDivider register
-	c.Div++
-
-	// check if timer is enabled
+// TickM ticks the timer controller by 1 M-Cycle (4 T-Cycles).
+func (c *Controller) TickM() {
 	if !c.enabled {
+		// divider register is always incremented,
+		// regardless of the timer being enabled or not
+		c.Div += 4
 		return
 	}
 
+	// execute 4 T-Cycles
+	c.TickT()
+	c.TickT()
+	c.TickT()
+	c.TickT()
+}
+
+// TickT ticks the timer controller by 1 T-Cycle.
+func (c *Controller) TickT() {
+	// increment divider register
+	c.Div++
+
+	// get the new bit
 	newBit := (c.Div & c.currentBit) != 0
 
 	// detect a falling edge
@@ -128,11 +140,12 @@ func (c *Controller) Tick() {
 		c.ticksSinceOverflow++
 
 		// handle ticks since overflow
-		if c.ticksSinceOverflow == 4 {
+		switch c.ticksSinceOverflow {
+		case 4:
 			c.irq.Request(interrupts.TimerFlag)
-		} else if c.ticksSinceOverflow == 5 {
+		case 5:
 			c.tima = c.tma
-		} else if c.ticksSinceOverflow == 6 {
+		case 6:
 			c.overflow = false
 			c.ticksSinceOverflow = 0
 		}
@@ -162,9 +175,7 @@ func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 
 var bits = [4]uint16{512, 8, 32, 128}
 
-var (
-	_ types.Stater = (*Controller)(nil)
-)
+var _ types.Stater = (*Controller)(nil)
 
 // Load loads the state of the controller.
 func (c *Controller) Load(s *types.State) {

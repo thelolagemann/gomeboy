@@ -50,8 +50,8 @@ func (c *Controller) Attach(d Device) {
 
 func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
-		irq:            irq,
-		attachedDevice: nullDevice{},
+		irq: irq,
+		// attachedDevice: nullDevice{},
 	}
 	types.RegisterHardware(types.SB, func(v uint8) {
 		c.data = v
@@ -59,7 +59,7 @@ func NewController(irq *interrupts.Service) *Controller {
 		return c.data
 	})
 	types.RegisterHardware(types.SC, func(v uint8) {
-		c.control = v | 0x7E
+		c.control = v | 0x7E // bits 1-6 are always set
 		c.internalClock = (v & types.Bit0) == types.Bit0
 		c.transferRequest = (v & types.Bit7) == types.Bit7
 	}, func() uint8 {
@@ -68,24 +68,31 @@ func NewController(irq *interrupts.Service) *Controller {
 	return c
 }
 
-// Tick ticks the serial controller.
-func (c *Controller) Tick(div uint16) {
+// TickM ticks the serial controller.
+func (c *Controller) TickM(div uint16) {
 	// is the serial transfer enabled?
 	if !c.internalClock || !c.transferRequest {
 		return
 	}
-	if c.resultFallingEdge && !c.getFallingEdge(div) {
-		bit := c.attachedDevice.Send()
-		c.attachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
+	div -= 4
+	for i := 0; i < 4; i++ {
+		div++
+		if c.resultFallingEdge && !c.getFallingEdge(div) {
+			var bit bool
+			if c.attachedDevice != nil {
+				bit = c.attachedDevice.Send()
+				c.attachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
+			}
 
-		c.data = c.data << 1
-		if bit {
-			c.data |= 1
+			c.data = c.data << 1
+			if bit {
+				c.data |= 1
+			}
+
+			c.checkTransfer()
 		}
-
-		c.checkTransfer()
+		c.resultFallingEdge = c.getFallingEdge(div)
 	}
-	c.resultFallingEdge = c.getFallingEdge(div)
 }
 
 func (c *Controller) checkTransfer() {
@@ -120,6 +127,10 @@ func (c *Controller) Receive(bit bool) {
 	}
 }
 
+func (c *Controller) HasDevice() bool {
+	return c.attachedDevice != nil
+}
+
 // getFallingEdge returns true if the falling edge of the clock is reached.
 func (c *Controller) getFallingEdge(div uint16) bool {
 	return ((div & (1 << 8)) != 0) && c.internalClock && c.transferRequest
@@ -127,6 +138,15 @@ func (c *Controller) getFallingEdge(div uint16) bool {
 
 var _ types.Stater = (*Controller)(nil)
 
+// Load implements the types.Stater interface.
+//
+// The values are loaded in the following order:
+//   - data (uint8)
+//   - control (uint8)
+//   - transferRequest (bool)
+//   - count (uint8)
+//   - internalClock (bool)
+//   - resultFallingEdge (bool)
 func (c *Controller) Load(s *types.State) {
 	c.data = s.Read8()
 	c.control = s.Read8()
@@ -137,6 +157,15 @@ func (c *Controller) Load(s *types.State) {
 	c.resultFallingEdge = s.ReadBool()
 }
 
+// Save implements the types.Stater interface.
+//
+// The values are saved in the following order:
+//   - data (uint8)
+//   - control (uint8)
+//   - transferRequest (bool)
+//   - count (uint8)
+//   - internalClock (bool)
+//   - resultFallingEdge (bool)
 func (c *Controller) Save(s *types.State) {
 	s.Write8(c.data)
 	s.Write8(c.control)
@@ -147,7 +176,12 @@ func (c *Controller) Save(s *types.State) {
 	s.WriteBool(c.resultFallingEdge)
 }
 
+// nullDevice is an implementation of Device that
+// simply ignores all data.
 type nullDevice struct{}
 
+// Receive implements the Device interface.
 func (n nullDevice) Receive(bool) {}
-func (n nullDevice) Send() bool   { return true }
+
+// Send implements the Device interface.
+func (n nullDevice) Send() bool { return true }
