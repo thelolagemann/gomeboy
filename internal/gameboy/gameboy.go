@@ -12,7 +12,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
-	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
@@ -20,9 +19,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/emu"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
-	"image"
-	"image/png"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -614,63 +610,6 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 			}
 		}
 		return smoothedFrame
-	}
-}
-
-func (g *GameBoy) keyHandlers() map[uint8]func() {
-	return map[uint8]func(){
-		8: func() {
-			palette.CyclePalette()
-		},
-		9: func() {
-			g.paused = !g.paused
-			if g.paused {
-				g.APU.Pause()
-			} else {
-				g.APU.Play()
-			}
-		},
-		10: func() {
-			var img1, img2 *image.RGBA
-			g.PPU.DumpTileMaps(img1, img2)
-
-			f, err := os.Create("tilemap.png")
-			if err != nil {
-				panic(err)
-			}
-			defer f.Close()
-			if err := png.Encode(f, img1); err != nil {
-				panic(err)
-			}
-
-			img1 = g.PPU.DumpTiledata().(*image.RGBA)
-
-			f, err = os.Create("tiledata.png")
-			if err != nil {
-				panic(err)
-			}
-			defer f.Close()
-
-			if err := png.Encode(f, img1); err != nil {
-				panic(err)
-			}
-
-		},
-		11: func() {
-			g.PPU.Debug.BackgroundDisabled = !g.PPU.Debug.BackgroundDisabled
-		},
-		12: func() {
-			g.PPU.Debug.WindowDisabled = !g.PPU.Debug.WindowDisabled
-		},
-		13: func() {
-			g.PPU.Debug.SpritesDisabled = !g.PPU.Debug.SpritesDisabled
-		},
-		14: func() {
-			g.PPU.SaveCGBPalettes()
-		},
-		15: func() {
-			g.PPU.SaveCompatibilityPalette()
-		},
 	}
 }
 
