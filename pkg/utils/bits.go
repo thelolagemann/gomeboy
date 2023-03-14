@@ -19,8 +19,3 @@ func Set(b, i uint8) uint8 {
 func Test(b, i uint8) bool {
 	return (b>>i)&1 != 0
 }
-
-// HalfCarryAdd returns whether a half carry occurred when adding the given values.
-func HalfCarryAdd(a, b uint8) bool {
-	return (a&0xF)+(b&0xF) > 0xF
-}
