@@ -52,8 +52,8 @@ func (m Model) String() string {
 	return "Unknown"
 }
 
-// Registers returns the starting CPU registers when PC is
-// set to 0x100. This is used to reset the CPU registers
+// Registers returns the starting CPU IO when PC is
+// set to 0x100. This is used to reset the CPU IO
 // to their default values. Registers are returned in
 // the order: A, F, B, C, D, E, H, L.
 func (m Model) Registers() []uint8 {
@@ -66,7 +66,7 @@ func (m Model) Registers() []uint8 {
 		return []uint8{
 			0x01, 0xB0, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D,
 		}
-	case CGB0, CGBABC: // TODO does CGB0 have the same registers as CGBABC?
+	case CGB0, CGBABC: // TODO does CGB0 have the same IO as CGBABC?
 		return []uint8{
 			0x11, 0x80, 0x00, 0x00, 0x00, 0x08, 0x00, 0x7C,
 		}
@@ -88,7 +88,7 @@ func (m Model) Registers() []uint8 {
 		}
 	}
 
-	// default to DMGABC registers
+	// default to DMGABC IO
 	return []uint8{
 		0x01, 0xB0, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D,
 	}

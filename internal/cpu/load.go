@@ -181,6 +181,17 @@ func generateLoadRegisterToRegisterInstructions() {
 				// get the register to load from
 				fromRegister := j
 				// Generate the instruction
+				if toRegister == fromRegister {
+					DefineInstruction(
+						0x40+(i*8)+j,
+						fmt.Sprintf("LD %s, %s", registerNameMap[toRegister], registerNameMap[fromRegister]),
+						func(c *CPU) {
+							if c.Debug {
+								c.DebugBreakpoint = true
+							}
+						})
+					continue
+				}
 				DefineInstruction(
 					0x40+(i*8)+j,
 					fmt.Sprintf("LD %s, %s", registerNameMap[toRegister], registerNameMap[fromRegister]),

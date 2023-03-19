@@ -36,22 +36,24 @@ type Controller struct {
 	control uint8 // holds the control register, AKA types.SC.
 
 	count           uint8 // the number of bits that have been transferred.
-	internalClock   bool  // if true, this controller is the master.
-	transferRequest bool  // if true, a transfer has been requested.
+	InternalClock   bool  // if true, this controller is the master.
+	TransferRequest bool  // if true, a transfer has been requested.
 
 	irq               *interrupts.Service // the interrupt service.
-	attachedDevice    Device              // the device that is attached to this controller.
+	AttachedDevice    Device              // the device that is attached to this controller.
 	resultFallingEdge bool                // the result of the last falling edge. (Bit 8 of DIV: 8.192 kHz)
+
+	cycleFunc func()
 }
 
 func (c *Controller) Attach(d Device) {
-	c.attachedDevice = d
+	c.AttachedDevice = d
 }
 
 func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
 		irq: irq,
-		// attachedDevice: nullDevice{},
+		// AttachedDevice: nullDevice{},
 	}
 	types.RegisterHardware(types.SB, func(v uint8) {
 		c.data = v
@@ -59,9 +61,13 @@ func NewController(irq *interrupts.Service) *Controller {
 		return c.data
 	})
 	types.RegisterHardware(types.SC, func(v uint8) {
+		if c.control == v|0x7E {
+			return
+		}
 		c.control = v | 0x7E // bits 1-6 are always set
-		c.internalClock = (v & types.Bit0) == types.Bit0
-		c.transferRequest = (v & types.Bit7) == types.Bit7
+		c.InternalClock = (v & types.Bit0) == types.Bit0
+		c.TransferRequest = (v & types.Bit7) == types.Bit7
+		c.cycleFunc()
 	}, func() uint8 {
 		return c.control | 0x7E
 	})
@@ -70,18 +76,13 @@ func NewController(irq *interrupts.Service) *Controller {
 
 // TickM ticks the serial controller.
 func (c *Controller) TickM(div uint16) {
-	// is the serial transfer enabled?
-	if !c.internalClock || !c.transferRequest {
-		return
-	}
-	div -= 4
 	for i := 0; i < 4; i++ {
 		div++
 		if c.resultFallingEdge && !c.getFallingEdge(div) {
 			var bit bool
-			if c.attachedDevice != nil {
-				bit = c.attachedDevice.Send()
-				c.attachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
+			if c.AttachedDevice != nil {
+				bit = c.AttachedDevice.Send()
+				c.AttachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
 			}
 
 			c.data = c.data << 1
@@ -102,13 +103,13 @@ func (c *Controller) checkTransfer() {
 
 		// clear transfer request
 		c.control &^= types.Bit7
-		c.transferRequest = false
+		c.TransferRequest = false
 	}
 }
 
 func (c *Controller) Send() bool {
 	// if c is nil, or this is the master, return true.
-	if c == nil || c.internalClock {
+	if c == nil || c.InternalClock {
 		return true
 	}
 	return (c.data & types.Bit7) == types.Bit7
@@ -118,7 +119,7 @@ func (c *Controller) Receive(bit bool) {
 	if c == nil {
 		return
 	}
-	if !c.internalClock {
+	if !c.InternalClock {
 		c.data = c.data << 1
 		if bit {
 			c.data |= 1
@@ -128,12 +129,12 @@ func (c *Controller) Receive(bit bool) {
 }
 
 func (c *Controller) HasDevice() bool {
-	return c.attachedDevice != nil
+	return c.AttachedDevice != nil
 }
 
 // getFallingEdge returns true if the falling edge of the clock is reached.
 func (c *Controller) getFallingEdge(div uint16) bool {
-	return ((div & (1 << 8)) != 0) && c.internalClock && c.transferRequest
+	return ((div & (1 << 8)) != 0) && c.InternalClock && c.TransferRequest
 }
 
 var _ types.Stater = (*Controller)(nil)
@@ -143,17 +144,17 @@ var _ types.Stater = (*Controller)(nil)
 // The values are loaded in the following order:
 //   - data (uint8)
 //   - control (uint8)
-//   - transferRequest (bool)
+//   - TransferRequest (bool)
 //   - count (uint8)
-//   - internalClock (bool)
+//   - InternalClock (bool)
 //   - resultFallingEdge (bool)
 func (c *Controller) Load(s *types.State) {
 	c.data = s.Read8()
 	c.control = s.Read8()
 
-	c.transferRequest = s.ReadBool()
+	c.TransferRequest = s.ReadBool()
 	c.count = s.Read8()
-	c.internalClock = s.ReadBool()
+	c.InternalClock = s.ReadBool()
 	c.resultFallingEdge = s.ReadBool()
 }
 
@@ -162,18 +163,22 @@ func (c *Controller) Load(s *types.State) {
 // The values are saved in the following order:
 //   - data (uint8)
 //   - control (uint8)
-//   - transferRequest (bool)
+//   - TransferRequest (bool)
 //   - count (uint8)
-//   - internalClock (bool)
+//   - InternalClock (bool)
 //   - resultFallingEdge (bool)
 func (c *Controller) Save(s *types.State) {
 	s.Write8(c.data)
 	s.Write8(c.control)
 
-	s.WriteBool(c.transferRequest)
+	s.WriteBool(c.TransferRequest)
 	s.Write8(c.count)
-	s.WriteBool(c.internalClock)
+	s.WriteBool(c.InternalClock)
 	s.WriteBool(c.resultFallingEdge)
+}
+
+func (c *Controller) AttachRegenerate(cycle func()) {
+	c.cycleFunc = cycle
 }
 
 // nullDevice is an implementation of Device that

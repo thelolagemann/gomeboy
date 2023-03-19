@@ -21,11 +21,8 @@ func (c *CPU) andRegister(reg *Register) {
 // and is a helper function for that performs a bitwise AND operation on the
 // two given values, and sets the flags accordingly.
 func (c *CPU) and(a, b uint8) uint8 {
-	c.setFlag(FlagHalfCarry)
-	c.clearFlag(FlagCarry)
-	c.clearFlag(FlagSubtract)
 	computed := a & b
-	c.shouldZeroFlag(computed)
+	c.setFlags(computed == 0, false, true, false)
 	return computed
 }
 
@@ -48,11 +45,8 @@ func (c *CPU) orRegister(reg *Register) {
 // or is a helper function for that performs a bitwise OR operation on the two
 // given values, and sets the flags accordingly.
 func (c *CPU) or(a, b uint8) uint8 {
-	c.clearFlag(FlagHalfCarry)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagCarry)
 	computed := a | b
-	c.shouldZeroFlag(computed)
+	c.setFlags(computed == 0, false, false, false)
 	return computed
 }
 
@@ -75,11 +69,8 @@ func (c *CPU) xorRegister(reg *Register) {
 // xor is a helper function for that performs a bitwise XOR operation on the two
 // given values, and sets the flags accordingly.
 func (c *CPU) xor(a, b uint8) uint8 {
-	c.clearFlag(FlagHalfCarry)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagCarry)
 	computed := a ^ b
-	c.shouldZeroFlag(computed)
+	c.setFlags(computed == 0, false, false, false)
 	return computed
 }
 
@@ -102,19 +93,7 @@ func (c *CPU) compareRegister(reg *Register) {
 // the flags accordingly.
 func (c *CPU) compare(b uint8) {
 	total := c.A - b
-
-	c.setFlag(FlagSubtract)
-	if b&0x0f > c.A&0x0f {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
-	if b > c.A {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
-	c.shouldZeroFlag(total)
+	c.setFlags(total == 0, true, b&0x0f > c.A&0x0f, b > c.A)
 }
 
 // generateLogicInstructions generates the instructions for the bitwise logic

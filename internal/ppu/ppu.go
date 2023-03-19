@@ -2,19 +2,14 @@
 package ppu
 
 import (
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/ppu/background"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
-	"log"
-	"os"
 )
 
 const (
@@ -22,25 +17,37 @@ const (
 	ScreenWidth = 160
 	// ScreenHeight is the height of the screen in pixels.
 	ScreenHeight = 144
+
+	numSections = 4
+	sectionSize = ScreenWidth / numSections
 )
 
 type PPU struct {
-	Debug struct {
-		SpritesDisabled    bool
-		BackgroundDisabled bool
-		WindowDisabled     bool
-	}
-
-	*background.Background
 	*lcd.Controller
-	*lcd.Status
 	CurrentScanline uint8
-	LYCompare       uint8
+	lyCompare       uint8
 	SpritePalettes  [2]palette.Palette
 
-	WindowX         uint8
-	WindowY         uint8
-	WindowYInternal uint8
+	// LCD
+	status uint8
+	mode   uint8
+
+	// Background
+	// It is made up of a 256x256 pixel map
+	// of tiles. The map is divided into 32x32 tiles. Each tile is 8x8 pixels. As the
+	// display only has 160x144 pixels, the background is scrolled to display
+	// different parts of the map.
+
+	// scrollX is the X position of the background.
+	scrollX uint8
+	// scrollY is the Y position of the background.
+	scrollY uint8
+	Palette palette.Palette
+
+	// Window
+	windowX        uint8
+	windowY        uint8
+	windowInternal uint8
 
 	// CGB registers
 	vRAMBank uint8
@@ -57,19 +64,33 @@ type PPU struct {
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
-	tileFrame [2][256][256][3]uint8
+	backgroundLineDirty [ScreenHeight]bool
 
-	scanlineData [ScanlineSize]uint8
-	spriteData   [40]uint8 // 10 sprites, 4 bytes each. byte 1 and 2 are tile data, byte 3 is attributes, byte 4 is x position
-
-	currentCycle       uint16
+	CurrentTick        uint16
 	bus                *mmu.MMU
 	statInterruptDelay bool
-	refreshScreen      bool
+	RefreshScreen      bool
 	DMA                *DMA
 	delayedTick        bool
 
 	tileBgPriority [ScreenHeight][ScreenWidth]bool
+	isGBC          bool
+	isGBCCompat    bool
+
+	// various LUTs
+	colourNumberLUT         [256][256][8]uint8
+	reversedColourNumberLUT [256][256][8]uint8
+	modeInterruptLUT        [4][256]bool
+
+	cycleFunc func()
+
+	// debug
+	Debug struct {
+		SpritesDisabled    bool
+		BackgroundDisabled bool
+		WindowDisabled     bool
+	}
+	backgroundDirty bool
 }
 
 func (p *PPU) init() {
@@ -81,13 +102,14 @@ func (p *PPU) init() {
 		// "lcd-on is special, the oam scan period is 4 cycles shorter in the first line (and doesn't actually scan oam, the mode reads as 0)
 		//[13:31]
 		//or I guess it effectively starts at cycle 4 in the line " - @calc
+		old := p.Raw
 		wasOn := p.Enabled
 		writeFn()
 
 		// if the screen was turned off, clear the screen
 		if wasOn && !p.Enabled {
 			// the screen should not be turned off unless in vblank
-			if p.Mode != lcd.VBlank {
+			if p.mode != lcd.VBlank {
 				panic("PPU: Screen was turned off while not in VBlank")
 			}
 
@@ -95,29 +117,61 @@ func (p *PPU) init() {
 			p.renderBlank()
 
 			// enter hblank
-			p.Mode = lcd.HBlank
+			p.mode = lcd.HBlank
 
 			// reset the scanline
 			p.CurrentScanline = 0
+			p.cycleFunc()
 		} else if !wasOn && p.Enabled {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 
 			// enter hblank
-			p.Mode = lcd.HBlank
+			p.mode = lcd.HBlank
 			// if the screen was turned on, reset the clock
-			p.currentCycle = 4
+			p.CurrentTick = 4
 			p.delayedTick = true
+			p.cycleFunc()
 		}
-	})
-	p.Status = lcd.NewStatus(func(writeFn func()) {
-		writeFn()
-		if p.Enabled {
-			p.checkStatInterrupts(false)
+		if old != p.Raw {
+			p.backgroundDirty = true
 		}
+
 	})
 
 	// setup registers
+	types.RegisterHardware(
+		types.STAT,
+		func(v uint8) {
+			p.status = v&0b0111_1000 | types.Bit7
+		},
+		func() uint8 {
+			return p.status | p.mode
+		})
+	types.RegisterHardware(
+		types.SCY,
+		func(v uint8) {
+			if p.scrollY != v {
+				p.backgroundDirty = true
+				p.scrollY = v
+			}
+		},
+		func() uint8 {
+			return p.scrollY
+		},
+	)
+	types.RegisterHardware(
+		types.SCX,
+		func(v uint8) {
+			if p.scrollX != v {
+				p.backgroundDirty = true
+				p.scrollX = v
+			}
+		},
+		func() uint8 {
+			return p.scrollX
+		},
+	)
 	types.RegisterHardware(
 		types.LY,
 		func(v uint8) {
@@ -131,45 +185,58 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.LYC,
 		func(v uint8) {
-			p.LYCompare = v
+			if p.lyCompare != v {
+				p.backgroundDirty = true
+				p.lyCompare = v
 
-			if p.Enabled {
-				p.checkLYC()
-				p.checkStatInterrupts(false)
+				if p.Enabled {
+					p.checkLYC()
+					p.checkStatInterrupts(false)
+				}
 			}
+
 		},
 		func() uint8 {
-			return p.LYCompare
+			return p.lyCompare
 		},
 	)
+
 	types.RegisterHardware(
 		types.BGP,
 		func(v uint8) {
-			p.Background.Palette = palette.ByteToPalette(v)
-			if p.bus.IsGBCCompat() && !p.bus.IsGBC() {
-				// rewrite the palette
-				for i := 0; i < 4; i++ {
-					// get colour number from value
-					palNum := v >> (i * 2) & 0x3
-					p.Background.Palette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
+			pal := palette.ByteToPalette(v)
+			if p.Palette != pal {
+				p.Palette = pal
+				if p.isGBCCompat && !p.isGBC {
+					// rewrite the palette
+					for i := 0; i < 4; i++ {
+						// get colour number from value
+						palNum := v >> (i * 2) & 0x3
+						p.Palette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
+					}
 				}
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
-			return p.Background.Palette.ToByte()
+			return p.Palette.ToByte()
 		},
 	)
 	types.RegisterHardware(
 		types.OBP0,
 		func(v uint8) {
-			p.SpritePalettes[0] = palette.ByteToPalette(v)
-			if p.bus.IsGBCCompat() && !p.bus.IsGBC() {
-				// rewrite the palette
-				for i := 0; i < 4; i++ {
-					// get colour number from value
-					palNum := v >> (i * 2) & 0x3
-					p.SpritePalettes[0][palNum] = p.ColourSpritePalette.Palettes[0].GetColour(uint8(i))
+			pal := palette.ByteToPalette(v)
+			if p.SpritePalettes[0] != pal {
+				p.SpritePalettes[0] = pal
+				if p.isGBCCompat && !p.isGBC {
+					// rewrite the palette
+					for i := 0; i < 4; i++ {
+						// get colour number from value
+						palNum := v >> (i * 2) & 0x3
+						p.SpritePalettes[0][palNum] = p.ColourSpritePalette.Palettes[0].GetColour(uint8(i))
+					}
 				}
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
@@ -179,11 +246,18 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.OBP1,
 		func(v uint8) {
-			p.SpritePalettes[1] = palette.ByteToPalette(v)
-			if p.bus.IsGBCCompat() && !p.bus.IsGBC() {
-				for i := 0; i < 4; i++ {
-					p.SpritePalettes[1][v>>(i*2)&0x3] = p.ColourSpritePalette.Palettes[1].GetColour(uint8(i))
+			pal := palette.ByteToPalette(v)
+			if p.SpritePalettes[1] != pal {
+				p.SpritePalettes[1] = pal
+				if p.isGBCCompat && !p.isGBC {
+					// rewrite the palette
+					for i := 0; i < 4; i++ {
+						// get colour number from value
+						palNum := v >> (i * 2) & 0x3
+						p.SpritePalettes[1][palNum] = p.ColourSpritePalette.Palettes[1].GetColour(uint8(i))
+					}
 				}
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
@@ -193,19 +267,19 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.WX,
 		func(v uint8) {
-			p.WindowX = v
+			p.windowX = v
 		},
 		func() uint8 {
-			return p.WindowX
+			return p.windowX
 		},
 	)
 	types.RegisterHardware(
 		types.WY,
 		func(v uint8) {
-			p.WindowY = v
+			p.windowY = v
 		},
 		func() uint8 {
-			return p.WindowY
+			return p.windowY
 		},
 	)
 
@@ -213,12 +287,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.VBK,
 		func(v uint8) {
-			if p.bus.IsGBCCompat() {
+			if p.isGBCCompat {
 				p.vRAMBank = v & types.Bit0
+				// p.isDirty = true
 			}
 		},
 		func() uint8 {
-			if p.bus.IsGBCCompat() {
+			if p.isGBCCompat {
 				return p.vRAMBank | 0xFE
 			}
 			return 0xFF
@@ -227,12 +302,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.BCPS,
 		func(v uint8) {
-			if p.bus.IsGBCCompat() {
+			if p.isGBCCompat {
 				p.ColourPalette.SetIndex(v)
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
-			if p.bus.IsGBCCompat() {
+			if p.isGBCCompat {
 				return p.ColourPalette.GetIndex() | 0x40
 			}
 			return 0xFF
@@ -241,12 +317,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.BCPD,
 		func(v uint8) {
-			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
+			if p.isGBCCompat && p.colorPaletteUnlocked() {
 				p.ColourPalette.Write(v)
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
-			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
+			if p.isGBCCompat && p.colorPaletteUnlocked() {
 				return p.ColourPalette.Read()
 			}
 			return 0xFF
@@ -255,12 +332,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.OCPS,
 		func(v uint8) {
-			if p.bus.IsGBCCompat() {
+			if p.isGBCCompat && p.ColourSpritePalette.LastWrite != v {
 				p.ColourSpritePalette.SetIndex(v)
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
-			if p.bus.IsGBCCompat() {
+			if p.isGBCCompat {
 				return p.ColourSpritePalette.GetIndex() | 0x40
 			}
 			return 0xFF
@@ -269,12 +347,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.OCPD,
 		func(v uint8) {
-			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
+			if p.isGBCCompat && p.colorPaletteUnlocked() {
 				p.ColourSpritePalette.Write(v)
+				p.backgroundDirty = true
 			}
 		},
 		func() uint8 {
-			if p.bus.IsGBCCompat() && p.colorPaletteUnlocked() {
+			if p.isGBCCompat && p.colorPaletteUnlocked() {
 				return p.ColourSpritePalette.Read()
 			}
 			return 0xFF
@@ -295,6 +374,38 @@ func (p *PPU) init() {
 		}
 	}
 
+	// setup LUTs
+	for b1 := 0; b1 <= 255; b1++ {
+		for b2 := 0; b2 <= 255; b2++ {
+			for xPos := 0; xPos < 8; xPos++ {
+				p.colourNumberLUT[b1][b2][xPos] = uint8((b1 >> (7 - xPos) & 0x1) | ((b2 >> (7 - xPos) & 0x1) << 1))
+				p.reversedColourNumberLUT[b1][b2][xPos] = uint8((b1 >> xPos & 0x1) | ((b2 >> xPos & 0x1) << 1))
+			}
+		}
+	}
+
+	// setup mode interrupt LUTs
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 255; j++ {
+			// HBlank
+			if i == 0 {
+				p.modeInterruptLUT[i][j] = uint8(j)&types.Bit3 == types.Bit3
+			}
+			// VBlank
+			if i == 1 {
+				p.modeInterruptLUT[i][j] = uint8(j)&types.Bit4 == types.Bit4
+			}
+			// OAM
+			if i == 2 {
+				p.modeInterruptLUT[i][j] = uint8(j)&types.Bit5 == types.Bit5
+			}
+			// VRAM
+			if i == 3 {
+				p.modeInterruptLUT[i][j] = uint8(j)&types.Bit5 == types.Bit5
+			}
+		}
+	}
+
 	p.ColourPalette = palette.NewCGBPallette()
 	p.ColourSpritePalette = palette.NewCGBPallette()
 }
@@ -302,15 +413,17 @@ func (p *PPU) init() {
 // TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
 	if p.bus.IsGBCCompat() {
-		p.bus.HDMA.AttachVRAM(p.WriteVRAM)
+		p.bus.HDMA.AttachVRAM(p.writeVRAM)
 	}
+	p.isGBC = p.bus.IsGBC()
+	p.isGBCCompat = p.bus.IsGBCCompat()
+	p.mode = 3
 }
 
 func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 	oam := NewOAM()
 	p := &PPU{
-		Background: background.NewBackground(),
-		TileData:   [2][384]Tile{},
+		TileData: [2][384]Tile{},
 
 		bus: mmu,
 		irq: irq,
@@ -319,21 +432,20 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 			ram.NewRAM(8192),
 			ram.NewRAM(8192),
 		},
-		DMA: NewDMA(mmu, oam),
-	}
+		DMA: NewDMA(mmu, oam)}
 
 	p.init()
 	return p
 }
 
 // TODO save compatibility palette
-// - load game with boot ROM enabled
+// - load game with boot ROM Enabled
 // - save colour palette to file (bgp = index 0 of colour palette, obp1 = index 0 of sprite palette, obp2 = index 1 of sprite palette)
 // - encoded filename as hash of palette
 
 func (p *PPU) LoadCompatibilityPalette() {
 	if p.bus.BootROM != nil {
-		return // don't load compatibility palette if boot ROM is enabled (as the boot ROM will setup the palette)
+		return // don't load compatibility palette if boot ROM is Enabled (as the boot ROM will setup the palette)
 	}
 	hash := p.bus.Cart.Header().TitleChecksum()
 	entryWord := uint16(hash) << 8
@@ -353,44 +465,6 @@ func (p *PPU) LoadCompatibilityPalette() {
 		p.ColourSpritePalette.Palettes[0][i] = paletteEntry.OBJ0[i]
 		p.ColourSpritePalette.Palettes[1][i] = paletteEntry.OBJ1[i]
 	}
-}
-
-func (p *PPU) SaveCompatibilityPalette() {
-	compatPal := palette.CompatibilityPalette{
-		BGP:  p.ColourPalette.Palettes[0],
-		OBP0: p.ColourSpritePalette.Palettes[0],
-		OBP1: p.ColourSpritePalette.Palettes[1],
-	}
-
-	// create hash of palette
-	hash := sha256.New()
-	for _, c := range compatPal.BGP {
-		hash.Write([]byte{c[0], c[1], c[2]})
-	}
-	for _, c := range compatPal.OBP0 {
-		hash.Write([]byte{c[0], c[1], c[2]})
-	}
-	for _, c := range compatPal.OBP1 {
-		hash.Write([]byte{c[0], c[1], c[2]})
-	}
-
-	// create file
-	file, err := os.Create(fmt.Sprintf("compatibility_palette_%x", hash.Sum(nil)))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	// encode palette
-	enc := json.NewEncoder(file)
-
-	// write palette to file
-	err = enc.Encode(compatPal)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("Compatibility palette saved to file: compatibility_palette_%x", hash.Sum(nil))
 }
 
 func (p *PPU) Read(address uint16) uint8 {
@@ -416,11 +490,11 @@ func (p *PPU) Read(address uint16) uint8 {
 }
 
 func (p *PPU) vramUnlocked() bool {
-	return p.Mode != lcd.VRAM
+	return p.mode != lcd.VRAM
 }
 
 func (p *PPU) oamUnlocked() bool {
-	return p.Mode != lcd.OAM && p.Mode != lcd.VRAM
+	return p.mode != lcd.OAM && p.mode != lcd.VRAM
 }
 
 func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA) {
@@ -429,7 +503,7 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA) {
 		for j := uint8(0); j < 32; j++ {
 			tileEntry := p.calculateTileID(j, i, 0)
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile := p.TileData[tileEntry.attributes.vRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
 			tile.Draw(tileMap1, int(i*8), int(j*8))
 		}
 	}
@@ -440,7 +514,7 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA) {
 			tileEntry := p.calculateTileID(j, i, 1)
 
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
+			tile := p.TileData[tileEntry.attributes.vRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
 			tile.Draw(tileMap2, int(i)*8, int(j)*8)
 		}
 	}
@@ -454,7 +528,7 @@ func (p *PPU) DumpTiledata() image.Image {
 	// CGB = 768 * 64 = 49152 pixels total
 	// CGB = 512 * 96 = 49152 pixels total
 	var img *image.RGBA
-	if p.bus.IsGBCCompat() {
+	if p.isGBCCompat {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 192))
 	} else {
 		img = image.NewRGBA(image.Rect(0, 0, 256, 96))
@@ -468,7 +542,7 @@ func (p *PPU) DumpTiledata() image.Image {
 		tile.Draw(img, x, y)
 	}
 
-	if p.bus.IsGBCCompat() {
+	if p.isGBCCompat {
 		for i, tile := range p.TileData[1] {
 			// calculate the x and y position of the tile
 			x := (i % 32) * 8
@@ -482,10 +556,10 @@ func (p *PPU) DumpTiledata() image.Image {
 }
 
 func (p *PPU) colorPaletteUnlocked() bool {
-	return p.Mode != lcd.VRAM
+	return p.mode != lcd.VRAM
 }
 
-func (p *PPU) WriteVRAM(address uint16, value uint8) {
+func (p *PPU) writeVRAM(address uint16, value uint8) {
 
 	if address <= 0x2000 {
 		// write to the current VRAM bank
@@ -493,29 +567,29 @@ func (p *PPU) WriteVRAM(address uint16, value uint8) {
 
 		// are we writing to the tile data?
 		if address <= 0x17FF {
-			p.UpdateTile(address, value)
+			p.updateTile(address, value)
 			// update the tile data
 		} else if address <= 0x1FFF {
 			if p.vRAMBank == 0 {
 				// which offset are we writing to?
 				if address >= 0x1800 && address <= 0x1BFF {
 					// tilemap 0
-					p.UpdateTileMap(address, 0)
+					p.updateTileMap(address, 0)
 				}
 				if address >= 0x1C00 && address <= 0x1FFF {
 					// tilemap 1
-					p.UpdateTileMap(address, 1)
+					p.updateTileMap(address, 1)
 				}
 			}
 			if p.vRAMBank == 1 {
 				// update the tile attributes
 				if address >= 0x1800 && address <= 0x1BFF {
 					// tilemap 0
-					p.UpdateTileAttributes(address, 0, value)
+					p.updateTileAttributes(address, 0, value)
 				}
 				if address >= 0x1C00 && address <= 0x1FFF {
 					// tilemap 1
-					p.UpdateTileAttributes(address, 1, value)
+					p.updateTileAttributes(address, 1, value)
 				}
 			}
 		}
@@ -533,7 +607,7 @@ func (p *PPU) Write(address uint16, value uint8) {
 		if !p.vramUnlocked() {
 			return
 		}
-		p.WriteVRAM(address-0x8000, value)
+		p.writeVRAM(address-0x8000, value)
 		return
 	}
 	// OAM (0xFE00 - 0xFE9F)
@@ -548,8 +622,8 @@ func (p *PPU) Write(address uint16, value uint8) {
 	panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
 }
 
-// UpdateTile updates the tile at the given address
-func (p *PPU) UpdateTile(address uint16, value uint8) {
+// updateTile updates the tile at the given address
+func (p *PPU) updateTile(address uint16, value uint8) {
 	// get the tile address
 	index := address & 0x1FFE // only the lower 13 bits are used
 
@@ -562,49 +636,57 @@ func (p *PPU) UpdateTile(address uint16, value uint8) {
 	// set the tile data
 	p.TileData[p.vRAMBank][tileID][row+((address%2)*8)] = value
 
+	p.backgroundDirty = true
 	// recache tilemap
 	//p.recacheByID(tileID)
 }
 
-func (p *PPU) UpdateTileMap(address uint16, tilemapIndex uint8) {
+func (p *PPU) updateTileMap(address uint16, tilemapIndex uint8) {
 	// determine the y and x position
 	y := (address / 32) & 0x1F
 	x := address & 0x1F
 
 	// update the tilemap
-	p.tileMaps[tilemapIndex][y][x].TileID = uint16(p.vRAM[0].Read(address))
+	p.tileMaps[tilemapIndex][y][x].id = uint16(p.vRAM[0].Read(address))
 
-	// recache the tile
-	//p.recacheTile(x, y, tilemapIndex)
+	p.backgroundDirty = true
 }
 
-func (p *PPU) UpdateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
+func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
 	// panic(fmt.Sprintf("updating tile %x with %b", index, value))
 	// determine the y and x position
 	y := (index / 32) & 0x1F
 	x := index & 0x1F
 
 	// update the tilemap
-	p.tileMaps[tilemapIndex][y][x].Attributes.Write(value)
+	t := TileAttributes{}
+	t.bgPriority = value&0x80 != 0
+	t.yFlip = value&0x40 != 0
+	t.xFlip = value&0x20 != 0
+	t.paletteNumber = value & 0b111
+	t.vRAMBank = value >> 3 & 0x1
+
+	p.tileMaps[tilemapIndex][y][x].attributes = t
+	p.tileMaps[tilemapIndex][y][x].Tile = p.TileData[t.vRAMBank][p.tileMaps[tilemapIndex][y][x].id]
 	// p.recacheTile(x, y, tilemapIndex)
+
+	p.backgroundDirty = true
 }
 
 // checkLYC checks if the LYC interrupt should be triggered.
 func (p *PPU) checkLYC() {
-	p.Coincidence = p.CurrentScanline == p.LYCompare
+	if p.lyCompare == p.CurrentScanline {
+		p.status |= 0x04
+	} else {
+		p.status &^= 0x04
+	}
 }
 
 // checkStatInterrupts checks if the STAT interrupt should be triggered.
 func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
-	lyInt := p.Coincidence && p.CoincidenceInterrupt
-	mode0Int := p.Mode == lcd.HBlank && p.HBlankInterrupt
-	mode1Int := p.Mode == lcd.VBlank && p.VBlankInterrupt
-	mode2Int := p.Mode == lcd.OAM && p.OAMInterrupt
-	vBlankInt := vblankTrigger && p.Mode == lcd.OAM // vblank interrupt is triggered at the end of OAM
-
-	// fmt.Println("checking stat interrupts for mode", p.Mode)
-	//fmt.Println(p.CoincidenceInterrupt, "lyInt", lyInt, "mode0Int", mode0Int, "mode1Int", mode1Int, "mode2Int", mode2Int, "vBlankInt", vBlankInt)
-	if lyInt || mode0Int || mode1Int || mode2Int || vBlankInt {
+	if p.status&0x44 == 0x44 ||
+		p.modeInterruptLUT[p.mode][p.status] ||
+		vblankTrigger && p.mode == lcd.OAM {
 		// if not stat interrupt requested, request it
 		if !p.statInterruptDelay {
 			p.irq.Request(interrupts.LCDFlag)
@@ -616,46 +698,39 @@ func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
 }
 
 func (p *PPU) HasFrame() bool {
-	return p.refreshScreen
+	return p.RefreshScreen
 }
 
 // Tick the PPU by one cycle. This will update the PPU's state and
 // render the current scanline if necessary.
-func (p *PPU) Tick(cycles int) {
-	if !p.Enabled {
-		p.Mode = lcd.HBlank
-		return
-	}
-	// update the current cycle
-	p.currentCycle += uint16(cycles)
-
+func (p *PPU) Tick() {
 	// step logic (ordered by number of ticks required to optimize calls)
-	switch p.Status.Mode {
+	switch p.mode {
 	case lcd.HBlank:
 		// are we handling the line 0 M-cycle delay?
 		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/ppu/lcdon_timing-GS.s#L24
 		if p.delayedTick {
-			if p.currentCycle == 80 {
+			if p.CurrentTick == 80 {
 				p.delayedTick = false
-				p.currentCycle = 0
+				p.CurrentTick = 0
 
 				p.checkLYC()
 				p.checkStatInterrupts(false)
 
 				// go to mode 3
-				p.Mode = lcd.VRAM
+				p.mode = lcd.VRAM
 			}
 			return
 		}
 
 		// have we reached the cycle threshold for the next scanline?
-		if p.currentCycle == hblankCycles[p.ScrollX&0x07] {
+		if p.CurrentTick >= 196 && p.CurrentTick <= 204 {
 			// notify HDMA that we're in HBlank
-			if p.bus.IsGBC() {
+			if p.isGBC {
 				p.bus.HDMA.SetHBlank()
 			}
 			// reset cycle and increment scanline
-			p.currentCycle = 0
+			p.CurrentTick = 0
 			p.CurrentScanline++
 
 			// check LYC
@@ -665,13 +740,14 @@ func (p *PPU) Tick(cycles int) {
 			// and need to enter VBlank
 			if p.CurrentScanline == 144 {
 				// enter VBlank mode and trigger VBlank interrupt
-				p.Mode = lcd.VBlank
+				p.mode = lcd.VBlank
 				p.checkStatInterrupts(true)
 
 				p.irq.Request(interrupts.VBlankFlag)
 
 				// flag that the screen needs to be refreshed
-				p.refreshScreen = true
+				p.RefreshScreen = true
+				p.backgroundDirty = false
 
 				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
 				if !p.Cleared() {
@@ -682,27 +758,27 @@ func (p *PPU) Tick(cycles int) {
 				//palette.UpdatePalette()
 			} else {
 				// enter OAM mode
-				p.Mode = lcd.OAM
+				p.mode = lcd.OAM
 				p.checkStatInterrupts(false)
 			}
 		}
 
 	case lcd.VRAM:
-		if p.currentCycle == 172 {
-			p.currentCycle = 0
-			p.Mode = lcd.HBlank
+		if p.CurrentTick == 172 {
+			p.CurrentTick = 0
+			p.mode = lcd.HBlank
 
 			p.checkStatInterrupts(false)
 			p.renderScanline()
 		}
 	case lcd.OAM:
-		if p.currentCycle == 80 {
-			p.currentCycle = 0
-			p.Mode = lcd.VRAM
+		if p.CurrentTick == 80 {
+			p.CurrentTick = 0
+			p.mode = lcd.VRAM
 		}
 	case lcd.VBlank:
-		if p.currentCycle == 456 {
-			p.currentCycle = 0
+		if p.CurrentTick == 456 {
+			p.CurrentTick = 0
 			p.CurrentScanline++
 
 			// check LYC
@@ -711,9 +787,9 @@ func (p *PPU) Tick(cycles int) {
 
 			if p.CurrentScanline == 154 {
 				// reset scanline and enter OAM mode
-				p.Mode = lcd.OAM
+				p.mode = lcd.OAM
 				p.CurrentScanline = 0
-				p.WindowYInternal = 0
+				p.windowInternal = 0
 
 				// check LYC
 				p.checkLYC()
@@ -721,58 +797,22 @@ func (p *PPU) Tick(cycles int) {
 			}
 		}
 	}
+
+	return
 }
 
-var hblankCycles = []uint16{204, 200, 200, 200, 200, 196, 196, 196}
-
 func (p *PPU) renderScanline() {
-	if (p.BackgroundEnabled || p.bus.IsGBC()) && !p.Debug.BackgroundDisabled {
+	if (p.backgroundDirty || p.backgroundLineDirty[p.CurrentScanline]) && (p.BackgroundEnabled || p.isGBC) {
+		// fmt.Println("rendering background scanline", p.CurrentScanline, "dirty: ", p.backgroundDirty, " line dirty: ", p.backgroundLineDirty[p.CurrentScanline])
 		p.renderBackgroundScanline()
-	} else {
-		p.renderBlankLine()
 	}
-	if p.WindowEnabled && !p.Debug.WindowDisabled {
+	if p.WindowEnabled {
 		p.renderWindowScanline()
 	}
 
-	if p.SpriteEnabled && !p.Debug.SpritesDisabled {
-		p.renderSpritesScanline()
+	if p.SpriteEnabled {
+		p.renderSpritesScanline(p.CurrentScanline)
 	}
-}
-
-func (p *PPU) renderScanlineJob() {
-	if (p.BackgroundEnabled || p.bus.IsGBC()) && !p.Debug.BackgroundDisabled {
-		p.renderBackgroundJob()
-	} else {
-		p.renderBlankLine()
-	}
-	if p.WindowEnabled && !p.Debug.WindowDisabled {
-		p.renderWindowJob()
-	}
-
-	if p.SpriteEnabled && !p.Debug.SpritesDisabled {
-		p.renderSpritesJob()
-	}
-
-	// send job to the renderer
-	job := RenderJob{
-		XStart:            p.ScrollX,
-		Scanline:          p.scanlineData,
-		Sprites:           p.spriteData,
-		palettes:          [9]palette.Palette{p.Palette, p.ColourPalette.Palettes[0], p.ColourPalette.Palettes[1], p.ColourPalette.Palettes[2], p.ColourPalette.Palettes[3], p.ColourPalette.Palettes[4], p.ColourPalette.Palettes[5], p.ColourPalette.Palettes[6], p.ColourPalette.Palettes[7]},
-		objPalette:        [10]palette.Palette{p.SpritePalettes[0], p.SpritePalettes[1], p.ColourSpritePalette.Palettes[0], p.ColourSpritePalette.Palettes[1], p.ColourSpritePalette.Palettes[2], p.ColourSpritePalette.Palettes[3], p.ColourSpritePalette.Palettes[4], p.ColourSpritePalette.Palettes[5], p.ColourSpritePalette.Palettes[6], p.ColourSpritePalette.Palettes[7]},
-		Line:              p.CurrentScanline,
-		BackgroundEnabled: p.BackgroundEnabled,
-	}
-	if p.bus.IsGBC() || p.bus.IsGBCCompat() && !p.bus.IsBootROMDone() {
-		RenderScanlineCGB(job, &p.PreparedFrame[p.CurrentScanline])
-	} else {
-		RenderScanlineDMG(job, &p.PreparedFrame[p.CurrentScanline])
-	}
-
-	// clear scanline data
-	p.scanlineData = [ScanlineSize]uint8{}
-	p.spriteData = [40]uint8{}
 }
 
 func (p *PPU) renderBlank() {
@@ -784,226 +824,149 @@ func (p *PPU) renderBlank() {
 	p.Clear()
 }
 
-func (p *PPU) renderBlankLine() {
-	for x := uint8(0); x < ScanlineSize; x++ {
-		p.scanlineData[x] = 0
-	}
-}
-
-func (p *PPU) renderWindowJob() {
-	// do nothing if window is out of bounds
-	if p.CurrentScanline < p.WindowY {
-		return
-	} else if p.WindowX > ScreenWidth {
-		return
-	} else if p.WindowY > ScreenHeight {
-		return
-	}
-
-	yPos := p.WindowYInternal
-	tileYIndex := yPos / 8
-
-	mapOffset := uint8(p.WindowTileMapAddress / 0x9C00)
-
-	// iterate over the 21 (20 if exactly aligned) tiles that make up the scanline
-	for i := uint8(0); i < 21; i++ {
-		if (i * 8) < p.WindowX-7 {
-			continue
-		}
-		xPos := (i * 8) - (p.WindowX - 7)
-		row := yPos % 8
-
-		// get the tile
-		tileEntry := p.calculateTileID(tileYIndex, xPos/8, mapOffset)
-		tileID := tileEntry.GetID(p.UsingSignedTileData())
-
-		// should we flip the tile vertically?
-		if tileEntry.Attributes.YFlip {
-			row = 7 - row
-		}
-		if (p.ScrollX+xPos)%8 != 0 {
-			// if we're not aligned to a tile boundary, we need to write to 2 tiles
-			// so here we need to work out the offset of the second tile and write to it
-
-			// where are we starting in the first tile?
-			offset := (p.ScrollX + xPos) % 8
-
-			// get the existing data to rewrite
-			existingData := p.scanlineData[i*TileSizeInBytes]
-			existingData2 := p.scanlineData[i*TileSizeInBytes+1]
-
-			// TODO
-			// - fix window rendering to be aligned correctly
-			// - handle offsets
-			// - find way to merge existing attributes with new ones
-			// - maybe switch to FIFO rendering?
-
-			// rewrite the first tile
-			p.scanlineData[i*TileSizeInBytes] = (p.TileData[tileEntry.Attributes.VRAMBank][tileID][row] >> offset) | (existingData << (8 - offset))
-
-			// rewrite the second tile
-			p.scanlineData[i*TileSizeInBytes+1] = (p.TileData[tileEntry.Attributes.VRAMBank][tileID][row+8] >> offset) | (existingData2 << (8 - offset))
-
-			// rewrite the attributes
-
-		} else {
-			// copy the tile data to the scanline
-			p.scanlineData[i*TileSizeInBytes] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row]
-			p.scanlineData[i*TileSizeInBytes+1] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row+8]
-			p.scanlineData[i*TileSizeInBytes+2] = tileEntry.Attributes.value
-		}
-
-	}
-
-	p.WindowYInternal++
-}
-
 func (p *PPU) renderWindowScanline() {
 	// do nothing if window is out of bounds
-	if p.CurrentScanline < p.WindowY {
+	if p.CurrentScanline < p.windowY {
 		return
-	} else if p.WindowX > ScreenWidth {
+	} else if p.windowX > ScreenWidth {
 		return
-	} else if p.WindowY > ScreenHeight {
+	} else if p.windowY > ScreenHeight {
 		return
 	}
 
-	yPos := p.WindowYInternal
+	yPos := p.windowInternal
 	tileYIndex := yPos / 8
 
 	mapOffset := uint8(p.WindowTileMapAddress / 0x9C00)
+	pixelY := yPos % 8
 
 	for i := uint8(0); i < ScreenWidth; i++ {
-		if i < p.WindowX-7 {
+		if i < p.windowX-7 {
 			continue
 		}
 
-		xPos := i - (p.WindowX - 7)
+		xPos := i - (p.windowX - 7)
 		tileXIndex := xPos / 8
 
 		tileEntry := p.calculateTileID(tileYIndex, tileXIndex, mapOffset)
 
 		// get pixel position in tile
 		pixelX := xPos % 8
-		pixelY := yPos % 8
 
 		// are we flipping the tile?
-		if p.bus.IsGBC() {
-			if tileEntry.Attributes.XFlip {
+		if p.isGBC {
+			if tileEntry.attributes.xFlip {
 				pixelX = 7 - pixelX
 			}
-			if tileEntry.Attributes.YFlip {
+			if tileEntry.attributes.yFlip {
 				pixelY = 7 - pixelY
 			}
 		}
 
-		b1 := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())][pixelY]
-		b2 := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())][pixelY+8]
-		colorNum := (b1 >> (7 - pixelX) & 1) | ((b2 >> (7 - pixelX) & 1) << 1)
+		b1 := p.TileData[tileEntry.attributes.vRAMBank][tileEntry.GetID(p.UsingSignedTileData())][pixelY]
+		b2 := p.TileData[tileEntry.attributes.vRAMBank][tileEntry.GetID(p.UsingSignedTileData())][pixelY+8]
+		colorNum := p.colourNumberLUT[b1][b2][pixelX]
 
-		if p.bus.IsGBC() {
-			p.PreparedFrame[p.CurrentScanline][i] = p.ColourPalette.GetColour(tileEntry.Attributes.PaletteNumber, colorNum)
-			p.tileBgPriority[p.CurrentScanline][i] = tileEntry.Attributes.UseBGPriority
+		if p.isGBC {
+			p.PreparedFrame[p.CurrentScanline][i] = p.ColourPalette.GetColour(tileEntry.attributes.paletteNumber, colorNum)
+			p.tileBgPriority[p.CurrentScanline][i] = tileEntry.attributes.bgPriority
 		} else {
 			p.PreparedFrame[p.CurrentScanline][i] = p.Palette.GetColour(colorNum)
 		}
 	}
 
-	p.WindowYInternal++
-}
-
-func (p *PPU) renderBackgroundJob() {
-	// determine the y pos and index of the tile
-	yPos := p.CurrentScanline + p.ScrollY
-	tileYIndex := yPos / 8
-
-	// determine map offset
-	mapOffset := uint8(p.BackgroundTileMapAddress / 0x9C00) // 0x9800 = 0, 0x9c00 = 1
-
-	// iterate over the 21 (20 if exactly aligned) tiles that make up a scanline
-	var tileEntry TileMapEntry
-	for i := uint8(0); i < 21; i++ {
-		// which byte is this tile in the scanline?
-		scanlineByte := i * TileSizeInBytes
-
-		// get the x pos and row of the tile
-		xPos := i*8 + p.ScrollX
-		row := yPos % 8
-
-		// get the tile
-		tileEntry = p.calculateTileID(tileYIndex, xPos/8, mapOffset)
-		tileID := tileEntry.GetID(p.UsingSignedTileData())
-
-		// should we flip the tile?
-		if tileEntry.Attributes.YFlip {
-			row = 7 - row
-		}
-
-		// copy the 3 bytes of tile data into the scanline
-		p.scanlineData[scanlineByte] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row]
-		p.scanlineData[scanlineByte+1] = p.TileData[tileEntry.Attributes.VRAMBank][tileID][row+8]
-		p.scanlineData[scanlineByte+2] = tileEntry.Attributes.value
-	}
+	p.windowInternal++
 }
 
 func (p *PPU) renderBackgroundScanline() {
-	// determine the y pos and index of the tile
-	yPos := p.CurrentScanline + p.ScrollY
-	tileYIndex := yPos / 8
+	// get the initial y pos and pixel pos
+	yPos := p.CurrentScanline + p.scrollY
+	yPixelPos := yPos & 7
 
-	// determine map offset
-	mapOffset := uint8(p.BackgroundTileMapAddress / 0x9C00) // 0x9800 = 0, 0x9c00 = 1
+	// get the initial x pos and pixel pos
+	xPos := p.scrollX
+	xPixelPos := xPos & 7
 
-	// do we need to wrap around?
-	/*if uint16(p.ScrollX)+ScreenWidth > 256 {
-		// copy the first part of the scanline to the end
-		n := copy(p.PreparedFrame[p.CurrentScanline][:],
-			p.tileFrame[mapOffset][yPos][p.ScrollX:])
-		copy(p.PreparedFrame[p.CurrentScanline][n:],
-			p.tileFrame[mapOffset][yPos][:p.ScrollX])
-		return
+	// get the first tile map row
+	tileMapRow := p.tileMaps[p.BackgroundTileMap][yPos>>3]
+
+	// get the first tile entry
+	tileEntry := &tileMapRow[xPos>>3]
+	tileID := tileEntry.GetID(p.UsingSignedTileData())
+
+	// get the first lot of tile data
+	tileData := &p.TileData[tileEntry.attributes.vRAMBank][tileID]
+	if tileEntry.attributes.yFlip {
+		yPixelPos = 7 - yPixelPos
 	}
 
-	// copy from tileFrame to preparedFrame
-	copy(p.PreparedFrame[p.CurrentScanline][:], p.tileFrame[mapOffset][yPos][p.ScrollX:])
-	*/
-	tileEntry := p.calculateTileID(tileYIndex, p.ScrollX/8, mapOffset)
-	tileID := tileEntry.GetID(p.UsingSignedTileData())
+	// get the 2 bytes that make up a row of 8 pixels
+	b1 := tileData[yPixelPos]
+	b2 := tileData[yPixelPos+8]
+
+	// create the colour lookup table
+	var colourLUT [8]uint8
+	if tileEntry.attributes.xFlip {
+		colourLUT = p.reversedColourNumberLUT[b1][b2]
+	} else {
+		colourLUT = p.colourNumberLUT[b1][b2]
+	}
+
+	priority := tileEntry.attributes.bgPriority
+
+	// assign the palette to use
+	var pal palette.Palette
+	if p.isGBC {
+		pal = p.ColourPalette.Palettes[tileEntry.attributes.paletteNumber]
+	} else {
+		pal = p.Palette
+	}
+
+	bgPriorityLine := &p.tileBgPriority[p.CurrentScanline]
+	scanline := &p.PreparedFrame[p.CurrentScanline]
+
 	for i := uint8(0); i < ScreenWidth; i++ {
-		// get the x position
-		xPos := i + p.ScrollX
+		scanline[i] = pal[colourLUT[xPixelPos]]
+		bgPriorityLine[i] = priority
 
-		// get pixel position within tile
-		xPixelPos := xPos % 8
-		yPixelPos := yPos % 8
-
-		// are we flipping?
-		// we don't need to check if we're in GBC mode because the
-		// tileEntry defaults all attributes to false
-		if tileEntry.Attributes.YFlip {
-			yPixelPos = 7 - yPixelPos
-		}
-		if tileEntry.Attributes.XFlip {
-			xPixelPos = 7 - xPixelPos
-		}
-
-		b1 := p.TileData[tileEntry.Attributes.VRAMBank][tileID][yPixelPos]
-		b2 := p.TileData[tileEntry.Attributes.VRAMBank][tileID][yPixelPos+8]
-		colorNum := (b1 >> (7 - xPixelPos) & 1) | ((b2 >> (7 - xPixelPos) & 1) << 1)
-
-		if p.bus.IsGBC() {
-			p.PreparedFrame[p.CurrentScanline][i] = p.ColourPalette.GetColour(tileEntry.Attributes.PaletteNumber, colorNum)
-			p.tileBgPriority[p.CurrentScanline][i] = tileEntry.Attributes.UseBGPriority
-		} else {
-			p.PreparedFrame[p.CurrentScanline][i] = p.Palette.GetColour(colorNum)
-		}
+		xPixelPos++
 
 		// did we just finish a tile?
-		if (xPos+1)%8 == 0 {
-			tileEntry = p.calculateTileID(tileYIndex, (xPos+1)/8, mapOffset)
+		if xPixelPos == 8 { // we don't need to do this for the last pixel
+			// increment xPos by the number of pixels we've just rendered
+			xPos += 8
+
+			// get the next tile entry
+			tileEntry = &tileMapRow[xPos>>3]
 			tileID = tileEntry.GetID(p.UsingSignedTileData())
+
+			if p.isGBC {
+				pal = p.ColourPalette.Palettes[tileEntry.attributes.paletteNumber]
+			} else {
+				pal = p.Palette
+			}
+			tileData = &p.TileData[tileEntry.attributes.vRAMBank][tileID]
+
+			if tileEntry.attributes.yFlip {
+				yPixelPos = 7 - yPixelPos
+			}
+			b1 = tileData[yPixelPos]
+			b2 = tileData[yPixelPos+8]
+			if tileEntry.attributes.xFlip {
+				colourLUT = p.reversedColourNumberLUT[b1][b2]
+			} else {
+				colourLUT = p.colourNumberLUT[b1][b2]
+			}
+
+			priority = tileEntry.attributes.bgPriority
+
+			// reset the x pixel pos
+			xPixelPos = 0
+
 		}
 	}
+
+	p.backgroundLineDirty[p.CurrentScanline] = false
 }
 
 // calculateTileID calculates the tile ID for the current scanline
@@ -1014,63 +977,11 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) 
 	return tileEntry
 }
 
-// renderSprites renders the sprites on the current scanline.
-func (p *PPU) renderSpritesJob() {
-	spriteCount := 0 // number of sprites on the current scanline (max 10)
-
-	for _, sprite := range p.oam.Sprites {
-		byteIndex := spriteCount * SpriteSizeInBytes
-		spriteY := sprite.Y - 16
-		spriteX := sprite.X - 8
-
-		if spriteY > p.CurrentScanline || spriteY+p.SpriteSize <= p.CurrentScanline {
-			continue
-		}
-		if spriteCount >= 10 {
-			break
-		}
-
-		// get the row of the sprite to render
-		tileRow := p.CurrentScanline - spriteY
-
-		// should we flip the sprite vertically?
-		if sprite.FlipY {
-			tileRow = p.SpriteSize - tileRow - 1
-		}
-		tileRow %= 8
-
-		// determine the tile ID
-		tileID := uint16(sprite.TileID)
-		if p.SpriteSize == 16 {
-			if p.CurrentScanline-spriteY < 8 {
-				if sprite.FlipY {
-					tileID |= 1
-				} else {
-					tileID &= 0xFE
-				}
-			} else {
-				if sprite.FlipY {
-					tileID &= 0xFE
-				} else {
-					tileID |= 1
-				}
-			}
-		}
-
-		// copy the sprite data to the sprite data
-		p.spriteData[byteIndex] = p.TileData[sprite.VRAMBank][tileID][tileRow]
-		p.spriteData[byteIndex+1] = p.TileData[sprite.VRAMBank][tileID][tileRow+8]
-		p.spriteData[byteIndex+2] = sprite.SpriteAttributes.value
-
-		// set the sprite x position for the current scanline
-		p.spriteData[byteIndex+3] = spriteX
-
-		// increment the sprite count
-		spriteCount++
+func (p *PPU) renderSpritesScanline(scanline uint8) {
+	if scanline >= p.oam.highestSprite.Y || scanline < p.oam.lowestSprite.Y-16 {
+		//fmt.Println("no sprites on this scanline")
+		return
 	}
-}
-
-func (p *PPU) renderSpritesScanline() {
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
@@ -1078,7 +989,7 @@ func (p *PPU) renderSpritesScanline() {
 		spriteY := sprite.Y - 16
 		spriteX := sprite.X - 8
 
-		if spriteY > p.CurrentScanline || spriteY+p.SpriteSize <= p.CurrentScanline {
+		if spriteY > scanline || spriteY+p.SpriteSize <= scanline {
 			continue
 		}
 		if spriteCount >= 10 {
@@ -1086,21 +997,21 @@ func (p *PPU) renderSpritesScanline() {
 		}
 		spriteCount++
 
-		tilerowIndex := p.CurrentScanline - spriteY
-		if sprite.FlipY {
+		tilerowIndex := scanline - spriteY
+		if sprite.flipY {
 			tilerowIndex = p.SpriteSize - tilerowIndex - 1
 		}
 		tilerowIndex %= 8
 		tileID := uint16(sprite.TileID)
 		if p.SpriteSize == 16 {
-			if p.CurrentScanline-spriteY < 8 {
-				if sprite.FlipY {
+			if scanline-spriteY < 8 {
+				if sprite.flipY {
 					tileID |= 0x01
 				} else {
 					tileID &= 0xFE
 				}
 			} else {
-				if sprite.FlipY {
+				if sprite.flipY {
 					tileID &= 0xFE
 				} else {
 					tileID |= 0x01
@@ -1109,8 +1020,22 @@ func (p *PPU) renderSpritesScanline() {
 		}
 
 		// get the 2 bytes of data that make up the row of the tile
-		b1 := p.TileData[sprite.VRAMBank][tileID][tilerowIndex]
-		b2 := p.TileData[sprite.VRAMBank][tileID][tilerowIndex+8]
+		b1 := p.TileData[sprite.vRAMBank][tileID][tilerowIndex]
+		b2 := p.TileData[sprite.vRAMBank][tileID][tilerowIndex+8]
+
+		// get the colour lut
+		var colourLUT [8]uint8
+		if sprite.flipX {
+			colourLUT = p.reversedColourNumberLUT[b1][b2]
+		} else {
+			colourLUT = p.colourNumberLUT[b1][b2]
+		}
+		var pal palette.Palette
+		if p.isGBC {
+			pal = p.ColourSpritePalette.Palettes[sprite.cgbPalette]
+		} else {
+			pal = p.SpritePalettes[sprite.useSecondPalette]
+		}
 
 		for x := uint8(0); x < 8; x++ {
 			// skip if the sprite is out of bounds
@@ -1120,12 +1045,7 @@ func (p *PPU) renderSpritesScanline() {
 			}
 
 			// get the color of the pixel using the sprite palette
-			color := b1 >> (7 - x) & 1 // get the bit at the x position
-			color |= (b2 >> (7 - x) & 1) << 1
-			if sprite.FlipX {
-				color = b1 >> x & 1 // get the bit at the x position
-				color |= (b2 >> x & 1) << 1
-			}
+			color := colourLUT[x]
 
 			// skip if the color is transparent
 			if color == 0 {
@@ -1133,14 +1053,14 @@ func (p *PPU) renderSpritesScanline() {
 			}
 
 			// skip if the sprite doesn't have priority and the background is not transparent
-			if !p.bus.IsGBC() || p.BackgroundEnabled {
-				if !(sprite.Priority && !p.tileBgPriority[p.CurrentScanline][pixelPos]) &&
-					p.PreparedFrame[p.CurrentScanline][pixelPos] != p.ColourPalette.GetColour(0, 0) {
+			if !p.isGBC || p.BackgroundEnabled {
+				if !(sprite.priority && !p.tileBgPriority[scanline][pixelPos]) &&
+					p.PreparedFrame[scanline][pixelPos] != p.ColourPalette.Palettes[0][0] {
 					continue
 				}
 			}
 
-			if p.bus.IsGBC() {
+			if p.isGBC {
 				// skip if the sprite doesn't have priority and the background is not transparent
 				if spriteXPerScreen[pixelPos] != 0 {
 					continue
@@ -1152,52 +1072,45 @@ func (p *PPU) renderSpritesScanline() {
 				}
 			}
 
-			if p.bus.IsGBC() {
-				p.PreparedFrame[p.CurrentScanline][pixelPos] = p.ColourSpritePalette.GetColour(sprite.CGBPalette, color)
-			} else {
-				p.PreparedFrame[p.CurrentScanline][pixelPos] = p.SpritePalettes[sprite.UseSecondPalette][color]
-			}
+			// draw the pixel
+			p.PreparedFrame[scanline][pixelPos] = pal[color]
 
 			// mark the pixel as occupied
 			spriteXPerScreen[pixelPos] = spriteX + 10
 		}
 	}
+
+	if spriteCount > 0 && !p.backgroundDirty {
+		p.backgroundLineDirty[scanline] = true
+	}
 }
 
 func (p *PPU) ClearRefresh() {
-	p.refreshScreen = false
-}
-
-// SaveCGBPalettes saves all of the currently active CGB palettes.
-func (p *PPU) SaveCGBPalettes() {
-	p.ColourPalette.SaveExample("bg.png")
-	p.ColourSpritePalette.SaveExample("sprite.png")
+	p.RefreshScreen = false
 }
 
 var _ types.Stater = (*PPU)(nil)
 
 func (p *PPU) Load(s *types.State) {
-	p.Background.Load(s)
 	p.Controller.Load(s)
-	p.Status.Load(s)
 	p.CurrentScanline = s.Read8()
-	p.LYCompare = s.Read8()
-	p.WindowX = s.Read8()
-	p.WindowY = s.Read8()
-	p.WindowYInternal = s.Read8()
+	p.lyCompare = s.Read8()
+	p.windowX = s.Read8()
+	p.windowY = s.Read8()
+	p.windowInternal = s.Read8()
 	for i := uint16(0); i < 0x2000; i++ {
 		p.vRAMBank = 0
-		p.WriteVRAM(i, s.Read8())
+		p.writeVRAM(i, s.Read8())
 	}
 	for i := uint16(0); i < 0x2000; i++ {
 		p.vRAMBank = 1
-		p.WriteVRAM(i, s.Read8())
+		p.writeVRAM(i, s.Read8())
 	}
 	// load the vRAM data
 	p.vRAMBank = s.Read8()
 	p.DMA.Load(s)
-	p.currentCycle = s.Read16()
-	p.refreshScreen = s.ReadBool()
+	p.CurrentTick = s.Read16()
+	p.RefreshScreen = s.ReadBool()
 	p.statInterruptDelay = s.ReadBool()
 	p.delayedTick = s.ReadBool()
 	p.Palette = palette.LoadPaletteFromState(s)
@@ -1208,20 +1121,18 @@ func (p *PPU) Load(s *types.State) {
 }
 
 func (p *PPU) Save(s *types.State) {
-	p.Background.Save(s)        // 14 bytes
 	p.Controller.Save(s)        // 1 byte
-	p.Status.Save(s)            // 3 byte
 	s.Write8(p.CurrentScanline) // 1 byte
-	s.Write8(p.LYCompare)       // 1 byte
-	s.Write8(p.WindowX)         // 1 byte
-	s.Write8(p.WindowY)         // 1 byte
-	s.Write8(p.WindowYInternal) // 1 byte
+	s.Write8(p.lyCompare)       // 1 byte
+	s.Write8(p.windowX)         // 1 byte
+	s.Write8(p.windowY)         // 1 byte
+	s.Write8(p.windowInternal)  // 1 byte
 	p.vRAM[0].Save(s)           // 8192 bytes
 	p.vRAM[1].Save(s)           // 8192 bytes
 	s.Write8(p.vRAMBank)        // 1 byte
 	p.DMA.Save(s)
-	s.Write16(p.currentCycle)
-	s.WriteBool(p.refreshScreen)
+	s.Write16(p.CurrentTick)
+	s.WriteBool(p.RefreshScreen)
 	s.WriteBool(p.statInterruptDelay)
 	s.WriteBool(p.delayedTick)
 	p.Palette.Save(s)
@@ -1229,4 +1140,8 @@ func (p *PPU) Save(s *types.State) {
 	p.SpritePalettes[1].Save(s)
 	p.ColourPalette.Save(s)
 	p.ColourSpritePalette.Save(s)
+}
+
+func (p *PPU) AttachRegenerate(cycle func()) {
+	p.cycleFunc = cycle
 }

@@ -15,14 +15,7 @@ package cpu
 func (c *CPU) shiftLeftIntoCarry(value uint8) uint8 {
 	newCarry := value >> 7
 	computed := (value << 1) & 0xFF
-	c.shouldZeroFlag(computed)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if newCarry == 1 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(computed == 0, false, false, newCarry == 1)
 	return computed
 }
 
@@ -40,14 +33,7 @@ func (c *CPU) shiftLeftIntoCarry(value uint8) uint8 {
 //	C - Contains old bit 0 data.
 func (c *CPU) shiftRightIntoCarry(value uint8) uint8 {
 	result := (value >> 1) | (value & 0x80)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	c.shouldZeroFlag(result)
-	if value&0x01 == 0x01 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(result == 0, false, false, value&0x01 == 0x01)
 	return result
 }
 
@@ -66,13 +52,7 @@ func (c *CPU) shiftRightIntoCarry(value uint8) uint8 {
 func (c *CPU) shiftRightLogical(value uint8) uint8 {
 	newCarry := value & 0x1
 	computed := value >> 1
-	c.shouldZeroFlag(computed)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if newCarry == 1 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(computed == 0, false, false, newCarry == 1)
+
 	return computed
 }

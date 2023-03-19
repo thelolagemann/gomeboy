@@ -103,6 +103,8 @@ type Printer struct {
 	hasJob            bool
 	printJob          image.Image
 	totalLength       uint16
+
+	stashedImages []color.RGBA
 }
 
 func NewPrinter() *Printer {
@@ -255,6 +257,7 @@ func (p *Printer) runCommand(cmd Command) {
 			// has job
 			p.hasJob = true
 			p.printJob = img
+			p.stashImage(colourData)
 
 			p.imageOffset = 0
 		}
@@ -305,6 +308,14 @@ func (p *Printer) GetPrintJob() image.Image {
 	return p.printJob
 }
 
+func (p *Printer) stashImage(colourData []color.RGBA) {
+	p.stashedImages = append(p.stashedImages, colourData...)
+}
+
+func (p *Printer) PrintStashed() {
+	saveNextImage(p.stashedImages, 160, len(p.stashedImages)/160)
+}
+
 // saveNextImage saves the next imageData
 func saveNextImage(c []color.RGBA, i int, u int) {
 	f, err := os.Create(fmt.Sprintf("imageData-%d.png", rand.Int()))
@@ -313,7 +324,7 @@ func saveNextImage(c []color.RGBA, i int, u int) {
 	}
 
 	// create the imageData from the data
-	img := image.NewRGBA(image.Rect(0, 0, i, int(u)))
+	img := image.NewRGBA(image.Rect(0, 0, i, u))
 	for co := 0; co < len(c); co++ {
 		img.Pix[co*4] = c[co].R
 		img.Pix[co*4+1] = c[co].G

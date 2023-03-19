@@ -233,7 +233,7 @@ func (h *Header) Licensee() string {
 }
 
 func (h *Header) String() string {
-	return fmt.Sprintf("%s (%s) | Mode: %s | ROM Size: %dkB | RAM Size: %dkB | Cart Type: %d", h.Title, h.Licensee(), h.Hardware(), h.ROMSize/1024, h.RAMSize/1024, h.CartridgeType)
+	return fmt.Sprintf("%s (%s) | mode: %s | ROM Size: %dkB | RAM Size: %dkB | Cart Type: %d", h.Title, h.Licensee(), h.Hardware(), h.ROMSize/1024, h.RAMSize/1024, h.CartridgeType)
 }
 
 // oldLicenseeCodeMap maps the old licensee code to the licensee name,

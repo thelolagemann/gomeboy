@@ -8,7 +8,7 @@ var (
 	hardwareRegisters = HardwareRegisters{}
 )
 
-// HardwareRegisters is a slice of hardware registers, which
+// HardwareRegisters is a slice of hardware IO, which
 // can be read and written to. The slice is indexed by the
 // address of the hardware register ANDed with 0x007F.
 type HardwareRegisters [0x80]*HardwareRegister
@@ -40,9 +40,9 @@ func (h HardwareRegisters) Write(address uint16, value uint8) {
 	h[address&0x007F].Write(value)
 }
 
-// CollectHardwareRegisters collects the registered hardware registers
+// CollectHardwareRegisters collects the registered hardware IO
 // and returns them as a slice of HardwareRegisters type. The defined
-// hardware registers are then cleared, so that they can be redefined
+// hardware IO are then cleared, so that they can be redefined
 // (for example, when running multiple instances of the emulator).
 func CollectHardwareRegisters() HardwareRegisters {
 	hardware := hardwareRegisters
@@ -51,7 +51,7 @@ func CollectHardwareRegisters() HardwareRegisters {
 }
 
 // HardwareRegister represents a hardware register of the Game
-// Boy. The hardware registers are used to control and
+// Boy. The hardware IO are used to control and
 // read the state of the hardware.
 type HardwareRegister struct {
 	address HardwareAddress
@@ -65,7 +65,7 @@ type HardwareRegister struct {
 // such as making it readable, writable, or both.
 type HardwareOpt func(*HardwareRegister)
 
-// RegisterHardware registers a hardware register with the given
+// RegisterHardware IO a hardware register with the given
 // address and read/write functions. The read and write functions
 // are optional, and may be nil, in which case the register is
 // read-only or write-only, respectively. The read and write
@@ -81,7 +81,7 @@ func RegisterHardware(address HardwareAddress, set func(v uint8), get func() uin
 		opt(h)
 	}
 
-	// add hardware register to global map of hardware registers
+	// add hardware register to global map of hardware IO
 	hardwareRegisters[address&0x007F] = h
 }
 
@@ -125,14 +125,14 @@ func (h *HardwareRegister) Write(value uint8) {
 }
 
 // NoRead is a convenience function to return a read function that
-// always returns 0xFF. This is useful for hardware registers that
+// always returns 0xFF. This is useful for hardware IO that
 // are not readable.
 func NoRead() uint8 {
 	return 0xFF
 }
 
 // NoWrite is a convenience function to return a write function that
-// does nothing. This is useful for hardware registers that are not
+// does nothing. This is useful for hardware IO that are not
 // writable.
 func NoWrite(v uint8) {
 	// do nothing

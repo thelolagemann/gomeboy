@@ -216,10 +216,7 @@ func generateBitInstructions() {
 // C - Reset.
 func (c *CPU) swap(value uint8) uint8 {
 	computed := value<<4&0xF0 | value>>4
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	c.clearFlag(FlagCarry)
-	c.shouldZeroFlag(computed)
+	c.setFlags(computed == 0, false, false, false)
 	return computed
 }
 
@@ -236,7 +233,5 @@ func (c *CPU) swap(value uint8) uint8 {
 //	H - Set.
 //	C - Not affected.
 func (c *CPU) testBit(value uint8, position uint8) {
-	c.shouldZeroFlag((value >> position) & 0x01)
-	c.clearFlag(FlagSubtract)
-	c.setFlag(FlagHalfCarry)
+	c.setFlags((value>>position)&0x01 == 0, false, true, c.isFlagSet(FlagCarry))
 }

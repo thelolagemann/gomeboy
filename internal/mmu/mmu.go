@@ -4,11 +4,12 @@
 package mmu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/boot"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
-	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"reflect"
 )
 
 // IOBus is the interface that the MMU uses to communicate with the other
@@ -39,7 +40,7 @@ type MMU struct {
 
 	// 0xC000 - 0xDFFF - Work RAM (8kB)
 	// 0xE000 - 0xFDFF - Echo RAM (7.5kB)
-	wRAM *WRAM
+	wRAM []uint8
 
 	// 0xFF00 - 0xFF7F - I/O Registers
 	registers types.HardwareRegisters
@@ -48,7 +49,6 @@ type MMU struct {
 	Sound IOBus
 
 	// 0xFF80 - 0xFFFE - Zero Page RAM (127B)
-	zRAM *ram.RAM
 
 	// (0xFFFF) - interrupt enable register
 
@@ -59,6 +59,13 @@ type MMU struct {
 	key0  uint8
 	key1  uint8
 	isGBC bool
+
+	flatMemory []uint8
+
+	loggedReads []int
+	IsMBC1      bool
+	wRAMOffset  uint16
+	wRAMBank    uint8
 }
 
 func (m *MMU) init() {
@@ -111,44 +118,36 @@ func (m *MMU) init() {
 		types.SVBK,
 		func(v uint8) {
 			if m.isGBC {
-				m.wRAM.bank = v & 0x07
-				if m.wRAM.bank == 0 {
-					m.wRAM.bank = 1
+				m.wRAMBank = v & 0x07
+				if m.wRAMBank == 0 {
+					m.wRAMBank = 1
 				}
+				m.wRAMOffset = uint16(m.wRAMBank) * 4096
 			}
 		}, func() uint8 {
 			if m.isGBC {
-				return m.wRAM.bank
+				return m.wRAMBank
 			}
 			return 0xFF
 		},
 	)
-
-}
-
-func readOffset(read func(uint16) uint8, offset uint16) func(uint16) uint8 {
-	return func(addr uint16) uint8 {
-		return read(addr - offset)
-	}
-}
-
-func writeOffset(write func(uint16, uint8), offset uint16) func(uint16, uint8) {
-	return func(addr uint16, v uint8) {
-		write(addr-offset, v)
-	}
 }
 
 // NewMMU returns a new MMU.
 func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 	m := &MMU{
 		Cart: cart,
-		wRAM: NewWRAM(),
-
-		zRAM: ram.NewRAM(0x80), // 128 bytes
 
 		Sound:       sound,
 		isGBC:       cart.Header().Hardware() == "CGB",
 		bootROMDone: true, // only set to false if boot rom is enabled
+		flatMemory:  make([]uint8, 65536),
+
+		loggedReads: make([]int, 65536),
+		IsMBC1:      reflect.TypeOf(cart.MemoryBankController) == reflect.TypeOf(&cartridge.MemoryBankedCartridge1{}),
+		wRAM:        make([]uint8, 32768),
+		wRAMOffset:  0x4000,
+		wRAMBank:    1,
 	}
 	if m.IsGBCCompat() {
 		m.HDMA = NewHDMA(m)
@@ -169,19 +168,23 @@ func (m *MMU) Map() {
 	addresses := []types.Address{
 		{Read: m.readCart, Write: m.Cart.Write},
 		{Read: m.Cart.Read, Write: m.Cart.Write},
-		{Read: m.wRAM.Read, Write: m.wRAM.Write},
-		{Read: readOffset(m.zRAM.Read, 0xFF80), Write: writeOffset(m.zRAM.Write, 0xFF80)},
-		{Read: func(address uint16) uint8 {
-			return 0xff
-		}},
+		{Read: nil, Write: m.Cart.Write},
 	}
 
-	// 0x0000 - 0x7FFF - ROM (16kB)
+	if m.BootROM != nil {
+		addresses[0] = types.Address{Read: m.readCart, Write: m.Cart.Write}
+	}
+
+	// 0x4000 - 0x7FFF - ROM (16kB)
 	for i := 0x0000; i < 0x8000; i++ {
 		if i <= 0x900 {
 			m.raw[i] = &addresses[0]
 		} else {
 			m.raw[i] = &addresses[1]
+		}
+		if i < 0x4000 {
+			m.raw[i] = &addresses[2]
+			m.flatMemory[i] = m.Cart.Read(uint16(i))
 		}
 	}
 
@@ -190,19 +193,14 @@ func (m *MMU) Map() {
 		m.raw[i] = &addresses[1]
 	}
 
-	// 0xC000 - 0xDFFF - internal RAM (8kB)
-	for i := 0xC000; i < 0xFE00; i++ {
-		m.raw[i] = &addresses[2]
-	}
-
 	// 0xFEA0 - 0xFEFF - unusable memory (96B)
 	for i := 0xFEA0; i < 0xFF00; i++ {
-		m.raw[i] = &addresses[2]
-	}
-
-	// 0xFF80 - 0xFFFE - Zero Page RAM (127B)
-	for i := 0xFF80; i < 0xFFFF; i++ {
-		m.raw[i] = &addresses[3]
+		m.raw[i] = &types.Address{
+			Read: func(uint16) uint8 { return 0xFF },
+			Write: func(uint16, uint8) {
+				//m.Log.Errorf("write to unusable memory at 0x%04X", i)
+			},
+		}
 	}
 
 	// collect hardware registers
@@ -303,11 +301,55 @@ func (m *MMU) readCart(address uint16) uint8 {
 // Read returns the value at the given address. It handles all the memory
 // banks, mirroring, I/O, etc.
 func (m *MMU) Read(address uint16) uint8 {
+	// m.loggedReads[address]++
+	switch {
+	case address < 0x4000:
+		if m.IsMBC1 {
+			return m.readCart(address)
+		}
+		return m.flatMemory[address]
+	case address >= 0xC000 && address < 0xD000:
+		return m.wRAM[address-0xC000]
+	case address >= 0xD000 && address < 0xE000:
+		return m.wRAM[m.wRAMOffset+(address-0xD000)]
+	case address >= 0xE000 && address < 0xF000:
+		return m.wRAM[address-0xE000]
+	case address >= 0xF000 && address < 0xFE00:
+		return m.wRAM[m.wRAMOffset+(address-0xF000)]
+	case address >= 0xFF80 && address < 0xFFFF:
+		return m.flatMemory[address]
+	}
 	return m.raw[address].Read(address)
 }
 
+// PrintLoggedReads prints the number of times each address was in
+// descending order.
+func (m *MMU) PrintLoggedReads() {
+	for address, count := range m.loggedReads {
+		if count > 1000 {
+			fmt.Printf("%04X: %d\n", address, count)
+		}
+	}
+}
+
 func (m *MMU) Write(address uint16, value uint8) {
-	m.raw[address].Write(address, value)
+	switch {
+	case address >= 0xC000 && address < 0xD000:
+		m.wRAM[address-0xC000] = value
+	case address >= 0xD000 && address < 0xE000:
+		m.wRAM[m.wRAMOffset+address-0xD000] = value
+	case address >= 0xE000 && address < 0xF000:
+		m.wRAM[address-0xE000] = value
+	case address >= 0xF000 && address < 0xFE00:
+		m.wRAM[m.wRAMOffset+address-0xF000] = value
+	case address >= 0xFF80 && address < 0xFFFF:
+		m.flatMemory[address] = value
+	default:
+		if m.raw[address] == nil {
+			panic(fmt.Sprintf("nil address at %04X", address))
+		}
+		m.raw[address].Write(address, value)
+	}
 }
 
 var _ types.Stater = (*MMU)(nil)
@@ -317,8 +359,6 @@ func (m *MMU) Load(s *types.State) {
 	m.key0 = s.Read8()
 	m.key1 = s.Read8()
 	m.bootROMDone = s.ReadBool()
-	m.zRAM.Load(s)
-	m.wRAM.Load(s)
 	if m.HDMA != nil {
 		m.HDMA.Load(s)
 	}
@@ -329,8 +369,6 @@ func (m *MMU) Save(s *types.State) {
 	s.Write8(m.key0)
 	s.Write8(m.key1)
 	s.WriteBool(m.bootROMDone)
-	m.zRAM.Save(s)
-	m.wRAM.Save(s)
 
 	if m.HDMA != nil {
 		m.HDMA.Save(s)

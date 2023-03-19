@@ -3,6 +3,8 @@ package views
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"image"
@@ -23,14 +25,23 @@ func (p *Printer) Run(window fyne.Window, events <-chan display.Event) error {
 	p.image = image.NewRGBA(image.Rect(0, 0, 160, 10))
 	window.SetPadded(false)
 
+	box := container.NewVBox()
+
 	// create the printer image
 	c := canvas.NewImageFromImage(p.image)
 	c.SetMinSize(fyne.NewSize(160*4, 200*4))
 	c.ScaleMode = canvas.ImageScalePixels
 	c.FillMode = canvas.ImageFillContain
 
+	// create a button to print the stashed image
+	b := widget.NewButton("Print Stashed", func() {
+		p.PrintStashed()
+	})
+	box.Add(c)
+	box.Add(b)
+
 	// set the canvas as the content of the window
-	window.SetContent(c)
+	window.SetContent(box)
 
 	go func() {
 		for {

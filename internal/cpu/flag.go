@@ -80,6 +80,23 @@ func (c *CPU) setFlag(flag Flag) {
 	c.F |= flag
 }
 
+func (c *CPU) setFlags(Z bool, N bool, H bool, C bool) {
+	v := uint8(0)
+	if Z {
+		v |= FlagZero
+	}
+	if N {
+		v |= FlagSubtract
+	}
+	if H {
+		v |= FlagHalfCarry
+	}
+	if C {
+		v |= FlagCarry
+	}
+	c.F = v
+}
+
 // isFlagSet returns true if the given flag is set,
 // false otherwise.
 func (c *CPU) isFlagSet(flag Flag) bool {

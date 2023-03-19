@@ -67,39 +67,37 @@ func init() {
 			cpu.A += 0xfa
 			cpu.clearFlag(FlagHalfCarry)
 		}
-		cpu.shouldZeroFlag(cpu.A)
+		if cpu.A == 0 {
+			cpu.setFlag(FlagZero)
+		} else {
+			cpu.clearFlag(FlagZero)
+		}
 	})
 	DefineInstruction(0x2F, "CPL", func(cpu *CPU) {
 		cpu.A = 0xFF ^ cpu.A
-		cpu.setFlag(FlagSubtract)
-		cpu.setFlag(FlagHalfCarry)
+		cpu.setFlags(cpu.isFlagSet(FlagZero), true, true, cpu.isFlagSet(FlagCarry))
 	})
 	DefineInstruction(0x37, "SCF", func(cpu *CPU) {
-		cpu.setFlag(FlagCarry)
-		cpu.clearFlag(FlagSubtract)
-		cpu.clearFlag(FlagHalfCarry)
+		cpu.setFlags(cpu.isFlagSet(FlagZero), false, false, true)
 	})
 	DefineInstruction(0x3F, "CCF", func(cpu *CPU) {
-		if cpu.isFlagSet(FlagCarry) {
-			cpu.clearFlag(FlagCarry)
-		} else {
-			cpu.setFlag(FlagCarry)
-		}
-		cpu.clearFlag(FlagSubtract)
-		cpu.clearFlag(FlagHalfCarry)
+		cpu.setFlags(cpu.isFlagSet(FlagZero), false, false, !cpu.isFlagSet(FlagCarry))
 	})
 	DefineInstruction(0x76, "HALT", func(c *CPU) {
-		if c.IRQ.IME {
+		if c.ime {
 			c.mode = ModeHalt
 		} else {
-			if c.IRQ.HasInterrupts() {
+			if c.irq.HasInterrupts() {
 				c.mode = ModeHaltBug
 			} else {
 				c.mode = ModeHaltDI
 			}
 		}
 	})
-	DefineInstruction(0xF3, "DI", func(c *CPU) { c.IRQ.IME = false })
+	DefineInstruction(0xCB, "CB Prefix", func(c *CPU) {
+		c.instructionsCB[c.readOperand()](c)
+	})
+	DefineInstruction(0xF3, "DI", func(c *CPU) { c.ime = false })
 	DefineInstruction(0xFB, "EI", func(c *CPU) { c.mode = ModeEnableIME })
 	generateBitInstructions()
 	generateLoadRegisterToRegisterInstructions()
@@ -114,7 +112,7 @@ func init() {
 }
 
 var disallowedOpcodes = []uint8{
-	0xCB, 0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
+	0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD,
 }
 
 var InstructionSet [256]Instruction

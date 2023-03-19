@@ -17,7 +17,7 @@ const (
 	perSample = 1 / float64(sampleRate)
 
 	// cpuTicksPerSample is the number of CPU ticks per sample.
-	cpuTicksPerSample = float64(4194304) / float64(sampleRate)
+	cpuTicksPerSample = (4194304) / (sampleRate)
 )
 
 var (
@@ -45,7 +45,7 @@ type APU struct {
 	waveformRam []byte
 
 	chan1, chan2, chan3, chan4 *Channel
-	tickCounter                float64
+	TickCounter                int32
 	lVol, rVol                 float64
 
 	audioBuffer  *buffer
@@ -116,6 +116,7 @@ func (a *APU) registerHardware(address uint16, w func(value uint8)) {
 	types.RegisterHardware(
 		address,
 		func(v uint8) {
+			a.Tick()
 			a.memory[address-0xFF00] = v
 			w(v)
 		},
@@ -341,31 +342,29 @@ func NewAPU() *APU {
 
 // Tick advances the APU by the given number of CPU ticks and
 // speed given.
-// go:inline
-func (a *APU) Tick(count int) {
+func (a *APU) Tick() {
 	if !a.playing || !a.enabled {
 		return
 	}
-
-	a.tickCounter += float64(count)
-	if a.tickCounter < cpuTicksPerSample {
+	if a.TickCounter < cpuTicksPerSample {
 		return
 	}
 
-	a.tickCounter -= cpuTicksPerSample
-	// sample channels
-	chn1l, chn1r := a.chan1.Sample()
-	chn2l, chn2r := a.chan2.Sample()
-	chn3l, chn3r := a.chan3.Sample()
-	chn4l, chn4r := a.chan4.Sample()
+	for i := int32(0); i < a.TickCounter/cpuTicksPerSample; i++ {
+		// sample channels
+		chn1l, chn1r := a.chan1.Sample()
+		chn2l, chn2r := a.chan2.Sample()
+		chn3l, chn3r := a.chan3.Sample()
+		chn4l, chn4r := a.chan4.Sample()
 
-	// mix channels
-	valL := uint16((chn1l+chn2l+chn3l+chn4l)/4) * 128
-	valR := uint16((chn1r+chn2r+chn3r+chn4r)/4) * 128
+		// mix channels
+		valL := uint16((chn1l+chn2l+chn3l+chn4l)/4) * 128
+		valR := uint16((chn1r+chn2r+chn3r+chn4r)/4) * 128
 
-	// write to buffer
-	a.audioBuffer.sampleChan <- [2]uint16{valL, valR}
-
+		// write to buffer
+		a.audioBuffer.sampleChan <- [2]uint16{valL, valR}
+		a.TickCounter -= cpuTicksPerSample
+	}
 }
 
 var squareLimits = []float64{
@@ -393,6 +392,7 @@ func (a *APU) Read(address uint16) uint8 {
 // Write writes the value to the given address.
 func (a *APU) Write(address uint16, value uint8) {
 	if address >= 0xFF30 && address <= 0xFF3F {
+		a.Tick()
 		soundIndex := (address - 0xFF30) * 2
 		a.waveformRam[soundIndex] = (value >> 4) & 0xF * 0x11
 		a.waveformRam[soundIndex+1] = value & 0xF * 0x11

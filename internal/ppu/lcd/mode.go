@@ -1,7 +1,7 @@
 package lcd
 
 // Mode represents a mode of the LCD.
-type Mode = int
+type Mode = uint8
 
 const (
 	// HBlank is the horizontal blanking mode. The CPU can access both the display RAM and OAM.

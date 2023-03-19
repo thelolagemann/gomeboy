@@ -14,6 +14,8 @@ type CGBPalette struct {
 	Palettes     [8]Palette
 	Index        byte
 	Incrementing bool
+
+	LastWrite uint8
 }
 
 // SetIndex updates the index of the palette.
@@ -80,6 +82,8 @@ func (p *CGBPalette) Write(value byte) {
 	if p.Incrementing {
 		p.Index = (p.Index + 1) & 0x3F
 	}
+
+	p.LastWrite = value
 }
 
 // GetColour returns the colour for a given palette index,

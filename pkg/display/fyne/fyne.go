@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/storage"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
@@ -14,7 +16,9 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
+	"time"
 	"unsafe"
 )
 
@@ -86,8 +90,6 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 
 		// print the size of the various components of the PPU
 		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
-		fmt.Printf("LCD: %d\n", unsafe.Sizeof(*gb.PPU.Status)+unsafe.Sizeof(*gb.PPU.Controller))
-		fmt.Printf("DMA: %d\n", unsafe.Sizeof(*gb.PPU.DMA))
 		fmt.Printf("Render Job: %d\n", unsafe.Sizeof(ppu.RenderJob{}))
 		fmt.Printf("Render Output: %d\n", unsafe.Sizeof(ppu.RenderOutput{}))
 	},
@@ -157,6 +159,7 @@ func (a *Application) Run() error {
 	// create the gameboy1 window
 	mainWindow1 := a.app.NewWindow("GomeBoy")
 	mainWindow1.SetMaster()
+
 	mainWindow1.Resize(fyne.NewSize(160*4, 144*4))
 	mainWindow1.SetPadded(false)
 
@@ -177,57 +180,94 @@ func (a *Application) Run() error {
 	c.ScaleMode = canvas.ImageScalePixels
 	c.SetMinSize(fyne.NewSize(ppu.ScreenWidth, ppu.ScreenHeight))
 
+	// create submenus
+	menuItemOpenROM := fyne.NewMenuItem("Open ROM", func() {
+		// open a file dialog to select a ROM
+		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil || reader == nil {
+				return
+			}
+			defer reader.Close()
+
+			// read the ROM
+			rom, err := io.ReadAll(reader)
+			if err != nil {
+				return
+			}
+
+			// close the current gameboy if it's running
+			if a.gb1.IsRunning() {
+				a.gb1.Lock()
+				// close the current gameboy
+				a.gb1.Close <- struct{}{}
+				a.gb1.Unlock()
+				a.gb1 = nil
+			}
+			// load the ROM
+			a.gb1 = gameboy.NewGameBoy(rom) // TODO retain the options from the previous gameboy
+
+			// start the gameboy
+			a.StartGameView(img, c, a.gb1, mainWindow1)
+		}, mainWindow1)
+		fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".gb", ".gbc"}))
+		lister, err := storage.ListerForURI(storage.NewFileURI("."))
+		if err != nil {
+			// TODO
+		}
+		fileDialog.SetLocation(lister)
+		fileDialog.Show()
+	})
+	menuItemSaveState := fyne.NewMenuItem("Save State", func() {
+		// TODO
+	})
+	menuItemLoadState := fyne.NewMenuItem("Load State", func() {
+		// TODO
+	})
+
+	// add menu items to submenus
+	fileMenu := fyne.NewMenu("File", menuItemOpenROM, menuItemSaveState, menuItemLoadState)
+
+	// create main menu
+	mainMenu := fyne.NewMainMenu(
+		fileMenu,
+	)
+	mainMenu.Refresh()
+
 	// set the content of the window and show it
 	mainWindow1.SetContent(c)
+	// mainWindow1.SetMainMenu(mainMenu)
 	mainWindow1.Show()
 
-	// create a dispatcher
-	events := make(chan display.Event, 144)
-	go func() {
-		for {
-			// lock the gameboy
-			e := <-events
-			a.gb1.Lock()
-			// is this event for the main window? (e.g. title)
-			if e.Type == display.EventTypeTitle {
-				mainWindow1.SetTitle(e.Data.(string))
-			} else {
-				// send the event to all windows
-				for _, w := range a.Windows {
-					w.events <- e
-				}
-			}
-			// unlock the gameboy
-			a.gb1.Unlock()
-		}
-	}()
-
-	// handle input
-	pressed, release := make(chan joypad.Button, 10), make(chan joypad.Button, 10)
-	if desk, ok := mainWindow1.Canvas().(desktop.Canvas); ok {
-		desk.SetOnKeyDown(func(e *fyne.KeyEvent) {
-			// check if this is a gameboy key
-			if k, ok := keyMap[e.Name]; ok {
-				pressed <- k
-			} else if h, ok := keyHandlers[e.Name]; ok {
-				h(a.gb1)
-			}
-		})
-		desk.SetOnKeyUp(func(e *fyne.KeyEvent) {
-			if k, ok := keyMap[e.Name]; ok {
-				release <- k
-			}
-		})
+	// start the gameboy if ROM is loaded
+	if a.gb1.MMU.Cart.MD5 != "" {
+		a.StartGameView(img, c, a.gb1, mainWindow1)
 	}
 
+	// run the application
+	a.app.Run()
+
+	// close the gameboy on exit
+	if a.gb1.IsRunning() {
+		a.gb1.Lock()
+		// close the current gameboy
+		a.gb1.Close <- struct{}{}
+		a.gb1.Unlock()
+	}
+	// wait for the gameboy to close
+	for a.gb1.IsRunning() {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return nil
+}
+
+func (a *Application) StartGameView(img *image.RGBA, c *canvas.Raster, gb *gameboy.GameBoy, window fyne.Window) {
 	// setup framebuffer
 	fb := make(chan []byte, 144)
 	go func() {
 		for {
 			select {
 			case f := <-fb:
-				// lock the gameboy
-				a.gb1.Lock()
 				// copy the framebuffer to the image
 				for i := 0; i < ppu.ScreenHeight*ppu.ScreenWidth; i++ {
 					img.Pix[i*4] = f[i*3]
@@ -238,86 +278,53 @@ func (a *Application) Run() error {
 
 				// refresh the canvas
 				c.Refresh()
-
-				// unlock the gameboy
-				a.gb1.Unlock()
 			}
 		}
 	}()
 
-	if a.gb2 == nil {
-		go func() {
-			a.gb1.Start(fb, events, pressed, release)
-		}()
-	} else {
-		// create the image to draw to
-		img2 := image.NewRGBA(image.Rect(0, 0, ppu.ScreenWidth, ppu.ScreenHeight))
-		c2 := canvas.NewRasterFromImage(img2)
-		c2.ScaleMode = canvas.ImageScalePixels
-		c2.SetMinSize(fyne.NewSize(ppu.ScreenWidth, ppu.ScreenHeight))
-		mainWindow2.SetContent(c2)
-		mainWindow2.Show()
-
-		// create a dispatcher
-		events2 := make(chan display.Event, 144)
-		go func() {
-			for {
-				<-events2 // TODO
-				c2.Refresh()
+	// create a dispatcher
+	events := make(chan display.Event, 144)
+	go func() {
+		for {
+			// lock the gameboy
+			e := <-events
+			gb.Lock()
+			// is this event for the main window? (e.g. title)
+			if e.Type == display.EventTypeTitle {
+				window.SetTitle(e.Data.(string))
+			} else {
+				// send the event to all windows
+				for _, w := range a.Windows {
+					w.events <- e
+				}
 			}
-		}()
-
-		// handle input
-		pressed2, release2 := make(chan joypad.Button, 10), make(chan joypad.Button, 10)
-		if desk, ok := mainWindow2.Canvas().(desktop.Canvas); ok {
-			desk.SetOnKeyDown(func(e *fyne.KeyEvent) {
-				// check if this is a gameboy key
-				if k, ok := keyMap[e.Name]; ok {
-					pressed2 <- k
-				} else if h, ok := keyHandlers[e.Name]; ok {
-					h(a.gb2)
-				}
-			})
-			desk.SetOnKeyUp(func(e *fyne.KeyEvent) {
-				if k, ok := keyMap[e.Name]; ok {
-					release2 <- k
-				}
-			})
+			// unlock the gameboy
+			gb.Unlock()
 		}
+	}()
 
-		// setup framebuffer
-		fb2 := make(chan []byte, 144)
-		go func() {
-			for {
-				select {
-				case f := <-fb2:
-					// lock the gameboy
-					a.gb2.Lock()
-					// copy the framebuffer to the image
-					for i := 0; i < ppu.ScreenHeight*ppu.ScreenWidth; i++ {
-						img2.Pix[i*4] = f[i*3]
-						img2.Pix[i*4+1] = f[i*3+1]
-						img2.Pix[i*4+2] = f[i*3+2]
-						img2.Pix[i*4+3] = 255
-					}
+	// handle input
+	pressed, release := make(chan joypad.Button, 10), make(chan joypad.Button, 10)
+	if desk, ok := window.Canvas().(desktop.Canvas); ok {
+		desk.SetOnKeyDown(func(e *fyne.KeyEvent) {
+			// check if this is a gameboy key
+			if k, ok := keyMap[e.Name]; ok {
+				pressed <- k
+			} else if h, ok := keyHandlers[e.Name]; ok {
+				h(a.gb1)
+			} else if e.Name == fyne.KeyEscape {
 
-					// refresh the canvas
-					c2.Refresh()
-
-					// unlock the gameboy
-					a.gb2.Unlock()
-				}
 			}
-		}()
-		go func() {
-			a.gb1.StartLinked(fb, events, pressed, release, fb2, events, pressed2, release2)
-		}()
+		})
+		desk.SetOnKeyUp(func(e *fyne.KeyEvent) {
+			if k, ok := keyMap[e.Name]; ok {
+				release <- k
+			}
+		})
 	}
 
-	// run the application
-	a.app.Run()
-
-	return nil
+	// TODO reimplement multiplayer
+	go gb.Start(fb, events, pressed, release)
 }
 
 func (a *Application) AddGameBoy(gb *gameboy.GameBoy) {
@@ -327,5 +334,3 @@ func (a *Application) AddGameBoy(gb *gameboy.GameBoy) {
 // TODO
 // - add a way to close windows
 // - implement Resettable interface for remaining components (apu, cpu, interrupts, joypad, mmu, ppu, timer, types)
-// - implement a way to save state
-// - implement a way to load state

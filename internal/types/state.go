@@ -31,6 +31,13 @@ func NewState() *State {
 	}
 }
 
+// ResetPosition resets the read and write positions,
+// allowing the state to be read from the beginning.
+func (s *State) ResetPosition() {
+	s.readPosition = 0
+	s.writePosition = 0
+}
+
 // StateFromBytes creates a new state from the given bytes.
 func StateFromBytes(raw []byte) *State {
 	return &State{

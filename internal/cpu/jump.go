@@ -73,7 +73,8 @@ func (c *CPU) jumpRelativeConditional(condition bool) {
 	if condition {
 		c.jumpRelative()
 	} else {
-		c.skipOperand()
+		c.tickCycle()
+		c.PC++
 	}
 }
 
@@ -130,7 +131,7 @@ func (c *CPU) retConditional(condition bool) {
 //
 //	RETI
 func (c *CPU) retInterrupt() {
-	c.IRQ.IME = true
+	c.ime = true
 	c.ret()
 }
 

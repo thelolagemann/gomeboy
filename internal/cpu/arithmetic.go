@@ -13,13 +13,7 @@ package cpu
 //	C - Not affected.
 func (c *CPU) increment(value uint8) uint8 {
 	incremented := value + 0x01
-	c.clearFlag(FlagSubtract)
-	c.shouldZeroFlag(incremented)
-	if value&0xF == 0xF {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
+	c.setFlags(incremented == 0, false, value&0xF == 0xF, c.isFlagSet(FlagCarry))
 	return incremented
 }
 
@@ -52,13 +46,7 @@ func (c *CPU) incrementNN(register *RegisterPair) {
 //	C - Not affected.
 func (c *CPU) decrement(value uint8) uint8 {
 	decremented := value - 0x01
-	c.setFlag(FlagSubtract)
-	c.shouldZeroFlag(decremented)
-	if value&0x0f == 0 {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
+	c.setFlags(decremented == 0, true, value&0xF == 0x0, c.isFlagSet(FlagCarry))
 	return decremented
 }
 
@@ -116,18 +104,7 @@ func (c *CPU) add(a, b uint8, shouldCarry bool) uint8 {
 		sum++
 		sumHalf++
 	}
-	c.shouldZeroFlag(uint8(sum))
-	c.clearFlag(FlagSubtract)
-	if sumHalf > 0xF {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
-	if sum > 0xFF {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(uint8(sum) == 0, false, sumHalf > 0xF, sum > 0xFF)
 	return uint8(sum)
 }
 
@@ -135,17 +112,7 @@ func (c *CPU) add(a, b uint8, shouldCarry bool) uint8 {
 // setting the flags accordingly.
 func (c *CPU) addUint16(a, b uint16) uint16 {
 	sum := int32(a) + int32(b)
-	c.clearFlag(FlagSubtract)
-	if int32(a&0xFFF) > (sum & 0xFFF) {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
-	if sum > 0xFFFF {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(c.isFlagSet(FlagZero), false, (a&0xFFF)+(b&0xFFF) > 0xFFF, sum > 0xFFFF)
 	return uint16(sum)
 }
 
@@ -156,18 +123,7 @@ func (c *CPU) addUint16Signed(a uint16, b int8) uint16 {
 
 	tmpVal := a ^ uint16(b) ^ total
 
-	if (tmpVal & 0x10) == 0x10 {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
-	if (tmpVal & 0x100) == 0x100 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
-	c.clearFlag(FlagZero)
-	c.clearFlag(FlagSubtract)
+	c.setFlags(false, false, tmpVal&0x10 == 0x10, tmpVal&0x100 == 0x100)
 	return total
 }
 
@@ -194,18 +150,7 @@ func (c *CPU) sub(a, b uint8, shouldCarry bool) uint8 {
 		subHalf--
 	}
 
-	c.shouldZeroFlag(uint8(sub))
-	c.setFlag(FlagSubtract)
-	if subHalf < 0 {
-		c.setFlag(FlagHalfCarry)
-	} else {
-		c.clearFlag(FlagHalfCarry)
-	}
-	if sub < 0 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(uint8(sub) == 0, true, subHalf < 0, sub < 0)
 	return uint8(sub)
 }
 

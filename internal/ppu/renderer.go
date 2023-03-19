@@ -20,15 +20,15 @@ const SpriteSizeInBytes = 4
 //
 // The pixel data is stored in the following format:
 //
-//	Bit 6 - 4 Color Palette Number  **CGB Mode Only**    (OBP0-7)
-//	Bit 3 - OBJ Palette Number *Non CGB Mode Only** (0=OBP0, 1=OBP1)
+//	Bit 6 - 4 Color Palette Number  **CGB mode Only**    (OBP0-7)
+//	Bit 3 - OBJ Palette Number *Non CGB mode Only** (0=OBP0, 1=OBP1)
 //	Bit 2 - Background/Sprite Pixel (0=Background, 1=Sprite)
 //	Bit 1 - 0 Color number  (0-3)
 //
 // New Format 3 bytes per 8 pixels
 //
-//	Bit 23 - 20 Color Palette Number  **CGB Mode Only**    (OBP0-7)
-//	Bit 19 - OBJ Palette Number *Non CGB Mode Only** (0=OBP0, 1=OBP1)
+//	Bit 23 - 20 Color Palette Number  **CGB mode Only**    (OBP0-7)
+//	Bit 19 - OBJ Palette Number *Non CGB mode Only** (0=OBP0, 1=OBP1)
 //	Bit 18 - Background/Sprite Pixel (0=Background, 1=Sprite)
 //	Bit 15 - 0 Color Number for pixels 1 - 8 (00-03)
 type Pixel = uint8

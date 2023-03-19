@@ -44,7 +44,6 @@ const (
 type Service struct {
 	Flag   uint8 // interrupt Flag (types.IF)
 	Enable uint8 // interrupt Enable (types.IE)
-	IME    bool  // interrupt Master Enable flag (IME)
 }
 
 // NewService returns a new Service.
@@ -113,11 +112,9 @@ var _ types.Stater = (*Service)(nil)
 // Load implements the types.Stater interface.
 //
 // The values are loaded in the following order:
-//   - IME (bool)
 //   - Flag (uint8)
 //   - Enable (uint8)
 func (s *Service) Load(st *types.State) {
-	s.IME = st.ReadBool()
 	s.Flag = st.Read8()
 	s.Enable = st.Read8()
 }
@@ -125,11 +122,9 @@ func (s *Service) Load(st *types.State) {
 // Save implements the types.Stater interface.
 //
 // The values are saved in the following order:
-//   - IME (bool)
 //   - Flag (uint8)
 //   - Enable (uint8)
 func (s *Service) Save(st *types.State) {
-	st.WriteBool(s.IME)
 	st.Write8(s.Flag)
 	st.Write8(s.Enable)
 }

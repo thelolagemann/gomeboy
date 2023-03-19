@@ -1,5 +1,7 @@
 package cpu
 
+import "github.com/thelolagemann/go-gameboy/internal/types"
+
 // rotateLeft rotates the given value left by 1 bit. Bit 7 is copied to both
 // the carry flag and the least significant bit.
 //
@@ -15,15 +17,8 @@ package cpu
 func (c *CPU) rotateLeft(value uint8) uint8 {
 	carry := value >> 7
 	rotated := (value<<1)&0xFF | carry
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	c.shouldZeroFlag(rotated)
+	c.setFlags(rotated == 0, false, false, carry == 1)
 
-	if carry == 1 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
 	return rotated
 }
 
@@ -43,14 +38,7 @@ func (c *CPU) rotateLeft(value uint8) uint8 {
 func (c *CPU) rotateRight(value uint8) uint8 {
 	newCarry := value & 0x1
 	computed := (value >> 1) | (newCarry << 7)
-	c.shouldZeroFlag(computed)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if newCarry == 1 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(computed == 0, false, false, newCarry == 1)
 	return computed
 }
 
@@ -69,17 +57,10 @@ func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
 	newCarry := value & 0x01
 	computed := value >> 1
 	if c.isFlagSet(FlagCarry) {
-		computed |= 1 << 7
+		computed |= types.Bit7
 	}
 
-	if newCarry == 1 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
-	c.shouldZeroFlag(computed)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
+	c.setFlags(computed == 0, false, false, newCarry == 1)
 	return computed
 }
 
@@ -96,19 +77,12 @@ func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftThroughCarry(value uint8) uint8 {
 	newCarry := value >> 7
-	computed := (value << 1) & 0xFF
+	computed := value << 1
 	if c.isFlagSet(FlagCarry) {
-		computed |= 0x01
+		computed |= types.Bit0
 	}
 
-	if newCarry == 1 {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
-	c.shouldZeroFlag(computed)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
+	c.setFlags(computed == 0, false, false, newCarry == 1)
 	return computed
 }
 
@@ -125,19 +99,9 @@ func (c *CPU) rotateLeftThroughCarry(value uint8) uint8 {
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftAccumulator() {
-	carry := c.A&0x80 != 0
-	c.A = (c.A << 1) & 0xFF
-	if carry {
-		c.A |= 0x01
-	}
-	c.clearFlag(FlagZero)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if carry {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	carry := c.A >> 7
+	c.A = (c.A<<1)&0xFF | carry
+	c.setFlags(false, false, false, carry == 1)
 }
 
 // rotateLeftAccumulatorThroughCarry rotates the accumulator left by 1 bit through the carry flag.
@@ -153,18 +117,11 @@ func (c *CPU) rotateLeftAccumulator() {
 func (c *CPU) rotateLeftAccumulatorThroughCarry() {
 	newCarry := c.A&0x80 != 0
 	oldCarry := c.isFlagSet(FlagCarry)
-	c.A = (c.A << 1) & 0xFF
+	c.A <<= 1
 	if oldCarry {
 		c.A |= 0x01
 	}
-	c.clearFlag(FlagZero)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if newCarry {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(false, false, false, newCarry)
 }
 
 // rotateRightAccumulator rotates the accumulator right by 1 bit. The most significant bit is
@@ -181,18 +138,11 @@ func (c *CPU) rotateLeftAccumulatorThroughCarry() {
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightAccumulator() {
 	carry := c.A&0x1 != 0
-	c.A = (c.A >> 1) & 0xFF
+	c.A >>= 1
 	if carry {
 		c.A |= 0x80
 	}
-	c.clearFlag(FlagZero)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if carry {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(false, false, false, carry)
 }
 
 // rotateRightAccumulatorThroughCarry rotates the accumulator right by 1 bit through the carry flag.
@@ -207,19 +157,12 @@ func (c *CPU) rotateRightAccumulator() {
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightAccumulatorThroughCarry() {
 	newCarry := c.A&0x1 != 0
-	c.A = (c.A >> 1) & 0xFF
+	c.A >>= 1
 	if c.isFlagSet(FlagCarry) {
 		c.A |= 0x80
 	}
 
-	c.clearFlag(FlagZero)
-	c.clearFlag(FlagSubtract)
-	c.clearFlag(FlagHalfCarry)
-	if newCarry {
-		c.setFlag(FlagCarry)
-	} else {
-		c.clearFlag(FlagCarry)
-	}
+	c.setFlags(false, false, false, newCarry)
 }
 
 func init() {

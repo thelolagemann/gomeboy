@@ -15,7 +15,7 @@ type HDMA struct {
 	mode Mode
 
 	transferring bool
-	copying      bool
+	Copying      bool
 
 	blocks        uint8
 	source        uint16
@@ -57,7 +57,7 @@ func (h *HDMA) init() {
 	types.RegisterHardware(
 		types.HDMA5,
 		func(v uint8) {
-			// is HDMA copying?
+			// is HDMA Copying?
 			if h.mode == HDMAMode && h.transferring {
 				if Mode(v>>7) == GDMAMode {
 					// stop the HDMA transfer
@@ -77,7 +77,7 @@ func (h *HDMA) init() {
 
 			// start GDMA transfer immediately
 			if h.mode == GDMAMode {
-				h.copying = true
+				h.Copying = true
 			}
 		},
 		func() uint8 {
@@ -95,7 +95,7 @@ func NewHDMA(bus IOBus) *HDMA {
 	h := &HDMA{
 		mode:         GDMAMode,
 		transferring: false,
-		copying:      false,
+		Copying:      false,
 		blocks:       0x01,
 
 		bus: bus,
@@ -118,25 +118,19 @@ func (h *HDMA) Tick() {
 		// has the transfer finished?
 		if h.blocks == 0 {
 			h.transferring = false
-			h.copying = false
+			h.Copying = false
 			h.blocks = 0x80
 		}
 
 		if h.mode == HDMAMode {
-			h.copying = false
+			h.Copying = false
 		}
 	}
 }
 
-// IsCopying returns true if the HDMA controller is currently copying
-// data.
-func (h *HDMA) IsCopying() bool {
-	return h.copying
-}
-
 func (h *HDMA) SetHBlank() {
 	if h.mode == HDMAMode && h.transferring {
-		h.copying = true
+		h.Copying = true
 	}
 }
 
@@ -148,7 +142,7 @@ var _ types.Stater = (*HDMA)(nil)
 
 func (h *HDMA) Load(s *types.State) {
 	h.transferring = s.ReadBool()
-	h.copying = s.ReadBool()
+	h.Copying = s.ReadBool()
 	h.mode = s.Read8()
 	h.source = s.Read16()
 	h.destination = s.Read16()
@@ -157,7 +151,7 @@ func (h *HDMA) Load(s *types.State) {
 
 func (h *HDMA) Save(s *types.State) {
 	s.WriteBool(h.transferring)
-	s.WriteBool(h.copying)
+	s.WriteBool(h.Copying)
 	s.Write8(h.mode)
 	s.Write16(h.source)
 	s.Write16(h.destination)

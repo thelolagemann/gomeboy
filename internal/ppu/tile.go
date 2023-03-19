@@ -3,7 +3,6 @@ package ppu
 import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"image"
-	"image/color"
 )
 
 // Tile represents a tile. Each tile has a size of 8x8 pixels and a color
@@ -12,27 +11,24 @@ import (
 type Tile [16]uint8
 
 type TileAttributes struct {
-	// UseBGPriority is the BG Priority bit. When set, the tile is displayed
+	// bgPriority is the BG priority bit. When set, the tile is displayed
 	// behind the background and window. Otherwise, it is displayed in front
 	// of the background and window.
-	UseBGPriority bool
-	// YFlip is the Y Flip bit. When set, the tile is flipped vertically.
-	YFlip bool
-	// XFlip is the X Flip bit. When set, the tile is flipped horizontally.
-	XFlip bool
-	// PaletteNumber is the Palette Number bit. It specifies the palette
+	bgPriority bool
+	// yFlip is the Y Flip bit. When set, the tile is flipped vertically.
+	yFlip bool
+	// xFlip is the X Flip bit. When set, the tile is flipped horizontally.
+	xFlip bool
+	// paletteNumber is the Palette Number bit. It specifies the palette
 	// number (0-7) that is used to determine the tile's colors.
-	PaletteNumber uint8
-	// VRAMBank is the VRAM Bank bit. It specifies the VRAM bank (0-1) that
+	paletteNumber uint8
+	// vRAMBank is the VRAM Bank bit. It specifies the VRAM bank (0-1) that
 	// is used to store the tile's data.
-	VRAMBank uint8
-
-	// the raw value of the attributes to be easily read
-	value uint8
+	vRAMBank uint8
 }
 
 // Draw draws the tile to the given image at the given position.
-func (t *Tile) Draw(img *image.RGBA, i int, i2 int) {
+func (t Tile) Draw(img *image.RGBA, i int, i2 int) {
 	for tileY := 0; tileY < 8; tileY++ {
 		for tileX := 0; tileX < 8; tileX++ {
 			var x = i + tileX
@@ -64,7 +60,7 @@ func NewTileMap() TileMap {
 	for y := 0; y < 32; y++ {
 		for x := 0; x < 32; x++ {
 			tileMap[y][x] = TileMapEntry{
-				TileID: 0,
+				id: 0,
 			}
 		}
 	}
@@ -72,62 +68,18 @@ func NewTileMap() TileMap {
 }
 
 type TileMapEntry struct {
-	TileID     uint16
-	Attributes TileAttributes
+	id         uint16
+	attributes TileAttributes
+
+	Tile
 }
 
-func (t *TileMapEntry) GetID(signed bool) int16 {
-	id := int16(t.TileID)
+func (t TileMapEntry) GetID(signed bool) int16 {
+	id := int16(t.id)
 	if signed {
 		if id < 128 {
 			id += 256
 		}
 	}
 	return id
-}
-
-func (t *TileAttributes) Read(address uint16) uint8 {
-	var val uint8
-	if t.UseBGPriority {
-		val |= 0x80
-	}
-	if t.YFlip {
-		val |= 0x40
-	}
-	if t.XFlip {
-		val |= 0x20
-	}
-	val |= t.PaletteNumber & 0b111
-	val |= t.VRAMBank << 3
-	return val
-}
-
-func (t *TileAttributes) Write(value uint8) {
-	t.UseBGPriority = value&0x80 != 0
-	t.YFlip = value&0x40 != 0
-	t.XFlip = value&0x20 != 0
-	t.PaletteNumber = value & 0b111
-	t.VRAMBank = value >> 3 & 0x1
-	t.value = value
-}
-
-// Draw draws the bank number over the tile map.
-func (t *TileAttributes) Draw(img *image.RGBA, i int, i2 int) {
-	for tileY := 0; tileY < 8; tileY++ {
-		for tileX := 0; tileX < 8; tileX++ {
-			var x = i + tileX
-			var y = i2 + tileY
-			var colourNum = int(t.VRAMBank)
-			rgb := palette.GetColour(uint8(colourNum))
-
-			// mix with current colour
-			currentColor := img.At(x, y)
-			r, g, b, a := currentColor.RGBA()
-			rgb[0] = (rgb[0] + uint8(r)) / 2
-			rgb[1] = (rgb[1] + uint8(g)) / 2
-			rgb[2] = (rgb[2] + uint8(b)) / 2
-			img.Set(x, y, color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: uint8(a)})
-
-		}
-	}
 }

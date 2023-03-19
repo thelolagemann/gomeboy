@@ -13,16 +13,18 @@ import (
 // interrupts at a specific frequency. The frequency can be
 // configured using the types.TAC register.
 type Controller struct {
-	Div                uint16
-	currentBit         uint16
+	currentBit  uint16
+	internalDiv uint16
+
 	tima               uint8
 	ticksSinceOverflow uint8
 	tma                uint8
 	tac                uint8
 
-	enabled  bool
-	lastBit  bool
-	overflow bool
+	Enabled   bool
+	lastBit   bool
+	overflow  bool
+	cycleFunc func()
 
 	irq *interrupts.Service
 }
@@ -32,20 +34,9 @@ func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
 		irq:        irq,
 		currentBit: bits[0],
-		Div:        0xABCC,
 		tac:        0xF8,
 	}
-	// set up types
-	types.RegisterHardware(
-		types.DIV,
-		func(v uint8) {
-			c.Div = 0 // any write to DIV resets it
-		},
-		func() uint8 {
-			// return bits 6-13 of divider register
-			return uint8(c.Div >> 8) // TODO actually return bits 6-13
-		},
-	)
+	// set up registers
 	types.RegisterHardware(
 		types.TIMA,
 		func(v uint8) {
@@ -76,7 +67,7 @@ func NewController(irq *interrupts.Service) *Controller {
 	types.RegisterHardware(
 		types.TAC,
 		func(v uint8) {
-			wasEnabled := c.enabled
+			wasEnabled := c.Enabled
 			oldBit := c.currentBit
 			// 00 = shift by 9 bits
 			// 01 = shift by 3 bits
@@ -85,9 +76,10 @@ func NewController(irq *interrupts.Service) *Controller {
 
 			c.tac = v
 			c.currentBit = bits[v&0b11]
-			c.enabled = (v & 0x4) == 0x4
+			c.Enabled = (v & 0x4) == 0x4
 
 			c.timaGlitch(wasEnabled, oldBit)
+			c.cycleFunc()
 		}, func() uint8 {
 			return c.tac | 0b11111000
 		},
@@ -97,70 +89,59 @@ func NewController(irq *interrupts.Service) *Controller {
 }
 
 // TickM ticks the timer controller by 1 M-Cycle (4 T-Cycles).
-func (c *Controller) TickM() {
-	if !c.enabled {
-		// divider register is always incremented,
-		// regardless of the timer being enabled or not
-		c.Div += 4
-		return
-	}
+func (c *Controller) TickM(sysClock uint16) {
+	selectedBit := c.currentBit
+	for i := 0; i < 4; i++ {
+		// increment divider register
+		sysClock++
 
-	// execute 4 T-Cycles
-	c.TickT()
-	c.TickT()
-	c.TickT()
-	c.TickT()
-}
+		// get the new bit
+		newBit := (sysClock & selectedBit) != 0
 
-// TickT ticks the timer controller by 1 T-Cycle.
-func (c *Controller) TickT() {
-	// increment divider register
-	c.Div++
+		// detect a falling edge
+		if !newBit && c.lastBit {
+			// increment timer
+			c.tima++
 
-	// get the new bit
-	newBit := (c.Div & c.currentBit) != 0
+			// check for overflow
+			if c.tima == 0 {
+				c.overflow = true
+				c.ticksSinceOverflow = 0
+			}
+		}
 
-	// detect a falling edge
-	if c.lastBit && !newBit {
-		// increment timer
-		c.tima++
+		// update last bit
+		c.lastBit = newBit
 
 		// check for overflow
-		if c.tima == 0 {
-			c.overflow = true
-			c.ticksSinceOverflow = 0
+		if c.overflow {
+			c.ticksSinceOverflow++
+
+			// handle ticks since overflow
+			switch c.ticksSinceOverflow {
+			case 4:
+				c.irq.Request(interrupts.TimerFlag)
+			case 5:
+				c.tima = c.tma
+			case 6:
+				c.overflow = false
+				c.ticksSinceOverflow = 0
+			}
 		}
 	}
 
-	// update last bit
-	c.lastBit = newBit
-
-	// check for overflow
-	if c.overflow {
-		c.ticksSinceOverflow++
-
-		// handle ticks since overflow
-		switch c.ticksSinceOverflow {
-		case 4:
-			c.irq.Request(interrupts.TimerFlag)
-		case 5:
-			c.tima = c.tma
-		case 6:
-			c.overflow = false
-			c.ticksSinceOverflow = 0
-		}
-	}
+	c.internalDiv = sysClock
 }
 
-// timaGlitch handles the glitch that occurs when the timer is enabled
+// timaGlitch handles the glitch that occurs when the timer is Enabled
 // or disabled.
 func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
 	if !wasEnabled {
 		return
 	}
 
-	if c.Div&oldBit != 0 {
-		if !c.enabled || !(c.Div&c.currentBit != 0) {
+	if c.internalDiv&oldBit != 0 {
+		if !c.Enabled || !(c.internalDiv&c.currentBit != 0) {
 			c.tima++
 
 			if c.tima == 0 {
@@ -179,12 +160,11 @@ var _ types.Stater = (*Controller)(nil)
 
 // Load loads the state of the controller.
 func (c *Controller) Load(s *types.State) {
-	c.Div = s.Read16()
 	c.tima = s.Read8()
 	c.tma = s.Read8()
 	c.tac = s.Read8()
 
-	c.enabled = s.ReadBool()
+	c.Enabled = s.ReadBool()
 	c.currentBit = s.Read16()
 	c.lastBit = s.ReadBool()
 	c.overflow = s.ReadBool()
@@ -193,14 +173,17 @@ func (c *Controller) Load(s *types.State) {
 
 // Save saves the state of the controller.
 func (c *Controller) Save(s *types.State) {
-	s.Write16(c.Div)
 	s.Write8(c.tima)
 	s.Write8(c.tma)
 	s.Write8(c.tac)
 
-	s.WriteBool(c.enabled)
+	s.WriteBool(c.Enabled)
 	s.Write16(c.currentBit)
 	s.WriteBool(c.lastBit)
 	s.WriteBool(c.overflow)
 	s.Write8(c.ticksSinceOverflow)
+}
+
+func (c *Controller) AttachRegenerate(cycle func()) {
+	c.cycleFunc = cycle
 }

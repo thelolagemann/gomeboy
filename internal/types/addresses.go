@@ -14,7 +14,7 @@ type Address struct {
 }
 
 // HardwareAddress represents the address of a hardware
-// register of the Game Boy. The hardware registers are mapped
+// register of the Game Boy. The hardware IO are mapped
 // to memory addresses 0xFF00 - 0xFF7F & 0xFFFF.
 type HardwareAddress = uint16
 
@@ -58,7 +58,7 @@ const (
 	//  Bit 3: Serial Interrupt Request (INT 58h)   (1=Request)
 	//  Bit 4: Joypad Interrupt Request (INT 60h)   (1=Request)
 	IF HardwareAddress = 0xFF0F
-	// TODO document the NRXX registers
+	// TODO document the NRXX IO
 	NR10 HardwareAddress = 0xFF10
 	NR11 HardwareAddress = 0xFF11
 	NR12 HardwareAddress = 0xFF12
@@ -101,11 +101,11 @@ const (
 	//  The register is set as follows:
 	//
 	//  Bit 6: LYC=LY Coincidence Interrupt (1=Enable) (Read/Write)
-	//  Bit 5: Mode 2 OAM Interrupt         (1=Enable) (Read/Write)
-	//  Bit 4: Mode 1 V-Blank Interrupt     (1=Enable) (Read/Write)
-	//  Bit 3: Mode 0 H-Blank Interrupt     (1=Enable) (Read/Write)
+	//  Bit 5: mode 2 OAM Interrupt         (1=Enable) (Read/Write)
+	//  Bit 4: mode 1 V-Blank Interrupt     (1=Enable) (Read/Write)
+	//  Bit 3: mode 0 H-Blank Interrupt     (1=Enable) (Read/Write)
 	//  Bit 2: Coincidence Flag  (0:LYC<>LY, 1:LYC=LY) (Read Only)
-	//  Bit 1-0: Mode Flag       (Mode 0-3, see below) (Read Only)
+	//  Bit 1-0: mode Flag       (mode 0-3, see below) (Read Only)
 	//           0: During H-Blank
 	//           1: During V-Blank
 	//           2: During Searching OAM-RAM
@@ -164,13 +164,13 @@ const (
 	OBP1 HardwareAddress = 0xFF49
 	// WY is the address of the WY hardware register. The WY
 	// hardware register is used to set the Y position of the window.
-	// The window is visible when (if enabled) when both WY and WX
+	// The window is visible when (if enabled) both WY and WX
 	// are in the ranges WX=0..166, WY=0..143 respectively. Values
 	// WX=7 and WY=0 locates the window at the top left of the LCD.
 	WY HardwareAddress = 0xFF4A
 	// WX is the address of the WX hardware register. The WX
 	// hardware register is used to set the X position of the window.
-	// The window is visible when (if enabled) when both WY and WX
+	// The window is visible when (if enabled) both WY and WX
 	// are in the ranges WX=0..166, WY=0..143 respectively. Values
 	// WX=7 and WY=0 locates the window at the top left of the LCD.
 	WX HardwareAddress = 0xFF4B
@@ -246,7 +246,7 @@ const (
 	// is only used in CGB mode.
 	//
 	// The register is set as follows:
-	//  Bit 0 - Sprite Priority (0=OBJ Priority, 1=Coordinates Priority)
+	//  Bit 0 - Sprite priority (0=OBJ priority, 1=Coordinates priority)
 	OPRI HardwareAddress = 0xFF6C
 	// SVBK is the address of the SVBK hardware register. The SVBK
 	// hardware register is used to select the current WRAM bank.
@@ -257,9 +257,16 @@ const (
 	//
 	// Note: Writing a value of 00h selects WRAM Bank 01h.
 	SVBK HardwareAddress = 0xFF70
+	// RP is the address of the RP hardware register. The RP
+	// hardware register is used control the IR port.
+	//
+	// The register is set as follows:
+	//  Bit 7 - IR Port Enable (0=Disable, 1=Enable)
+	//  Bit 6 - IR Port Input  (0=Low, 1=High)
+	RP HardwareAddress = 0xFF56
 	// IE is the address of the IE hardware register. The IE
-	// hardware register is used to enable interrupts. Writing a 1
-	// to a bit in IE enables the corresponding interrupt, and writing
+	// hardware register is used to Enable interrupts. Writing a 1
+	// to a bit in IE Enables the corresponding interrupt, and writing
 	// a 0 disables the interrupt.
 	IE HardwareAddress = 0xFFFF
 )

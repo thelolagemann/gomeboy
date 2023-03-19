@@ -87,7 +87,6 @@ type GameBoy struct {
 
 	paused, running bool
 	frames          int
-	ticks           uint16
 	previousFrame   [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 	frameQueue      bool
 	attachedGameBoy *GameBoy
@@ -220,7 +219,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	var ram cartridge.RAMController
 	if r, ok := g.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok {
 		// start a ticker
-		saveTicker = time.NewTicker(time.Second * 30)
+		saveTicker = time.NewTicker(time.Second * 3)
 		ram = r
 	} else {
 		// create a fake ticker that never ticks
@@ -249,7 +248,7 @@ emuLoop:
 		case <-g.Close:
 			// once the gameboy is closed, stop the ticker
 			ticker.Stop()
-			g.Logger.Debugf("closing gameboy")
+			//g.Logger.Debugf("closing gameboy")
 
 			// close the save file
 			if g.save != nil {
@@ -261,7 +260,8 @@ emuLoop:
 					g.Logger.Errorf("error closing save file: %v", err)
 				}
 			}
-			g.running = false
+			g.MMU.PrintLoggedReads()
+			g.CPU.LogUsedInstructions()
 			break emuLoop
 		case p := <-pressed:
 			g.Joypad.Press(p)
@@ -270,6 +270,7 @@ emuLoop:
 		case <-ticker.C:
 			// lock the gameboy
 			g.Lock()
+
 			// update the fps counter
 			g.frames++
 
@@ -282,7 +283,7 @@ emuLoop:
 				renderTimes = append(renderTimes, frameEnd.Sub(frameStart))
 
 			} else {
-				continue
+
 			}
 
 			// copy the memory block from frame to frameBuffer
@@ -334,6 +335,7 @@ emuLoop:
 		}
 	}
 
+	g.running = false
 }
 
 func (g *GameBoy) Pause() {
@@ -440,6 +442,7 @@ func Speed(speed float64) GameBoyOpt {
 
 // NewGameBoy returns a new GameBoy.
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
+
 	cart := cartridge.NewCartridge(rom)
 	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
@@ -449,9 +452,10 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	memBus := mmu.NewMMU(cart, sound)
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
+	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl)
 
 	g := &GameBoy{
-		CPU:    cpu.NewCPU(memBus, interrupt, video.DMA, timerCtl, video, sound, serialCtl),
+		CPU:    processor,
 		MMU:    memBus,
 		PPU:    video,
 		Logger: log.New(),
@@ -465,6 +469,31 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		speed:      1.0,
 		Close:      make(chan struct{}),
 	}
+
+	regenerateTickCycle := func() {
+		// start := time.Now()
+		var key uint8
+		if timerCtl.Enabled {
+			key |= 0b0000_0001
+		}
+		if !(!serialCtl.TransferRequest || !serialCtl.InternalClock) {
+			key |= 0b0000_0010
+		}
+		if video.Enabled {
+			key |= 0b0000_0100
+		}
+		if video.DMA.Enabled {
+			key |= 0b0000_1000
+		}
+		g.CPU.SetTickKey(key)
+		// g.Logger.Debugf("tick func regenerated timer: %v dma: %v ppu: %v serial: %v last regeneration was %d cycles ago %0b", timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, g.lastTick, key)
+		// g.Logger.Debugf("tick func regenerated in %s\t timer: %v dma: %v ppu: %v serial: %v last regeneration was %d cycles ago %0b", time.Since(start), timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, g.lastTick, key)
+	}
+
+	video.DMA.AttachRegenerate(regenerateTickCycle)
+	video.AttachRegenerate(regenerateTickCycle)
+	timerCtl.AttachRegenerate(regenerateTickCycle)
+	serialCtl.AttachRegenerate(regenerateTickCycle)
 
 	// apply options
 	for _, opt := range opts {
@@ -489,7 +518,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		for addr, val := range startingRegisterValues {
 			g.MMU.Write(addr, val)
 		}
-		g.PPU.Status.Mode = 3
 
 		g.initializeCPU()
 		if g.MMU.IsGBCCompat() {
@@ -519,7 +547,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 			} else {
 				// load the save file
 				g.save = saveFiles[0]
-				g.Logger.Debugf("loading save file %s", g.save.Path)
+				// g.Logger.Debugf("loading save file %s", g.save.Path)
 			}
 			ram.LoadRAM(g.save.Bytes())
 		}
@@ -559,16 +587,8 @@ func avgTime(t []time.Duration) time.Duration {
 // for display, and return it.
 func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8) {
 	// step until the first GameBoy has finished rendering a frame
-	for !g.PPU.HasFrame() {
-		g.CPU.Step()
-		g.attachedGameBoy.CPU.Step()
-	}
-
-	// step until the second GameBoy has finished rendering a frame
-	for !g.attachedGameBoy.PPU.HasFrame() {
-		g.CPU.Step()
-		g.attachedGameBoy.CPU.Step()
-	}
+	g.CPU.Frame()
+	g.attachedGameBoy.CPU.Frame()
 
 	// clear the refresh flags
 	g.PPU.ClearRefresh()
@@ -582,35 +602,13 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 // rendering the current frame. It will then prepare the frame
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
-	ticks := uint32(0)
-	// step until the next frame
-	for ticks < TicksPerFrame {
-		ticks += uint32(g.CPU.Step())
-	}
+	g.CPU.Frame()
 
-	// did the PPU render a frame?
-	if g.PPU.HasFrame() {
-		g.PPU.ClearRefresh()
+	if g.PPU.RefreshScreen {
 		g.previousFrame = g.PPU.PreparedFrame
-		return g.PPU.PreparedFrame
-	} else {
-		// if not, create a smoothed frame from the last frame
-		// and the current frame (which is not yet finished)
-		var smoothedFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
-		// TODO find a way to make this parallel (maybe use a channel of chunks?)
-		for x := uint8(0); x < ppu.ScreenWidth; x++ {
-			for y := uint8(0); y < ppu.ScreenHeight; y++ {
-				// is the pixel on the current frame black?
-
-				// interpolate the current frame
-				for c := 0; c < 3; c++ {
-					// smooth by averaging the current and previous frame
-					smoothedFrame[y][x][c] = uint8((uint16(g.previousFrame[y][x][c]) + uint16(g.PPU.PreparedFrame[y][x][c])) / 2)
-				}
-			}
-		}
-		return smoothedFrame
 	}
+
+	return g.previousFrame
 }
 
 func (g *GameBoy) SetModel(m types.Model) {

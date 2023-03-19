@@ -54,10 +54,10 @@ func NewCartridge(rom []byte) *Cartridge {
 		cart.MemoryBankController = NewMemoryBankedCartridge2(rom, header)
 	case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge3(rom, header)
-	case MBC5, MBC5RAM, MBC5RAMBATT:
+	case MBC5, MBC5RAM, MBC5RAMBATT, MBC5RUMBLERAMBATT, MBC5RUMBLE, MBC5RUMBLERAM:
 		cart.MemoryBankController = NewMemoryBankedCartridge5(rom, header)
 	default:
-		panic(fmt.Sprintf("cartridge type %s not implemented", header.CartridgeType.String()))
+		panic(fmt.Sprintf("cartridge type %s (%02x) not implemented", header.CartridgeType.String(), header.CartridgeType))
 	}
 
 	// calculate the md5 hash of the cartridge

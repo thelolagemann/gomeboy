@@ -6,15 +6,17 @@ import (
 )
 
 type DMA struct {
-	enabled    bool
+	Enabled    bool
 	restarting bool
 
 	timer  uint16
 	source uint16
 	value  uint8
 
-	bus mmu.IOBus
+	bus *mmu.MMU
 	oam *OAM
+
+	cycleFunc func()
 }
 
 func (d *DMA) init() {
@@ -26,8 +28,9 @@ func (d *DMA) init() {
 			d.source = uint16(v) << 8
 			d.timer = 0
 
-			d.restarting = d.enabled
-			d.enabled = true
+			d.restarting = d.Enabled
+			d.Enabled = true
+			d.cycleFunc()
 		},
 		func() uint8 {
 			return d.value
@@ -35,7 +38,7 @@ func (d *DMA) init() {
 	)
 }
 
-func NewDMA(bus mmu.IOBus, oam *OAM) *DMA {
+func NewDMA(bus *mmu.MMU, oam *OAM) *DMA {
 	d := &DMA{
 		bus: bus,
 		oam: oam,
@@ -46,10 +49,6 @@ func NewDMA(bus mmu.IOBus, oam *OAM) *DMA {
 
 // TickM ticks the DMA by 1 M-cycle (4 T-cycles)
 func (d *DMA) TickM() {
-	if !d.enabled {
-		return
-	}
-
 	d.TickT()
 	d.TickT()
 	d.TickT()
@@ -75,15 +74,18 @@ func (d *DMA) TickT() {
 				// and instead read from the source address - 0x2000
 				currentSource -= 0x2000
 			}
-			// load the value from the source address
-			d.oam.Write(offset, d.bus.Read(currentSource))
-
+			value := d.bus.Read(currentSource)
+			if d.oam.data[offset] != value {
+				// load the value from the source address
+				d.oam.Write(offset, value)
+			}
 		}
 
 	}
 	if d.timer > 644 {
-		d.enabled = false
+		d.Enabled = false
 		d.timer = 0
+		d.cycleFunc()
 	}
 }
 
@@ -94,7 +96,7 @@ func (d *DMA) IsTransferring() bool {
 var _ types.Stater = (*DMA)(nil)
 
 func (d *DMA) Load(s *types.State) {
-	d.enabled = s.ReadBool()
+	d.Enabled = s.ReadBool()
 	d.restarting = s.ReadBool()
 	d.timer = s.Read16()
 	d.source = s.Read16()
@@ -103,10 +105,14 @@ func (d *DMA) Load(s *types.State) {
 }
 
 func (d *DMA) Save(s *types.State) {
-	s.WriteBool(d.enabled)
+	s.WriteBool(d.Enabled)
 	s.WriteBool(d.restarting)
 	s.Write16(d.timer)
 	s.Write16(d.source)
 	s.Write8(d.value)
 	d.oam.Save(s)
+}
+
+func (d *DMA) AttachRegenerate(cycle func()) {
+	d.cycleFunc = cycle
 }

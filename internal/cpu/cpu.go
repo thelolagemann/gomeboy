@@ -8,6 +8,8 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"sort"
+	"time"
 )
 
 const (
@@ -40,55 +42,63 @@ type CPU struct {
 	SP uint16
 	// Registers contains the 8-bit registers, as well as the 16-bit register pairs.
 	Registers
-
-	doubleSpeed bool
-
-	mmu *mmu.MMU
-	IRQ *interrupts.Service
-
 	Debug           bool
 	DebugBreakpoint bool
 
+	ime         bool
+	sysClock    uint16
 	currentTick uint8
-	mode        mode
+
+	doubleSpeed  bool
+	perTickCount uint8
+
+	mmu *mmu.MMU
+	irq *interrupts.Service
+
+	tickFuncs [16]func()
+	tickFunc  func()
+
+	mode mode
 
 	registerSlice [8]*uint8
-	tickCycle     func()
 
 	instructions   [256]func(cpu *CPU)
 	instructionsCB [256]func(cpu *CPU)
+
+	cartFixedBank [0x4000]byte
+	isMBC1        bool
+}
+
+func (c *CPU) doTick() {
+	c.currentTick++
+	c.sysClock += 4
+}
+
+func shouldTickPPU(number uint16) bool {
+	switch number {
+	case 80, 172, 196, 200, 204, 456:
+		return true
+	default:
+		return false
+	}
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timerCtl *timer.Controller, ppu *ppu.PPU, sound *apu.APU, serialCtl *serial.Controller) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, video *ppu.PPU, sound *apu.APU, serialCtl *serial.Controller) *CPU {
 	c := &CPU{
-		Registers: Registers{},
-		mmu:       mmu,
-		IRQ:       irq,
+		Registers:    Registers{},
+		mmu:          mmu,
+		irq:          irq,
+		perTickCount: 4,
+		sysClock:     0xABCC,
+		isMBC1:       mmu.IsMBC1,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
 	c.DE = &RegisterPair{&c.D, &c.E}
 	c.HL = &RegisterPair{&c.H, &c.L}
 	c.AF = &RegisterPair{&c.A, &c.F}
-
-	// create tick fn
-	c.tickCycle = func() {
-		dma.TickM()
-		timerCtl.TickM()
-		serialCtl.TickM(timerCtl.Div)
-
-		var count int
-		if c.doubleSpeed {
-			count = 2
-		} else {
-			count = 4
-		}
-		ppu.Tick(count)
-		sound.Tick(count)
-		c.currentTick += 4
-	}
 
 	var n uint8
 	c.registerSlice = [8]*uint8{&c.B, &c.C, &c.D, &c.E, &c.H, &c.L, &n, &c.A}
@@ -100,6 +110,144 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, dma *ppu.DMA, timerCtl *timer
 		c.instructions[i] = InstructionSet[i].fn
 		c.instructionsCB[i] = InstructionSetCB[i].fn
 	}
+
+	// read the fixed bank of the cartridge
+	for i := uint16(0); i < 0x4000; i++ {
+		c.cartFixedBank[i] = mmu.Cart.Read(i)
+	}
+
+	types.RegisterHardware(
+		types.DIV,
+		func(v uint8) {
+			c.sysClock = 0 // any write to DIV resets it
+		},
+		func() uint8 {
+			// return bits 6-13 of divider register
+			return uint8(c.sysClock >> 8) // TODO actually return bits 6-13
+		},
+	)
+
+	timerT := func() {
+		timerCtl.TickM(c.sysClock)
+	}
+	serialT := func() {
+		serialCtl.TickM(c.sysClock)
+	}
+	timerSerial := func() {
+		timerCtl.TickM(c.sysClock)
+		serialCtl.TickM(c.sysClock)
+	}
+	videoT := func() {
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	serialVideo := func() {
+		serialCtl.TickM(c.sysClock)
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	timerVideo := func() {
+		timerCtl.TickM(c.sysClock)
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	timerSerialVideo := func() {
+		timerCtl.TickM(c.sysClock)
+		serialCtl.TickM(c.sysClock)
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	dma := func() {
+		video.DMA.TickM()
+	}
+	timerDma := func() {
+		video.DMA.TickM()
+		timerCtl.TickM(c.sysClock)
+
+	}
+	serialDma := func() {
+		video.DMA.TickM()
+
+		serialCtl.TickM(c.sysClock)
+	}
+	timerSerialDma := func() {
+		video.DMA.TickM()
+
+		timerCtl.TickM(c.sysClock)
+
+		serialCtl.TickM(c.sysClock)
+	}
+	videoDma := func() {
+		video.DMA.TickM()
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	timerDmaVideo := func() {
+		video.DMA.TickM()
+		timerCtl.TickM(c.sysClock)
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	serialDmaVideo := func() {
+		video.DMA.TickM()
+
+		c.sysClock += 4
+		serialCtl.TickM(c.sysClock)
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+	timerSerialDmaVideo := func() {
+		video.DMA.TickM()
+
+		timerCtl.TickM(c.sysClock)
+		c.sysClock += 4
+		serialCtl.TickM(c.sysClock)
+
+		video.CurrentTick += uint16(c.perTickCount)
+		if shouldTickPPU(video.CurrentTick) {
+			video.Tick()
+		}
+	}
+
+	c.tickFuncs = [16]func(){
+		0b0000_0000: c.doTick,
+		0b0000_0001: timerT,
+		0b0000_0010: serialT,
+		0b0000_0011: timerSerial,
+		0b0000_0100: videoT,
+		0b0000_0101: timerVideo,
+		0b0000_0110: serialVideo,
+		0b0000_0111: timerSerialVideo,
+		0b0000_1000: dma,
+		0b0000_1001: timerDma,
+		0b0000_1010: serialDma,
+		0b0000_1011: timerSerialDma,
+		0b0000_1100: videoDma,
+		0b0000_1101: timerDmaVideo,
+		0b0000_1110: serialDmaVideo,
+		0b0000_1111: timerSerialDmaVideo,
+	}
+
 	return c
 }
 
@@ -113,66 +261,76 @@ func (c *CPU) registerPointer(index uint8) *Register {
 	return c.registerSlice[index]
 }
 
-// Step the CPU by one frame and returns the
-// number of ticks that have been executed.
-func (c *CPU) Step() uint8 {
-	// reset tick counter
-	c.currentTick = 0
+func (c *CPU) tickCycle() {
+	c.tickFunc()
+	c.doTick()
+}
 
-	// should we tick HDMA?
-	if c.mmu.HDMA != nil && c.mmu.HDMA.IsCopying() {
-		c.hdmaTick4()
-		return c.currentTick
+func (c *CPU) Frame() {
+	steps := uint32(0)
+	for steps < 17556 {
+		c.currentTick = 0
+		if c.mode == ModeNormal {
+			c.step()
+		} else {
+			c.stepSpecial()
+		}
+		steps += uint32(c.currentTick)
 	}
+}
 
+// step the CPU by one frame and returns the
+// number of ticks that have been executed.
+func (c *CPU) step() {
+	// execute step normally
+	c.instructions[c.readInstruction()](c)
+
+	// did we get an interrupt?
+	if c.ime && c.irq.Flag&c.irq.Enable != 0 {
+		c.executeInterrupt()
+	}
+}
+
+func (c *CPU) stepSpecial() {
 	reqInt := false
-
 	// execute step based on mode
 	switch c.mode {
-	case ModeNormal:
-		// execute step normally
-		c.runInstruction(c.readInstruction())
+	case ModeEnableIME:
+		// Enabling IME, and set mode to normal
+		c.ime = true
+		c.mode = ModeNormal
 
-		// check for interrupts, in normal mode this requires the IME to be enabled
-		reqInt = c.IRQ.IME && c.IRQ.HasInterrupts()
+		// run one instruction
+		c.instructions[c.readInstruction()](c)
+
+		// check for interrupts
+		reqInt = c.ime && c.irq.Flag&c.irq.Enable > 0
 	case ModeHalt, ModeStop:
 		// in stop, halt mode, the CPU ticks 4 times, but does not execute any instructions
 		c.tickCycle()
 
 		// check for interrupts, in stop mode the IME is ignored, this
 		// is so that the CPU can be woken up by an interrupt while in halt, stop mode
-		reqInt = c.IRQ.HasInterrupts()
+		reqInt = c.irq.HasInterrupts()
+	case ModeHaltBug:
+		instr := c.readInstruction()
+		c.PC--
+		c.instructions[instr](c)
+		c.mode = ModeNormal
+		reqInt = c.ime && c.irq.Flag&c.irq.Enable > 0
 	case ModeHaltDI:
 		c.tickCycle()
 
 		// check for interrupts
-		if c.IRQ.HasInterrupts() {
+		if c.irq.HasInterrupts() {
 			c.mode = ModeNormal
 		}
-	case ModeEnableIME:
-		// Enabling IME, and set mode to normal
-		c.IRQ.IME = true
-		c.mode = ModeNormal
-
-		// run one instruction
-		c.runInstruction(c.readInstruction())
-
-		// check for interrupts
-		reqInt = c.IRQ.IME && c.IRQ.HasInterrupts()
-	case ModeHaltBug:
-		instr := c.readInstruction()
-		c.PC--
-		c.runInstruction(instr)
-		c.mode = ModeNormal
-		reqInt = c.IRQ.IME && c.IRQ.HasInterrupts()
 	}
 
 	// did we get an interrupt?
 	if reqInt {
 		c.executeInterrupt()
 	}
-
-	return c.currentTick
 }
 
 func (c *CPU) hdmaTick4() {
@@ -190,8 +348,7 @@ func (c *CPU) hdmaTick4() {
 
 // readInstruction reads the next instruction from memory.
 func (c *CPU) readInstruction() uint8 {
-	c.tickCycle()
-	value := c.mmu.Read(c.PC)
+	value := c.readByte(c.PC)
 	c.PC++
 	return value
 }
@@ -199,8 +356,7 @@ func (c *CPU) readInstruction() uint8 {
 // readOperand reads the next operand from memory. The same as
 // readInstruction, but will allow future optimizations.
 func (c *CPU) readOperand() uint8 {
-	c.tickCycle()
-	value := c.mmu.Read(c.PC)
+	value := c.readByte(c.PC)
 	c.PC++
 	return value
 }
@@ -213,6 +369,11 @@ func (c *CPU) skipOperand() {
 // readByte reads a byte from memory.
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.tickCycle()
+
+	// is it possible to read from the cpu and avoid the call to the mmu?
+	if addr < 0x4000 {
+		return c.cartFixedBank[addr]
+	}
 	return c.mmu.Read(addr)
 }
 
@@ -223,30 +384,75 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 }
 
 func (c *CPU) runInstruction(opcode uint8) {
-	// do we need to run a CB instruction?
 	if opcode == 0xCB {
-		// read the next instruction
-		c.instructionsCB[c.readOperand()](c)
-	} else {
-		// get the instruction
-		c.instructions[opcode](c)
+		// get the next instruction
+		opcode = c.readInstruction()
+		c.instructionsCB[opcode](c)
+		return
 	}
+	//start := time.Now()
+	c.instructions[opcode](c)
+	//c.usedInstructionsTime[opcode] += time.Since(start)
+	// get the instruction
+	//c.usedInstructions[opcode]++
 
-	// have we hit a breakpoint? (only if debug is enabled) LD B, B
-	if c.Debug && opcode == 0x40 {
-		c.DebugBreakpoint = true
+	if c.Debug {
+		// have we hit a breakpoint? (only if debug is enabled) LD B, B
+		if opcode == 0x40 {
+			c.DebugBreakpoint = true
+		}
+	}
+}
 
+// LogUsedInstructions sorts the used instructions by the number of times they have
+// been executed, and logs them in a human-readable format, in descending order.
+func (c *CPU) LogUsedInstructions() {
+	// c.mmu.Log.Infof("Instruction\t Count\t Time")
+	type instructionResult struct {
+		instruction string
+		count       uint64
+		time        time.Duration
+	}
+	results := make([]instructionResult, 512)
+	/*for i := 0; i < 256; i++ {
+		if c.usedInstructions[i] > 10 {
+			results = append(results, instructionResult{
+				instruction: InstructionSet[i].name,
+				count:       c.usedInstructions[i],
+				time:        c.usedInstructionsTime[i],
+			})
+		}
+		if c.usedInstructions[i+256] > 10 {
+			results = append(results, instructionResult{
+				instruction: InstructionSetCB[i].name,
+				count:       c.usedInstructions[i+256],
+				time:        c.usedInstructionsTime[i+256],
+			})
+		}
+	}*/
+
+	// sort the instructions by time taken
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].time > results[j].time
+	})
+
+	for i := 0; i < 256; i++ {
+		if results[i].count > 10 {
+			c.mmu.Log.Infof("%16s\t %d\t %s", results[i].instruction, results[i].count, results[i].time.String())
+		}
+		if results[i+256].count > 10 {
+			c.mmu.Log.Infof("%16s\t %d\t %s", results[i].instruction, results[i].count, results[i].time.String())
+		}
 	}
 }
 
 func (c *CPU) executeInterrupt() {
-	// is IME enabled?
-	if c.IRQ.IME {
+	if c.ime {
 		// save the high byte of the PC
 		c.SP--
 		c.writeByte(c.SP, uint8(c.PC>>8))
 
-		vector := c.IRQ.Vector()
+		vector := c.irq.Vector()
 
 		// save the low byte of the PC
 		c.SP--
@@ -254,7 +460,7 @@ func (c *CPU) executeInterrupt() {
 
 		// jump to the interrupt vector and disable IME
 		c.PC = vector
-		c.IRQ.IME = false
+		c.ime = false
 
 		// tick 12 times
 		c.tickCycle()
@@ -264,15 +470,6 @@ func (c *CPU) executeInterrupt() {
 
 	// set the mode to normal
 	c.mode = ModeNormal
-}
-
-// shouldZeroFlag sets FlagZero if the given value is 0.
-func (c *CPU) shouldZeroFlag(value uint8) {
-	if value == 0 {
-		c.setFlag(FlagZero)
-	} else {
-		c.clearFlag(FlagZero)
-	}
 }
 
 var _ types.Stater = (*CPU)(nil)
@@ -290,7 +487,7 @@ func (c *CPU) Load(s *types.State) {
 	c.PC = s.Read16()
 	c.mode = s.Read8()
 	c.doubleSpeed = s.ReadBool()
-	c.IRQ.Load(s)
+	c.irq.Load(s)
 }
 
 func (c *CPU) Save(s *types.State) {
@@ -306,5 +503,9 @@ func (c *CPU) Save(s *types.State) {
 	s.Write16(c.PC)
 	s.Write8(c.mode)
 	s.WriteBool(c.doubleSpeed)
-	c.IRQ.Save(s)
+	c.irq.Save(s)
+}
+
+func (c *CPU) SetTickKey(key uint8) {
+	c.tickFunc = c.tickFuncs[key]
 }

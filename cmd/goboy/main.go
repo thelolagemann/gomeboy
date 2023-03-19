@@ -34,14 +34,18 @@ func main() {
 	debugViews := flag.Bool("debug", false, "Show debug views")
 	activeDebugViews := flag.String("active-debug", "cpu,log,mmu,ppu,vram", "Comma separated list of debug views to show")
 	dualView := flag.Bool("dual", false, "Show dual view")
-	printer := flag.Bool("printer", false, "Enable printer")
+	printer := flag.Bool("printer", false, "enable printer")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
 	flag.Parse()
 
-	// open the rom file
-	rom, err := utils.LoadFile(*romFile)
-	if err != nil {
-		panic(err)
+	var rom []byte
+	var err error
+	if *romFile != "" {
+		// open the rom file
+		rom, err = utils.LoadFile(*romFile)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	var opts []gameboy.GameBoyOpt
@@ -92,6 +96,7 @@ func main() {
 	opts = append(opts, gameboy.Speed(*speed))
 	// create a new gameboy
 	opts = append(opts, gameboy.WithLogger(logger))
+	opts = append(opts, gameboy.Debug())
 	gb := gameboy.NewGameBoy(rom, opts...)
 
 	a := fyne.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"), gb)
@@ -131,16 +136,6 @@ func main() {
 	}
 
 	if err := a.Run(); err != nil {
-		panic(err)
-	}
-
-	// send the close signal to the gameboy
-	gb.Close <- struct{}{}
-
-	// save the state after the gameboy has been closed
-	st := types.NewState()
-	gb.Save(st)
-	if err := st.SaveToFile("state.json"); err != nil {
 		panic(err)
 	}
 }
