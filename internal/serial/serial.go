@@ -5,12 +5,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
-// Device is a device that can be attached to the Controller.
-type Device interface {
-	Receive(bool)
-	Send() bool
-}
-
 // Controller is the serial controller. It is responsible for sending and
 // receiving data to and from devices.
 // Before a transfer, data holds the next byte to be sent. AKA types.SB
@@ -46,14 +40,22 @@ type Controller struct {
 	cycleFunc func()
 }
 
+// Attach attaches a Device to the Controller.
 func (c *Controller) Attach(d Device) {
 	c.AttachedDevice = d
 }
 
+// NewController creates a new Controller. A Controller is responsible for
+// sending and receiving data to and from devices. It is also responsible for
+// triggering serial interrupts.
+//
+// By default, the Controller is attached to a nullDevice, which acts as if
+// there is no device attached. This is the same as if the device is not
+// plugged in. If you want to attach a device, use the Controller.Attach method.
 func NewController(irq *interrupts.Service) *Controller {
 	c := &Controller{
-		irq: irq,
-		// AttachedDevice: nullDevice{},
+		irq:            irq,
+		AttachedDevice: nullDevice{},
 	}
 	types.RegisterHardware(types.SB, func(v uint8) {
 		c.data = v
@@ -74,11 +76,13 @@ func NewController(irq *interrupts.Service) *Controller {
 	return c
 }
 
-// TickM ticks the serial controller.
+// TickM ticks the serial controller by 1 M-cycle. This should be called
+// every M-cycle, when the serial controller is enabled.
 func (c *Controller) TickM(div uint16) {
 	for i := 0; i < 4; i++ {
 		div++
-		if c.resultFallingEdge && !c.getFallingEdge(div) {
+		newEdge := c.getFallingEdge(div)
+		if c.resultFallingEdge && !newEdge {
 			var bit bool
 			if c.AttachedDevice != nil {
 				bit = c.AttachedDevice.Send()
@@ -92,10 +96,12 @@ func (c *Controller) TickM(div uint16) {
 
 			c.checkTransfer()
 		}
-		c.resultFallingEdge = c.getFallingEdge(div)
+		c.resultFallingEdge = newEdge
 	}
 }
 
+// checkTransfer checks if a transfer has been completed, and if so,
+// triggers a serial interrupt, and clears the transfer request.
 func (c *Controller) checkTransfer() {
 	if c.count++; c.count == 8 {
 		c.count = 0
@@ -107,18 +113,21 @@ func (c *Controller) checkTransfer() {
 	}
 }
 
+// Send returns the leftmost bit of the data register, unless
+// the caller is the master, in which case it always returns true.
+// This is because the master is driving the clock, and thus should
+// not be trying to read from its own data register.
 func (c *Controller) Send() bool {
-	// if c is nil, or this is the master, return true.
-	if c == nil || c.InternalClock {
+	// if c is the master, return true.
+	if c.InternalClock {
 		return true
 	}
 	return (c.data & types.Bit7) == types.Bit7
 }
 
+// Receive receives a bit from the attached device, and shifts it into
+// the data register. If the caller is the master, it does nothing.
 func (c *Controller) Receive(bit bool) {
-	if c == nil {
-		return
-	}
 	if !c.InternalClock {
 		c.data = c.data << 1
 		if bit {
@@ -126,10 +135,6 @@ func (c *Controller) Receive(bit bool) {
 		}
 		c.checkTransfer()
 	}
-}
-
-func (c *Controller) HasDevice() bool {
-	return c.AttachedDevice != nil
 }
 
 // getFallingEdge returns true if the falling edge of the clock is reached.
@@ -180,13 +185,3 @@ func (c *Controller) Save(s *types.State) {
 func (c *Controller) AttachRegenerate(cycle func()) {
 	c.cycleFunc = cycle
 }
-
-// nullDevice is an implementation of Device that
-// simply ignores all data.
-type nullDevice struct{}
-
-// Receive implements the Device interface.
-func (n nullDevice) Receive(bool) {}
-
-// Send implements the Device interface.
-func (n nullDevice) Send() bool { return true }

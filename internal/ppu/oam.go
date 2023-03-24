@@ -18,8 +18,8 @@ type OAM struct {
 	// raw data
 	data [160]byte
 
-	highestSprite *Sprite
-	lowestSprite  *Sprite
+	spriteScanlines       [ScreenHeight]bool
+	spriteScanlinesColumn [ScreenHeight][ScreenWidth]bool
 }
 
 // Reset implements the types.Resettable interface.
@@ -32,8 +32,6 @@ func (o *OAM) Reset() {
 	}
 	// reset raw data
 	o.data = [160]byte{}
-	o.lowestSprite = o.Sprites[0]
-	o.highestSprite = o.Sprites[len(o.Sprites)-1]
 }
 
 func NewOAM() *OAM {
@@ -49,44 +47,80 @@ func (o *OAM) Read(address uint16) uint8 {
 
 // Write writes the given value at the given address.
 func (o *OAM) Write(address uint16, value uint8) {
-	// update sprite
-	o.Sprites[address>>2].Update(address, value)
+	// get the sprite
+	s := o.Sprites[address>>2]
+
+	oldY := s.Y
+	oldX := s.X
+
+	// update the sprite attributes
+	byteIndex := address % 4
+	if byteIndex == 0 {
+		s.Y = value - 16
+
+		// was the s visible before?
+		if oldY < ScreenHeight && oldX < ScreenWidth {
+			// we need to remove the positions that the s was visible on
+			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
+				o.spriteScanlines[i] = false
+				for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
+					o.spriteScanlinesColumn[i][j] = false
+				}
+			}
+		}
+
+		// is the s visible now?
+		newYPos := s.Y
+		if newYPos > ScreenHeight || oldX > ScreenHeight {
+			return // s is not visible
+		}
+
+		// we need to add the positions that the s is now visible on
+		for i := newYPos; i < newYPos+8 && i < ScreenHeight; i++ {
+			o.spriteScanlines[i] = true
+			for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
+				o.spriteScanlinesColumn[i][j] = true
+			}
+		}
+	} else if byteIndex == 1 {
+		s.X = value - 8
+		// was the s visible before?
+		if oldY < ScreenHeight && oldX < ScreenWidth {
+			// we need to remove the positions that the s was visible on
+			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
+				o.spriteScanlines[i] = false
+				for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
+					o.spriteScanlinesColumn[i][j] = false
+				}
+			}
+		}
+
+		// is the s visible now?
+		newXPos := s.X
+		if newXPos > ScreenWidth || oldY > ScreenHeight {
+			return // s is not visible
+		}
+
+		// we need to add the positions that the s is now visible on
+		for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
+			o.spriteScanlines[i] = true
+			for j := newXPos; j < newXPos+8 && j < ScreenWidth; j++ {
+				o.spriteScanlinesColumn[i][j] = true
+			}
+		}
+	} else if byteIndex == 2 {
+		s.TileID = value
+	} else if byteIndex == 3 {
+		s.priority = value&0x80 == 0
+		s.flipY = value&0x40 != 0
+		s.flipX = value&0x20 != 0
+		s.useSecondPalette = value & 0x10 >> 4
+		s.vRAMBank = (value >> 3) & 0x01
+		s.cgbPalette = value & 0x07
+	}
 
 	// update raw data so that it can be easily read back
 	o.data[address] = value
-
-	// update highest and lowest y
-	if address&3 == 0 {
-		// did the sprite just become invisible?
-		if value > ScreenHeight {
-			// fmt.Println("having to update lowest and highest sprite for", address>>2, value)
-			// find the next lowest and highest sprite
-			lowestSprite := o.Sprites[0]
-			for i := 0; i < len(o.Sprites); i++ {
-				if lowestSprite.Y > o.Sprites[i].Y {
-					lowestSprite = o.Sprites[i]
-				}
-			}
-			o.lowestSprite = lowestSprite
-
-			highestSprite := o.Sprites[0]
-			for i := 0; i < len(o.Sprites); i++ {
-				if highestSprite.Y < o.Sprites[i].Y && o.Sprites[i].Y < ScreenHeight {
-					highestSprite = o.Sprites[i]
-				}
-			}
-			o.highestSprite = highestSprite
-			return // sprite is not visible
-		}
-
-		// update lowest and highest y
-		if value < o.lowestSprite.Y {
-			o.lowestSprite = o.Sprites[address>>2]
-		}
-		if value > o.highestSprite.Y {
-			o.highestSprite = o.Sprites[address>>2]
-		}
-	}
 }
 
 var _ types.Stater = (*OAM)(nil)

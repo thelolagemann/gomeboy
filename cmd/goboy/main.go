@@ -32,7 +32,7 @@ func main() {
 	state := flag.String("state", "", "The state file to load") // TODO determine state file from ROM file
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	debugViews := flag.Bool("debug", false, "Show debug views")
-	activeDebugViews := flag.String("active-debug", "cpu,log,mmu,ppu,vram", "Comma separated list of debug views to show")
+	activeDebugViews := flag.String("active-debug", "mmu,render", "Comma separated list of debug views to show")
 	dualView := flag.Bool("dual", false, "Show dual view")
 	printer := flag.Bool("printer", false, "enable printer")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
@@ -118,6 +118,8 @@ func main() {
 				a.NewWindow("Log", l)
 			case "system":
 				a.NewWindow("System", &views.System{})
+			case "render":
+				a.NewWindow("Render", &views.Render{Video: gb.PPU})
 			}
 		}
 	}
