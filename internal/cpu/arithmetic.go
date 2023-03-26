@@ -127,17 +127,6 @@ func (c *CPU) addUint16(a, b uint16) uint16 {
 	return uint16(sum)
 }
 
-// addUint16Signed is a helper function for adding a signed byte to a uint16 value
-// and setting the flags accordingly.
-func (c *CPU) addUint16Signed(a uint16, b int8) uint16 {
-	total := uint16(int32(a) + int32(b))
-
-	tmpVal := a ^ uint16(b) ^ total
-
-	c.setFlags(false, false, tmpVal&0x10 == 0x10, tmpVal&0x100 == 0x100)
-	return total
-}
-
 // sub is a helper function for subtracting two bytes together and
 // setting the flags accordingly.
 //
@@ -201,7 +190,11 @@ func (c *CPU) popNN(h, l *Register) {
 
 func (c *CPU) addSPSigned() uint16 {
 	value := c.readOperand()
-	result := c.addUint16Signed(c.SP, int8(value))
+	result := uint16(int32(c.SP) + int32(int8(value)))
+
+	tmpVal := c.SP ^ uint16(int8(value)) ^ result
+
+	c.setFlags(false, false, tmpVal&0x10 == 0x10, tmpVal&0x100 == 0x100)
 
 	c.tickCycle()
 	return result

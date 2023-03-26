@@ -28,7 +28,7 @@ type PPU struct {
 
 	// LCD
 	status uint8
-	mode   uint8
+	mode   lcd.Mode
 
 	// Background
 	// It is made up of a 256x256 pixel map
@@ -64,7 +64,7 @@ type PPU struct {
 
 	backgroundLineRendered [ScreenHeight]bool
 
-	CurrentTick        uint16
+	Dots               uint16
 	bus                *mmu.MMU
 	statInterruptDelay bool
 	RefreshScreen      bool
@@ -124,15 +124,13 @@ func (p *PPU) init() {
 			// reset the scanline
 			p.CurrentScanline = 0
 			p.cycleFunc()
-			fmt.Println("Screen turned off")
 		} else if !wasOn && p.Enabled {
-			p.checkLYC()
 			p.checkStatInterrupts(false)
 
 			// enter hblank
 			p.mode = lcd.HBlank
 			// if the screen was turned on, reset the clock
-			p.CurrentTick = 4
+			p.Dots = 4
 			p.delayedTick = true
 			p.cycleFunc()
 		}
@@ -152,7 +150,7 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			return p.status | p.mode
+			return p.status | uint8(p.mode)
 		})
 	types.RegisterHardware(
 		types.SCY,
@@ -722,9 +720,9 @@ func (p *PPU) Tick() bool {
 		// are we handling the line 0 M-cycle delay?
 		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/ppu/lcdon_timing-GS.s#L24
 		if p.delayedTick {
-			if p.CurrentTick == 80 {
+			if p.Dots == 80 {
 				p.delayedTick = false
-				p.CurrentTick = 0
+				p.Dots = 0
 
 				p.checkLYC()
 				p.checkStatInterrupts(false)
@@ -736,13 +734,13 @@ func (p *PPU) Tick() bool {
 		}
 
 		// have we reached the cycle threshold for the next scanline?
-		if p.CurrentTick == hblankCycles[p.scrollX&0x7] {
+		if p.Dots == p.mode.Dots(p.scrollX) {
 			// notify HDMA that we're in HBlank
 			if p.isGBC {
 				p.bus.HDMA.SetHBlank()
 			}
 			// reset cycle and increment scanline
-			p.CurrentTick = 0
+			p.Dots = 0
 			p.CurrentScanline++
 
 			// check LYC
@@ -781,21 +779,29 @@ func (p *PPU) Tick() bool {
 		}
 
 	case lcd.VRAM:
-		if p.CurrentTick == 172 {
-			p.CurrentTick = 0
+		// hblank interrupt is raised 1-M-cycle before entering HBlank
+		if p.Dots == p.mode.Dots(p.scrollX)-4 {
 			p.mode = lcd.HBlank
-
 			p.checkStatInterrupts(false)
-			p.renderScanline()
-		}
-	case lcd.OAM:
-		if p.CurrentTick == 80 {
-			p.CurrentTick = 0
 			p.mode = lcd.VRAM
 		}
+		if p.Dots == p.mode.Dots(p.scrollX) {
+			p.mode = lcd.HBlank
+			p.renderScanline()
+			p.Dots = 0
+		}
+	case lcd.OAM:
+		if p.Dots == 84 {
+			p.mode = lcd.VRAM
+			p.Dots = 0
+		}
 	case lcd.VBlank:
-		if p.CurrentTick == 456 {
-			p.CurrentTick = 0
+		if p.CurrentScanline == 153 {
+
+		}
+
+		if p.Dots == 456 {
+			p.Dots = 0
 			p.CurrentScanline++
 
 			// check LYC
@@ -1122,7 +1128,7 @@ func (p *PPU) Load(s *types.State) {
 	// load the vRAM data
 	p.vRAMBank = s.Read8()
 	p.DMA.Load(s)
-	p.CurrentTick = s.Read16()
+	p.Dots = s.Read16()
 	p.RefreshScreen = s.ReadBool()
 	p.statInterruptDelay = s.ReadBool()
 	p.delayedTick = s.ReadBool()
@@ -1144,7 +1150,7 @@ func (p *PPU) Save(s *types.State) {
 	p.vRAM[1].Save(s)           // 8192 bytes
 	s.Write8(p.vRAMBank)        // 1 byte
 	p.DMA.Save(s)
-	s.Write16(p.CurrentTick)
+	s.Write16(p.Dots)
 	s.WriteBool(p.RefreshScreen)
 	s.WriteBool(p.statInterruptDelay)
 	s.WriteBool(p.delayedTick)

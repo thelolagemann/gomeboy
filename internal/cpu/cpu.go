@@ -70,8 +70,9 @@ type CPU struct {
 }
 
 func shouldTickPPU(number uint16) bool {
+	return true
 	switch number {
-	case 80, 172, 196, 200, 204, 456:
+	case 4, 80, 84, 168, 172, 176, 180, 196, 200, 204, 456:
 		return true
 	default:
 		return false
@@ -133,24 +134,24 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		serialCtl.TickM(c.sysClock)
 	}
 	videoT := func() {
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
 	serialVideo := func() {
 		serialCtl.TickM(c.sysClock)
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
 	timerVideo := func() {
 		timerCtl.TickM(c.sysClock)
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
@@ -158,8 +159,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		timerCtl.TickM(c.sysClock)
 		serialCtl.TickM(c.sysClock)
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
@@ -186,8 +187,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 	videoDma := func() {
 		video.DMA.TickM()
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
@@ -195,8 +196,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		video.DMA.TickM()
 		timerCtl.TickM(c.sysClock)
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
@@ -205,8 +206,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		serialCtl.TickM(c.sysClock)
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
@@ -216,8 +217,8 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		timerCtl.TickM(c.sysClock)
 		serialCtl.TickM(c.sysClock)
 
-		video.CurrentTick += uint16(c.perTickCount)
-		if shouldTickPPU(video.CurrentTick) {
+		video.Dots += uint16(c.perTickCount)
+		if shouldTickPPU(video.Dots) {
 			c.hasFrame = video.Tick()
 		}
 	}
@@ -367,7 +368,7 @@ func (c *CPU) readByte(addr uint16) uint8 {
 	c.tickCycle()
 
 	// is it possible to read from the cpu and avoid the call to the mmu?
-	if addr < 0x4000 {
+	if addr < 0x4000 && !c.isMBC1 {
 		return c.cartFixedBank[addr]
 	}
 	return c.mmu.Read(addr)
