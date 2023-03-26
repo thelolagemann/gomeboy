@@ -299,7 +299,7 @@ emuLoop:
 
 				totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
+				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
 				g.frames = 0
 				start = time.Now()
 
@@ -471,7 +471,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	}
 
 	regenerateTickCycle := func() {
-		// start := time.Now()
+		//start := time.Now()
 		var key uint8
 		if timerCtl.Enabled {
 			key |= 0b0000_0001
@@ -487,7 +487,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		}
 		g.CPU.SetTickKey(key)
 		// g.Logger.Debugf("tick func regenerated timer: %v dma: %v ppu: %v serial: %v last regeneration was %d cycles ago %0b", timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, g.lastTick, key)
-		// g.Logger.Debugf("tick func regenerated in %s\t timer: %v dma: %v ppu: %v serial: %v last regeneration was %d cycles ago %0b", time.Since(start), timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, g.lastTick, key)
+		//g.Logger.Debugf("tick func regenerated in %s\t timer: %v dma: %v ppu: %v serial: %v %0b", time.Since(start), timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, key)
+		//time.Sleep(100 * time.Millisecond)
 	}
 
 	video.DMA.AttachRegenerate(regenerateTickCycle)
@@ -603,12 +604,9 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	g.CPU.Frame()
+	g.PPU.RefreshScreen = false
 
-	if g.PPU.RefreshScreen {
-		g.previousFrame = g.PPU.PreparedFrame
-	}
-
-	return g.previousFrame
+	return g.PPU.PreparedFrame
 }
 
 func (g *GameBoy) SetModel(m types.Model) {

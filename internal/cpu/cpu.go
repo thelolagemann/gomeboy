@@ -45,9 +45,8 @@ type CPU struct {
 	Debug           bool
 	DebugBreakpoint bool
 
-	ime         bool
-	sysClock    uint16
-	currentTick uint8
+	ime      bool
+	sysClock uint16
 
 	doubleSpeed  bool
 	perTickCount uint8
@@ -67,11 +66,7 @@ type CPU struct {
 
 	cartFixedBank [0x4000]byte
 	isMBC1        bool
-}
-
-func (c *CPU) doTick() {
-	c.currentTick++
-	c.sysClock += 4
+	hasFrame      bool
 }
 
 func shouldTickPPU(number uint16) bool {
@@ -140,7 +135,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 	videoT := func() {
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	serialVideo := func() {
@@ -148,7 +143,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	timerVideo := func() {
@@ -156,7 +151,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	timerSerialVideo := func() {
@@ -165,7 +160,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	dma := func() {
@@ -193,7 +188,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	timerDmaVideo := func() {
@@ -202,35 +197,33 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	serialDmaVideo := func() {
 		video.DMA.TickM()
 
-		c.sysClock += 4
 		serialCtl.TickM(c.sysClock)
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 	timerSerialDmaVideo := func() {
 		video.DMA.TickM()
 
 		timerCtl.TickM(c.sysClock)
-		c.sysClock += 4
 		serialCtl.TickM(c.sysClock)
 
 		video.CurrentTick += uint16(c.perTickCount)
 		if shouldTickPPU(video.CurrentTick) {
-			video.Tick()
+			c.hasFrame = video.Tick()
 		}
 	}
 
 	c.tickFuncs = [16]func(){
-		0b0000_0000: c.doTick,
+		0b0000_0000: func() {},
 		0b0000_0001: timerT,
 		0b0000_0010: serialT,
 		0b0000_0011: timerSerial,
@@ -263,20 +256,23 @@ func (c *CPU) registerPointer(index uint8) *Register {
 
 func (c *CPU) tickCycle() {
 	c.tickFunc()
-	c.doTick()
+	c.sysClock += 4
 }
 
 func (c *CPU) Frame() {
-	steps := uint32(0)
-	for steps < 17556 {
-		c.currentTick = 0
+
+	for !c.hasFrame {
+		if c.mmu.HDMA != nil && c.mmu.HDMA.Copying {
+			c.hdmaTick4()
+			continue
+		}
 		if c.mode == ModeNormal {
 			c.step()
 		} else {
 			c.stepSpecial()
 		}
-		steps += uint32(c.currentTick)
 	}
+	c.hasFrame = false
 }
 
 // step the CPU by one frame and returns the
@@ -381,27 +377,6 @@ func (c *CPU) readByte(addr uint16) uint8 {
 func (c *CPU) writeByte(addr uint16, val uint8) {
 	c.tickCycle()
 	c.mmu.Write(addr, val)
-}
-
-func (c *CPU) runInstruction(opcode uint8) {
-	if opcode == 0xCB {
-		// get the next instruction
-		opcode = c.readInstruction()
-		c.instructionsCB[opcode](c)
-		return
-	}
-	//start := time.Now()
-	c.instructions[opcode](c)
-	//c.usedInstructionsTime[opcode] += time.Since(start)
-	// get the instruction
-	//c.usedInstructions[opcode]++
-
-	if c.Debug {
-		// have we hit a breakpoint? (only if debug is enabled) LD B, B
-		if opcode == 0x40 {
-			c.DebugBreakpoint = true
-		}
-	}
 }
 
 // LogUsedInstructions sorts the used instructions by the number of times they have

@@ -10,6 +10,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ram"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
+	"image/color"
 )
 
 const (
@@ -17,9 +18,6 @@ const (
 	ScreenWidth = 160
 	// ScreenHeight is the height of the screen in pixels.
 	ScreenHeight = 144
-
-	numSections = 4
-	sectionSize = ScreenWidth / numSections
 )
 
 type PPU struct {
@@ -64,7 +62,7 @@ type PPU struct {
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
-	backgroundLineDirty [ScreenHeight]bool
+	backgroundLineRendered [ScreenHeight]bool
 
 	CurrentTick        uint16
 	bus                *mmu.MMU
@@ -91,6 +89,10 @@ type PPU struct {
 		WindowDisabled     bool
 	}
 	backgroundDirty bool
+
+	dirtiedLog   [65536]dirtyEvent
+	lastDirty    uint16
+	currentCycle uint64
 }
 
 func (p *PPU) init() {
@@ -122,6 +124,7 @@ func (p *PPU) init() {
 			// reset the scanline
 			p.CurrentScanline = 0
 			p.cycleFunc()
+			fmt.Println("Screen turned off")
 		} else if !wasOn && p.Enabled {
 			p.checkLYC()
 			p.checkStatInterrupts(false)
@@ -134,7 +137,7 @@ func (p *PPU) init() {
 			p.cycleFunc()
 		}
 		if old != p.Raw {
-			p.backgroundDirty = true
+			p.dirtyBackground(lcdc)
 		}
 
 	})
@@ -144,6 +147,9 @@ func (p *PPU) init() {
 		types.STAT,
 		func(v uint8) {
 			p.status = v&0b0111_1000 | types.Bit7
+			if p.Enabled {
+				p.checkStatInterrupts(false)
+			}
 		},
 		func() uint8 {
 			return p.status | p.mode
@@ -152,7 +158,7 @@ func (p *PPU) init() {
 		types.SCY,
 		func(v uint8) {
 			if p.scrollY != v {
-				p.backgroundDirty = true
+				p.dirtyBackground(scy)
 				p.scrollY = v
 			}
 		},
@@ -164,7 +170,7 @@ func (p *PPU) init() {
 		types.SCX,
 		func(v uint8) {
 			if p.scrollX != v {
-				p.backgroundDirty = true
+				p.dirtyBackground(scx)
 				p.scrollX = v
 			}
 		},
@@ -186,7 +192,7 @@ func (p *PPU) init() {
 		types.LYC,
 		func(v uint8) {
 			if p.lyCompare != v {
-				p.backgroundDirty = true
+				p.dirtyBackground(lyc)
 				p.lyCompare = v
 
 				if p.Enabled {
@@ -215,7 +221,7 @@ func (p *PPU) init() {
 						p.Palette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
 					}
 				}
-				p.backgroundDirty = true
+				p.dirtyBackground(bgp)
 			}
 		},
 		func() uint8 {
@@ -236,7 +242,7 @@ func (p *PPU) init() {
 						p.SpritePalettes[0][palNum] = p.ColourSpritePalette.Palettes[0].GetColour(uint8(i))
 					}
 				}
-				p.backgroundDirty = true
+				p.dirtyBackground(obp0)
 			}
 		},
 		func() uint8 {
@@ -257,7 +263,7 @@ func (p *PPU) init() {
 						p.SpritePalettes[1][palNum] = p.ColourSpritePalette.Palettes[1].GetColour(uint8(i))
 					}
 				}
-				p.backgroundDirty = true
+				p.dirtyBackground(obp1)
 			}
 		},
 		func() uint8 {
@@ -267,7 +273,9 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.WX,
 		func(v uint8) {
-			p.windowX = v
+			if p.windowX != v {
+				p.windowX = v
+			}
 		},
 		func() uint8 {
 			return p.windowX
@@ -276,7 +284,9 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.WY,
 		func(v uint8) {
-			p.windowY = v
+			if p.windowY != v {
+				p.windowY = v
+			}
 		},
 		func() uint8 {
 			return p.windowY
@@ -304,7 +314,7 @@ func (p *PPU) init() {
 		func(v uint8) {
 			if p.isGBCCompat {
 				p.ColourPalette.SetIndex(v)
-				p.backgroundDirty = true
+				p.dirtyBackground(bcps)
 			}
 		},
 		func() uint8 {
@@ -319,7 +329,7 @@ func (p *PPU) init() {
 		func(v uint8) {
 			if p.isGBCCompat && p.colorPaletteUnlocked() {
 				p.ColourPalette.Write(v)
-				p.backgroundDirty = true
+				p.dirtyBackground(bcpd)
 			}
 		},
 		func() uint8 {
@@ -334,7 +344,7 @@ func (p *PPU) init() {
 		func(v uint8) {
 			if p.isGBCCompat && p.ColourSpritePalette.LastWrite != v {
 				p.ColourSpritePalette.SetIndex(v)
-				p.backgroundDirty = true
+				p.dirtyBackground(ocps)
 			}
 		},
 		func() uint8 {
@@ -349,7 +359,7 @@ func (p *PPU) init() {
 		func(v uint8) {
 			if p.isGBCCompat && p.colorPaletteUnlocked() {
 				p.ColourSpritePalette.Write(v)
-				p.backgroundDirty = true
+				p.dirtyBackground(ocpd)
 			}
 		},
 		func() uint8 {
@@ -636,7 +646,7 @@ func (p *PPU) updateTile(address uint16, value uint8) {
 	// set the tile data
 	p.TileData[p.vRAMBank][tileID][row+((address%2)*8)] = value
 
-	p.backgroundDirty = true
+	p.dirtyBackground(tile)
 	// recache tilemap
 	//p.recacheByID(tileID)
 }
@@ -649,7 +659,7 @@ func (p *PPU) updateTileMap(address uint16, tilemapIndex uint8) {
 	// update the tilemap
 	p.tileMaps[tilemapIndex][y][x].id = uint16(p.vRAM[0].Read(address))
 
-	p.backgroundDirty = true
+	p.dirtyBackground(tileMap)
 }
 
 func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
@@ -670,7 +680,7 @@ func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8
 	p.tileMaps[tilemapIndex][y][x].Tile = p.TileData[t.vRAMBank][p.tileMaps[tilemapIndex][y][x].id]
 	// p.recacheTile(x, y, tilemapIndex)
 
-	p.backgroundDirty = true
+	p.dirtyBackground(tileAttr)
 }
 
 // checkLYC checks if the LYC interrupt should be triggered.
@@ -684,9 +694,13 @@ func (p *PPU) checkLYC() {
 
 // checkStatInterrupts checks if the STAT interrupt should be triggered.
 func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
-	if p.status&0x44 == 0x44 ||
-		p.modeInterruptLUT[p.mode][p.status] ||
-		vblankTrigger && p.mode == lcd.OAM {
+	lyInt := p.status&0x44 == 0x44
+	mode0Int := p.mode == lcd.HBlank && p.status&types.Bit3 != 0
+	mode1Int := p.mode == lcd.VBlank && p.status&types.Bit4 != 0
+	mode2Int := p.mode == lcd.OAM && p.status&types.Bit5 != 0
+	vBlankInt := vblankTrigger && p.status&types.Bit5 != 0
+
+	if lyInt || mode0Int || mode1Int || mode2Int || vBlankInt {
 		// if not stat interrupt requested, request it
 		if !p.statInterruptDelay {
 			p.irq.Request(interrupts.LCDFlag)
@@ -697,13 +711,11 @@ func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
 	}
 }
 
-func (p *PPU) HasFrame() bool {
-	return p.RefreshScreen
-}
+var hblankCycles = []uint16{204, 200, 200, 200, 200, 196, 196, 196}
 
 // Tick the PPU by one cycle. This will update the PPU's state and
 // render the current scanline if necessary.
-func (p *PPU) Tick() {
+func (p *PPU) Tick() bool {
 	// step logic (ordered by number of ticks required to optimize calls)
 	switch p.mode {
 	case lcd.HBlank:
@@ -720,11 +732,11 @@ func (p *PPU) Tick() {
 				// go to mode 3
 				p.mode = lcd.VRAM
 			}
-			return
+			return false
 		}
 
 		// have we reached the cycle threshold for the next scanline?
-		if p.CurrentTick >= 196 && p.CurrentTick <= 204 {
+		if p.CurrentTick == hblankCycles[p.scrollX&0x7] {
 			// notify HDMA that we're in HBlank
 			if p.isGBC {
 				p.bus.HDMA.SetHBlank()
@@ -747,6 +759,11 @@ func (p *PPU) Tick() {
 
 				// flag that the screen needs to be refreshed
 				p.RefreshScreen = true
+				if p.backgroundDirty {
+					for i := 0; i < ScreenHeight; i++ {
+						p.backgroundLineRendered[i] = false
+					}
+				}
 				p.backgroundDirty = false
 
 				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
@@ -798,12 +815,11 @@ func (p *PPU) Tick() {
 		}
 	}
 
-	return
+	return p.RefreshScreen
 }
 
 func (p *PPU) renderScanline() {
-	if (p.backgroundDirty || p.backgroundLineDirty[p.CurrentScanline]) && (p.BackgroundEnabled || p.isGBC) {
-		// fmt.Println("rendering background scanline", p.CurrentScanline, "dirty: ", p.backgroundDirty, " line dirty: ", p.backgroundLineDirty[p.CurrentScanline])
+	if (!p.backgroundLineRendered[p.CurrentScanline] || p.oam.spriteScanlines[p.CurrentScanline] || p.oam.dirtyScanlines[p.CurrentScanline] || p.backgroundDirty) && (p.BackgroundEnabled || p.isGBC) {
 		p.renderBackgroundScanline()
 	}
 	if p.WindowEnabled {
@@ -966,7 +982,8 @@ func (p *PPU) renderBackgroundScanline() {
 		}
 	}
 
-	p.backgroundLineDirty[p.CurrentScanline] = false
+	p.backgroundLineRendered[p.CurrentScanline] = true
+	p.oam.dirtyScanlines[p.CurrentScanline] = false
 }
 
 // calculateTileID calculates the tile ID for the current scanline
@@ -978,16 +995,12 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) 
 }
 
 func (p *PPU) renderSpritesScanline(scanline uint8) {
-	if scanline >= p.oam.highestSprite.Y || scanline < p.oam.lowestSprite.Y-16 {
-		//fmt.Println("no sprites on this scanline")
-		return
-	}
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
 	for _, sprite := range p.oam.Sprites {
-		spriteY := sprite.Y - 16
-		spriteX := sprite.X - 8
+		spriteY := sprite.Y
+		spriteX := sprite.X
 
 		if spriteY > scanline || spriteY+p.SpriteSize <= scanline {
 			continue
@@ -1072,16 +1085,16 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 				}
 			}
 
-			// draw the pixel
-			p.PreparedFrame[scanline][pixelPos] = pal[color]
+			// has the sprite changed the background?
+			if p.PreparedFrame[scanline][pixelPos] != pal[color] {
+				p.backgroundLineRendered[scanline] = false
+				// draw the pixel
+				p.PreparedFrame[scanline][pixelPos] = pal[color]
+			}
 
 			// mark the pixel as occupied
 			spriteXPerScreen[pixelPos] = spriteX + 10
 		}
-	}
-
-	if spriteCount > 0 && !p.backgroundDirty {
-		p.backgroundLineDirty[scanline] = true
 	}
 }
 
@@ -1140,6 +1153,37 @@ func (p *PPU) Save(s *types.State) {
 	p.SpritePalettes[1].Save(s)
 	p.ColourPalette.Save(s)
 	p.ColourSpritePalette.Save(s)
+}
+
+func (p *PPU) DumpRender(img *image.RGBA) {
+	for y := 0; y < ScreenHeight; y++ {
+		for x := 0; x < ScreenWidth; x++ {
+			// draw the frame
+			col := p.PreparedFrame[y][x]
+			img.Set(x, y, color.RGBA{col[0], col[1], col[2], 255})
+
+			if !p.backgroundLineRendered[y] {
+				// mix RED with frame
+				img.Set(x, y, combine(img.At(x, y), color.RGBA{255, 0, 0, 128}))
+			} else if p.oam.spriteScanlinesColumn[y][x] {
+				img.Set(x, y, color.RGBA{0, 255, 0, 128})
+			} else if p.oam.spriteScanlines[y] {
+				img.Set(x, y, color.RGBA{0, 0, 255, 128})
+			}
+		}
+	}
+}
+
+func combine(c1, c2 color.Color) color.Color {
+	r, g, b, a := c1.RGBA()
+	r2, g2, b2, a2 := c2.RGBA()
+
+	return color.RGBA{
+		uint8((r + r2) >> 9), // div by 2 followed by ">> 8"  is ">> 9"
+		uint8((g + g2) >> 9),
+		uint8((b + b2) >> 9),
+		uint8((a + a2) >> 9),
+	}
 }
 
 func (p *PPU) AttachRegenerate(cycle func()) {

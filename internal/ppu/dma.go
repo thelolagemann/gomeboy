@@ -1,6 +1,7 @@
 package ppu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
@@ -62,7 +63,7 @@ func (d *DMA) TickT() {
 
 	// every 4 ticks, transfer a byte to OAM
 	// takes 4 ticks to turn on, 640 ticks to transfer
-	if d.timer > 4 {
+	if d.timer >= 4 {
 		d.restarting = false
 		if d.timer < 644 {
 			offset := (d.timer - 4) >> 2
@@ -74,11 +75,12 @@ func (d *DMA) TickT() {
 				// and instead read from the source address - 0x2000
 				currentSource -= 0x2000
 			}
-			value := d.bus.Read(currentSource)
-			if d.oam.data[offset] != value {
-				// load the value from the source address
-				d.oam.Write(offset, value)
-			}
+
+			fmt.Println("DMA", offset, currentSource, d.timer)
+
+			// load the value from the source address
+			d.oam.Write(offset, d.bus.Read(currentSource))
+
 		}
 
 	}

@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/74/?scale=100&title=passing%20117,%20failing%2041&width=500)
+![progress](https://progress-bar.dev/71/?scale=100&title=passing%20113,%20failing%2045&width=500)
 
-#### This document was automatically generated from commit eae2c786
+#### This document was automatically generated from commit 1967612c
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -32,12 +32,12 @@ is compared against a reference image from a known good emulator.
 # Test Results
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
-| acid2 | 75% | 3 | 1 | 4 |
+| acid2 | 50% | 2 | 2 | 4 |
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 85% | 18 | 3 | 21 |
-| little-things-gb | 100% | 3 | 0 | 3 |
-| mooneye | 80% | 92 | 22 | 114 |
-| samesuite | 7% | 1 | 12 | 13 |
+| little-things-gb | 66% | 2 | 1 | 3 |
+| mooneye | 79% | 91 | 23 | 114 |
+| samesuite | 0% | 0 | 13 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
 Explore the individual tests for each suite using the table of contents below.
@@ -87,7 +87,7 @@ Explore the individual tests for each suite using the table of contents below.
   * [strikethrough](#strikethrough)
 
 # acid2
-![progress](https://progress-bar.dev/75/?scale=100&title=passing%203,%20failing%201&width=500)
+![progress](https://progress-bar.dev/50/?scale=100&title=passing%202,%20failing%202&width=500)
 ## dmg-acid2
 | Test | Passing |
 | ---- | ------- |
@@ -96,7 +96,7 @@ Explore the individual tests for each suite using the table of contents below.
 ## cgb-acid2
 | Test | Passing |
 | ---- | ------- |
-| cgb-acid2-cgb | ✅ |
+| cgb-acid2-cgb | ❌ |
 | cgb-acid-hell-cgb | ❌ |
 # bully
 ![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%201&width=500)
@@ -149,7 +149,7 @@ Explore the individual tests for each suite using the table of contents below.
 | 02-write_timing.gb | ✅ |
 | 03-modify_timing.gb | ✅ |
 # little-things-gb
-![progress](https://progress-bar.dev/100/?scale=100&title=passing%203,%20failing%200&width=500)
+![progress](https://progress-bar.dev/66/?scale=100&title=passing%202,%20failing%201&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
@@ -157,10 +157,10 @@ Explore the individual tests for each suite using the table of contents below.
 ## tellinglys
 | Test | Passing |
 | ---- | ------- |
-| tellinglys | ✅ |
+| tellinglys | ❌ |
 | tellinglys-cgb | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/80/?scale=100&title=passing%2092,%20failing%2022&width=500)
+![progress](https://progress-bar.dev/79/?scale=100&title=passing%2091,%20failing%2023&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -239,7 +239,7 @@ Explore the individual tests for each suite using the table of contents below.
 | lcdon_write_timing-GS.gb | ❌ |
 | stat_irq_blocking.gb | ✅ |
 | stat_lyc_onoff.gb | ✅ |
-| vblank_stat_intr-GS.gb | ❌ |
+| vblank_stat_intr-GS.gb | ✅ |
 ## serial
 | Test | Passing |
 | ---- | ------- |
@@ -270,15 +270,15 @@ Explore the individual tests for each suite using the table of contents below.
 | bits_bank2.gb | ✅ |
 | bits_mode.gb | ✅ |
 | bits_ramg.gb | ✅ |
-| multicart_rom_8Mb.gb | ✅ |
+| multicart_rom_8Mb.gb | ❌ |
 | ram_256kb.gb | ✅ |
 | ram_64kb.gb | ✅ |
-| rom_16Mb.gb | ✅ |
+| rom_16Mb.gb | ❌ |
 | rom_1Mb.gb | ✅ |
 | rom_2Mb.gb | ✅ |
 | rom_4Mb.gb | ✅ |
 | rom_512kb.gb | ✅ |
-| rom_8Mb.gb | ✅ |
+| rom_8Mb.gb | ❌ |
 ## mbc2
 | Test | Passing |
 | ---- | ------- |
@@ -324,10 +324,10 @@ Explore the individual tests for each suite using the table of contents below.
 ## manual-only
 | Test | Passing |
 | ---- | ------- |
-| sprite_priority | ❌ |
+| sprite_priority | ✅ |
 | sprite_priority | ❌ |
 # samesuite
-![progress](https://progress-bar.dev/7/?scale=100&title=passing%201,%20failing%2012&width=500)
+![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%2013&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
@@ -339,7 +339,7 @@ Explore the individual tests for each suite using the table of contents below.
 ## dma
 | Test | Passing |
 | ---- | ------- |
-| gbc_dma_cont.gb | ✅ |
+| gbc_dma_cont.gb | ❌ |
 | gdma_addr_mask.gb | ❌ |
 | hdma_lcd_off.gb | ❌ |
 | hdma_mode0.gb | ❌ |

@@ -18,6 +18,7 @@ type OAM struct {
 	// raw data
 	data [160]byte
 
+	dirtyScanlines        [ScreenHeight]bool
 	spriteScanlines       [ScreenHeight]bool
 	spriteScanlinesColumn [ScreenHeight][ScreenWidth]bool
 }
@@ -50,6 +51,9 @@ func (o *OAM) Write(address uint16, value uint8) {
 	// get the sprite
 	s := o.Sprites[address>>2]
 
+	// update raw data so that it can be easily read back
+	o.data[address] = value
+
 	oldY := s.Y
 	oldX := s.X
 
@@ -63,6 +67,7 @@ func (o *OAM) Write(address uint16, value uint8) {
 			// we need to remove the positions that the s was visible on
 			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
 				o.spriteScanlines[i] = false
+				o.dirtyScanlines[i] = true
 				for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
 					o.spriteScanlinesColumn[i][j] = false
 				}
@@ -89,6 +94,7 @@ func (o *OAM) Write(address uint16, value uint8) {
 			// we need to remove the positions that the s was visible on
 			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
 				o.spriteScanlines[i] = false
+				o.dirtyScanlines[i] = true
 				for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
 					o.spriteScanlinesColumn[i][j] = false
 				}
@@ -119,8 +125,6 @@ func (o *OAM) Write(address uint16, value uint8) {
 		s.cgbPalette = value & 0x07
 	}
 
-	// update raw data so that it can be easily read back
-	o.data[address] = value
 }
 
 var _ types.Stater = (*OAM)(nil)

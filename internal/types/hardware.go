@@ -37,6 +37,9 @@ func (h HardwareRegisters) Write(address uint16, value uint8) {
 	if h[address&0x007F] == nil {
 		return
 	}
+	if address >= 0xFF40 && address <= 0xFF7F {
+		//fmt.Printf("Writing %02X to %04X\n", value, address)
+	}
 	h[address&0x007F].Write(value)
 }
 

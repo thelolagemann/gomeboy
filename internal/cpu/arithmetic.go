@@ -77,7 +77,7 @@ func (c *CPU) decrementNN(register *RegisterPair) {
 //	N - Reset.
 //	H - Set if carry from bit 11.
 //	C - Set if carry from bit 15.
-func (c *CPU) addHL(register *RegisterPair) {
+func (c *CPU) addHLRR(register *RegisterPair) {
 	c.HL.SetUint16(c.addUint16(c.HL.Uint16(), register.Uint16()))
 	c.tickCycle()
 }
@@ -108,8 +108,19 @@ func (c *CPU) add(a, b uint8, shouldCarry bool) uint8 {
 	return uint8(sum)
 }
 
-// addBytePair is a helper function for adding two uint16 values together and
+// addUint16 is a helper function for adding two uint16 values together and
 // setting the flags accordingly.
+//
+// Used by:
+//
+//	ADD HL, nn
+//
+// Flags affected:
+//
+//	Z - Not affected.
+//	N - Reset.
+//	H - Set if carry from bit 11.
+//	C - Set if carry from bit 15.
 func (c *CPU) addUint16(a, b uint16) uint16 {
 	sum := int32(a) + int32(b)
 	c.setFlags(c.isFlagSet(FlagZero), false, (a&0xFFF)+(b&0xFFF) > 0xFFF, sum > 0xFFFF)
@@ -200,21 +211,21 @@ func init() {
 	DefineInstruction(0x03, "INC BC", func(c *CPU) { c.incrementNN(c.BC) })
 	DefineInstruction(0x04, "INC B", func(c *CPU) { c.B = c.increment(c.B) })
 	DefineInstruction(0x05, "DEC B", func(c *CPU) { c.B = c.decrement(c.B) })
-	DefineInstruction(0x09, "ADD HL, BC", func(c *CPU) { c.addHL(c.BC) })
+	DefineInstruction(0x09, "ADD HL, BC", func(c *CPU) { c.addHLRR(c.BC) })
 	DefineInstruction(0x0B, "DEC BC", func(c *CPU) { c.decrementNN(c.BC) })
 	DefineInstruction(0x0C, "INC C", func(c *CPU) { c.C = c.increment(c.C) })
 	DefineInstruction(0x0D, "DEC C", func(c *CPU) { c.C = c.decrement(c.C) })
 	DefineInstruction(0x13, "INC DE", func(c *CPU) { c.incrementNN(c.DE) })
 	DefineInstruction(0x14, "INC D", func(c *CPU) { c.D = c.increment(c.D) })
 	DefineInstruction(0x15, "DEC D", func(c *CPU) { c.D = c.decrement(c.D) })
-	DefineInstruction(0x19, "ADD HL, DE", func(c *CPU) { c.addHL(c.DE) })
+	DefineInstruction(0x19, "ADD HL, DE", func(c *CPU) { c.addHLRR(c.DE) })
 	DefineInstruction(0x1B, "DEC DE", func(c *CPU) { c.decrementNN(c.DE) })
 	DefineInstruction(0x1C, "INC E", func(c *CPU) { c.E = c.increment(c.E) })
 	DefineInstruction(0x1D, "DEC E", func(c *CPU) { c.E = c.decrement(c.E) })
 	DefineInstruction(0x23, "INC HL", func(c *CPU) { c.incrementNN(c.HL) })
 	DefineInstruction(0x24, "INC H", func(c *CPU) { c.H = c.increment(c.H) })
 	DefineInstruction(0x25, "DEC H", func(c *CPU) { c.H = c.decrement(c.H) })
-	DefineInstruction(0x29, "ADD HL, HL", func(c *CPU) { c.addHL(c.HL) })
+	DefineInstruction(0x29, "ADD HL, HL", func(c *CPU) { c.addHLRR(c.HL) })
 	DefineInstruction(0x2B, "DEC HL", func(c *CPU) { c.decrementNN(c.HL) })
 	DefineInstruction(0x2C, "INC L", func(c *CPU) { c.L = c.increment(c.L) })
 	DefineInstruction(0x2D, "DEC L", func(c *CPU) { c.L = c.decrement(c.L) })

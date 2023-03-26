@@ -223,14 +223,8 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 
 		// custom test loop
 		for frame := 0; frame < 60*emulatedSeconds; frame++ {
-			for i := uint32(0); i < gameboy.TicksPerFrame; {
-				i += uint32(g.CPU.Step())
-			}
+			g.CPU.Frame()
 
-			// wait until frame is done
-			for !g.PPU.HasFrame() {
-				g.CPU.Step()
-			}
 			g.PPU.ClearRefresh()
 		}
 
