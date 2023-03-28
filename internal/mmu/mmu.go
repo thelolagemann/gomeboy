@@ -106,7 +106,7 @@ func (m *MMU) init() {
 		types.KEY1,
 		func(v uint8) {
 			if m.isGBC {
-				m.key1 |= v & types.Bit0 // only lower bit is writable
+				m.key1 = v & types.Bit0 // only lower bit is writable
 			}
 		}, func() uint8 {
 			if m.isGBC {
@@ -119,7 +119,7 @@ func (m *MMU) init() {
 		types.SVBK,
 		func(v uint8) {
 			if m.isGBC {
-				m.wRAMBank = v & 0x07
+				m.wRAMBank = v & 0x07 // only lower 3 bits are writable
 				if m.wRAMBank == 0 {
 					m.wRAMBank = 1
 				}
@@ -127,7 +127,7 @@ func (m *MMU) init() {
 			}
 		}, func() uint8 {
 			if m.isGBC {
-				return m.wRAMBank | 0b1111_1100
+				return m.wRAMBank | 0b1111_1000 // upper bits are always set
 			}
 			return 0xFF
 		},
