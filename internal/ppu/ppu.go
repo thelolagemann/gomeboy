@@ -236,7 +236,7 @@ func (p *PPU) init() {
 			return p.Palette.ToByte()
 		},
 		types.WithSet(func(v interface{}) {
-			// p.Palette = palette.ByteToPalette(v.(uint8)) // avoid the write operation above
+			p.Palette = palette.ByteToPalette(v.(uint8)) // avoid the write operation above
 		}),
 	)
 	types.RegisterHardware(
@@ -777,6 +777,12 @@ func (p *PPU) Tick() {
 			if p.CurrentScanline == 144 {
 				// enter VBlank mode
 				p.mode = lcd.VBlank
+
+				// request VBlank interrupt (DMG is immediate, CGB is delayed)
+				if !p.isGBCCompat {
+					p.irq.Request(interrupts.VBlankFlag)
+				}
+				p.checkLYC()
 				p.checkStatInterrupts(true)
 
 				// flag that the screen needs to be refreshed
@@ -824,11 +830,11 @@ func (p *PPU) Tick() {
 			p.Dots = 0
 		}
 	case lcd.VBlank:
-		// interrupt is raised 1-M-cycle into VBlank
-		if p.CurrentScanline == 144 {
+		// interrupt is raised 1-M-cycle into VBlank on CGB
+		if p.CurrentScanline == 144 && p.isGBCCompat {
 			if p.Dots == 4 {
 				p.irq.Request(interrupts.VBlankFlag)
-				p.checkStatInterrupts(false)
+				p.checkStatInterrupts(true)
 			}
 		}
 		// LY is set to 0 4 T-cycles into line 153
