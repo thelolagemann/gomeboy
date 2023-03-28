@@ -51,6 +51,8 @@ type APU struct {
 	audioBuffer  *buffer
 	player       *audio.Player
 	currentIndex uint32
+
+	pcm12, pcm34 uint8
 }
 
 type buffer struct {

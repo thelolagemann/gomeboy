@@ -21,13 +21,13 @@ import (
 type Controller struct {
 	// Enabled is the LCD Enable bit. When set, the LCD is enabled.
 	Enabled bool
-	// WindowTileMapAddress represents the Window Tile Map Display Select bit.
+	// WindowTileMap represents the Window Tile Map Display Select bit.
 	// When set, the window tile map is located at 0x9C00-0x9FFF. Otherwise, it
 	// is located at 0x9800-0x9BFF. For convenience, this is stored as an uint16
 	// depicting the start address of the tile map.
 	//	(0=9800-9BFF)
 	//  (1=9C00-9FFF)
-	WindowTileMapAddress uint16
+	WindowTileMap uint8
 	// WindowEnabled is the Window Display Enable bit. When set, the window is
 	// enabled.
 	WindowEnabled bool
@@ -70,9 +70,9 @@ func (c *Controller) init(onWrite types.WriteHandler) {
 			}
 			c.Enabled = utils.Test(v, 7)
 			if utils.Test(v, 6) {
-				c.WindowTileMapAddress = 0x9C00
+				c.WindowTileMap = 1
 			} else {
-				c.WindowTileMapAddress = 0x9800
+				c.WindowTileMap = 0
 			}
 			c.WindowEnabled = utils.Test(v, 5)
 			if utils.Test(v, 4) {
@@ -101,14 +101,14 @@ func (c *Controller) init(onWrite types.WriteHandler) {
 // NewController returns a new LCD controller.
 func NewController(writeHandler types.WriteHandler) *Controller {
 	c := &Controller{
-		WindowTileMapAddress: 0x9800,
-		BackgroundTileMap:    0,
-		TileDataAddress:      0x8800,
-		SpriteSize:           8,
-		BackgroundEnabled:    false,
-		SpriteEnabled:        false,
-		WindowEnabled:        false,
-		Enabled:              false,
+		WindowTileMap:     0,
+		BackgroundTileMap: 0,
+		TileDataAddress:   0x8800,
+		SpriteSize:        8,
+		BackgroundEnabled: false,
+		SpriteEnabled:     false,
+		WindowEnabled:     false,
+		Enabled:           false,
 	}
 	c.init(writeHandler)
 	return c
@@ -137,9 +137,9 @@ func (c *Controller) Load(state *types.State) {
 	}
 	c.Enabled = utils.Test(v, 7)
 	if utils.Test(v, 6) {
-		c.WindowTileMapAddress = 0x9C00
+		c.WindowTileMap = 1
 	} else {
-		c.WindowTileMapAddress = 0x9800
+		c.WindowTileMap = 0
 	}
 	c.WindowEnabled = utils.Test(v, 5)
 	if utils.Test(v, 4) {

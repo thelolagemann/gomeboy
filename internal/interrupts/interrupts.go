@@ -48,9 +48,7 @@ type Service struct {
 
 // NewService returns a new Service.
 func NewService() *Service {
-	s := &Service{
-		Flag: 0xE1, // initial value of types.IF
-	}
+	s := &Service{}
 	// setup registers
 	types.RegisterHardware(
 		types.IF,

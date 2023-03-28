@@ -29,28 +29,36 @@ func (h *HDMA) init() {
 	types.RegisterHardware(
 		types.HDMA1,
 		func(v uint8) {
-			h.source = (h.source & 0x00FF) | (uint16(v) << 8)
+			h.source &= 0xF0
+			h.source |= uint16(v) << 8
+
+			if h.source >= 0xE000 {
+				h.source |= 0xF000
+			}
 		},
 		types.NoRead,
 	)
 	types.RegisterHardware(
 		types.HDMA2,
 		func(v uint8) {
-			h.source = (h.source & 0xFF00) | uint16(v&0xF0)
+			h.source &= 0xFF00
+			h.source |= uint16(v & 0xF0)
 		},
 		types.NoRead,
 	)
 	types.RegisterHardware(
 		types.HDMA3,
 		func(v uint8) {
-			h.destination = (h.destination & 0x00FF) | (uint16(v&0x1F) << 8)
+			h.destination &= 0xF0
+			h.destination |= uint16(v) << 8
 		},
 		types.NoRead,
 	)
 	types.RegisterHardware(
 		types.HDMA4,
 		func(v uint8) {
-			h.destination = (h.destination & 0xFF00) | uint16(v&0xF0)
+			h.destination &= 0xFF00
+			h.destination |= uint16(v & 0xF0)
 		},
 		types.NoRead,
 	)
@@ -81,12 +89,8 @@ func (h *HDMA) init() {
 			}
 		},
 		func() uint8 {
-			// is HDMA transferring?
-			if h.transferring {
-				return h.blocks - 1
-			} else {
-				return types.Bit7 | h.blocks - 1
-			}
+
+			return 0xff
 		},
 	)
 }
@@ -99,6 +103,9 @@ func NewHDMA(bus IOBus) *HDMA {
 		blocks:       0x01,
 
 		bus: bus,
+
+		source:      0xFFFF,
+		destination: 0xFFFF,
 	}
 	h.init()
 	return h

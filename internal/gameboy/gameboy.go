@@ -19,6 +19,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/emu"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,30 +40,6 @@ var (
 	FrameTime            = time.Second / time.Duration(FrameRate)
 	TicksPerFrame uint32 = uint32(ClockSpeed / FrameRate)
 )
-
-var startingRegisterValues = map[types.HardwareAddress]uint8{
-	types.NR10: 0x80,
-	types.NR11: 0xBF,
-	types.NR12: 0xF3,
-	types.NR14: 0xBF,
-	types.NR21: 0x3F,
-	types.NR22: 0x00,
-	types.NR24: 0xBF,
-	types.NR30: 0x7F,
-	types.NR31: 0xFF,
-	types.NR32: 0x9F,
-	types.NR33: 0xBF,
-	types.NR41: 0xFF,
-	types.NR42: 0x00,
-	types.NR43: 0x00,
-	types.NR50: 0x77,
-	types.NR51: 0xF3,
-	types.NR52: 0xF1,
-	types.LCDC: 0x91,
-	types.STAT: 0x80,
-	types.BGP:  0xFC,
-	types.BDIS: 0x01,
-}
 
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
 // It is the main entry point for the emulator.
@@ -217,10 +194,12 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	// check if the cartridge has a ram controller and start a ticker to save the ram
 	var saveTicker *time.Ticker
 	var ram cartridge.RAMController
-	if r, ok := g.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok {
+	if r, ok := g.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok && g.MMU.Cart.Header().RAMSize > 0 {
+
 		// start a ticker
 		saveTicker = time.NewTicker(time.Second * 3)
 		ram = r
+
 	} else {
 		// create a fake ticker that never ticks
 		saveTicker = &time.Ticker{
@@ -281,9 +260,6 @@ emuLoop:
 				frame = g.Frame()
 				frameEnd := time.Now()
 				renderTimes = append(renderTimes, frameEnd.Sub(frameStart))
-
-			} else {
-
 			}
 
 			// copy the memory block from frame to frameBuffer
@@ -376,7 +352,6 @@ func SerialDebugger(output *string) GameBoyOpt {
 func AsModel(m types.Model) func(gb *GameBoy) {
 	return func(gb *GameBoy) {
 		gb.SetModel(m)
-		gb.initializeCPU()
 	}
 }
 
@@ -442,7 +417,8 @@ func Speed(speed float64) GameBoyOpt {
 
 // NewGameBoy returns a new GameBoy.
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
-
+	types.Lock.Lock()
+	defer types.Lock.Unlock()
 	cart := cartridge.NewCartridge(rom)
 	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
@@ -453,7 +429,9 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
 	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl)
-
+	video.AttachNotifyFrame(func() {
+		processor.HasFrame()
+	})
 	g := &GameBoy{
 		CPU:    processor,
 		MMU:    memBus,
@@ -512,14 +490,10 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 			g.model = types.DMGABC
 		}
 	}
+	video.StartRendering()
 
 	// setup starting register values
 	if g.MMU.BootROM == nil && !g.loadedFromState {
-		// TODO switch to using model to determine starting register values
-		for addr, val := range startingRegisterValues {
-			g.MMU.Write(addr, val)
-		}
-
 		g.initializeCPU()
 		if g.MMU.IsGBCCompat() {
 			video.LoadCompatibilityPalette()
@@ -554,8 +528,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		}
 	}
 
-	video.StartRendering()
-
 	return g
 }
 
@@ -570,6 +542,22 @@ func (g *GameBoy) initializeCPU() {
 	for i, val := range []*uint8{&g.CPU.A, &g.CPU.F, &g.CPU.B, &g.CPU.C, &g.CPU.D, &g.CPU.E, &g.CPU.H, &g.CPU.L} {
 		*val = registers[i]
 	}
+
+	// set HW registers from model
+	hwRegisters := g.model.IO()
+
+	// sort map by key
+	var keys []int
+	for k := range hwRegisters {
+		keys = append(keys, int(k))
+	}
+	sort.Ints(keys)
+
+	// set registers in order
+	for _, k := range keys {
+		g.MMU.Set(uint16(k), hwRegisters[uint16(k)])
+	}
+
 }
 
 func avgTime(t []time.Duration) time.Duration {

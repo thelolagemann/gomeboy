@@ -49,7 +49,7 @@ type CPU struct {
 	sysClock uint16
 
 	doubleSpeed  bool
-	perTickCount uint8
+	perTickCount uint16
 
 	mmu *mmu.MMU
 	irq *interrupts.Service
@@ -65,18 +65,39 @@ type CPU struct {
 	instructionsCB [256]func(cpu *CPU)
 
 	cartFixedBank [0x4000]byte
+	isGBC         bool
 	isMBC1        bool
 	hasFrame      bool
 }
 
 func shouldTickPPU(number uint16) bool {
-	return true
-	switch number {
-	case 4, 80, 84, 168, 172, 176, 180, 196, 200, 204, 456:
+	switch {
+	case number == 4:
+		return true
+	case number == 80:
+		return true
+	case number == 84:
+		return true
+	case number >= 168 && number <= 180:
+		return true
+	case number >= 192 && number <= 200:
+		return true
+	case number == 456:
 		return true
 	default:
+		// fmt.Println("fallthrough", number)
 		return false
 	}
+	// 2   = 0b0000_0010
+	// 42  = 0b0010_1010
+	// 84  = 0b0101_0100
+	// 86  = 0b0101_0110
+	// 88  = 0b0101_1000
+	// 90  = 0b0101_1010
+	// 96  = 0b0110_0000
+	// 98  = 0b0110_0010
+	// 100 = 0b0110_0100
+	// 228 = 0b1110_0100
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
@@ -89,6 +110,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		perTickCount: 4,
 		sysClock:     0xABCC,
 		isMBC1:       mmu.IsMBC1,
+		isGBC:        mmu.IsGBC(),
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -121,6 +143,9 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 			// return bits 6-13 of divider register
 			return uint8(c.sysClock >> 8) // TODO actually return bits 6-13
 		},
+		types.WithSet(func(v interface{}) {
+			c.sysClock = v.(uint16)
+		}),
 	)
 
 	timerT := func() {
@@ -134,34 +159,42 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		serialCtl.TickM(c.sysClock)
 	}
 	videoT := func() {
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	serialVideo := func() {
 		serialCtl.TickM(c.sysClock)
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	timerVideo := func() {
 		timerCtl.TickM(c.sysClock)
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	timerSerialVideo := func() {
 		timerCtl.TickM(c.sysClock)
 		serialCtl.TickM(c.sysClock)
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	dma := func() {
@@ -187,18 +220,22 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 	videoDma := func() {
 		video.DMA.TickM()
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	timerDmaVideo := func() {
 		video.DMA.TickM()
 		timerCtl.TickM(c.sysClock)
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	serialDmaVideo := func() {
@@ -206,9 +243,11 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		serialCtl.TickM(c.sysClock)
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 	timerSerialDmaVideo := func() {
@@ -217,9 +256,11 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		timerCtl.TickM(c.sysClock)
 		serialCtl.TickM(c.sysClock)
 
-		video.Dots += uint16(c.perTickCount)
+		video.Dots += c.perTickCount
+		video.CurrentCycle += uint64(c.perTickCount)
+
 		if shouldTickPPU(video.Dots) {
-			c.hasFrame = video.Tick()
+			video.Tick()
 		}
 	}
 
@@ -241,6 +282,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		0b0000_1110: serialDmaVideo,
 		0b0000_1111: timerSerialDmaVideo,
 	}
+	c.tickFunc = c.tickFuncs[0]
 
 	return c
 }
@@ -261,9 +303,8 @@ func (c *CPU) tickCycle() {
 }
 
 func (c *CPU) Frame() {
-
-	for !c.hasFrame {
-		if c.mmu.HDMA != nil && c.mmu.HDMA.Copying {
+	for !c.hasFrame && !c.DebugBreakpoint {
+		if c.isGBC && c.mmu.HDMA.Copying {
 			c.hdmaTick4()
 			continue
 		}
@@ -366,8 +407,14 @@ func (c *CPU) skipOperand() {
 // readByte reads a byte from memory.
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.tickCycle()
-
-	// is it possible to read from the cpu and avoid the call to the mmu?
+	if c.mmu.BootROM != nil && !c.mmu.IsBootROMDone() {
+		if addr < 0x100 {
+			return c.mmu.BootROM.Read(addr)
+		}
+		if addr >= 0x200 && addr < 0x900 {
+			return c.mmu.BootROM.Read(addr)
+		}
+	}
 	if addr < 0x4000 && !c.isMBC1 {
 		return c.cartFixedBank[addr]
 	}
@@ -484,4 +531,8 @@ func (c *CPU) Save(s *types.State) {
 
 func (c *CPU) SetTickKey(key uint8) {
 	c.tickFunc = c.tickFuncs[key]
+}
+
+func (c *CPU) HasFrame() {
+	c.hasFrame = true
 }

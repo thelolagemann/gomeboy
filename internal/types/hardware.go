@@ -2,10 +2,12 @@ package types
 
 import (
 	"fmt"
+	"sync"
 )
 
 var (
 	hardwareRegisters = HardwareRegisters{}
+	Lock              sync.Mutex
 )
 
 // HardwareRegisters is a slice of hardware IO, which
@@ -58,8 +60,9 @@ func CollectHardwareRegisters() HardwareRegisters {
 // read the state of the hardware.
 type HardwareRegister struct {
 	address HardwareAddress
-	set     func(v uint8)
-	get     func() uint8
+	write   func(v uint8)
+	read    func() uint8
+	set     func(v interface{})
 
 	writeHandler WriteHandler
 }
@@ -74,11 +77,11 @@ type HardwareOpt func(*HardwareRegister)
 // read-only or write-only, respectively. The read and write
 // functions are called with the address of the register, and
 // the value to be written, or the value to be read, respectively.
-func RegisterHardware(address HardwareAddress, set func(v uint8), get func() uint8, opts ...HardwareOpt) {
+func RegisterHardware(address HardwareAddress, write func(v uint8), read func() uint8, opts ...HardwareOpt) {
 	h := &HardwareRegister{
 		address: address,
-		set:     set,
-		get:     get,
+		write:   write,
+		read:    read,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -94,12 +97,18 @@ func WithWriteHandler(writeHandler func(writeFn func())) HardwareOpt {
 	}
 }
 
+func WithSet(set func(v interface{})) HardwareOpt {
+	return func(h *HardwareRegister) {
+		h.set = set
+	}
+}
+
 type WriteHandler func(writeFn func())
 
 func (h *HardwareRegister) Read() uint8 {
-	// was the hardware register get function set?
-	if h.get != nil {
-		return h.get()
+	// was the hardware register read function write?
+	if h.read != nil {
+		return h.read()
 	}
 
 	// the hardware register is not readable, a panic is thrown
@@ -109,22 +118,34 @@ func (h *HardwareRegister) Read() uint8 {
 func (h *HardwareRegister) Write(value uint8) {
 	// did the hardware register have a write handler?
 	if h.writeHandler != nil {
-		// was the hardware register write function set?
-		if h.set != nil {
+		// was the hardware register write function write?
+		if h.write != nil {
 			h.writeHandler(func() {
-				h.set(value)
+				h.write(value)
 			})
 		} else {
 			panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
 		}
 	} else {
-		// was the hardware register write function set?
-		if h.set != nil {
-			h.set(value)
+		// was the hardware register write function write?
+		if h.write != nil {
+			h.write(value)
 		} else {
 			panic(fmt.Sprintf("hardware: no write function for address 0x%04X", h.address))
 		}
 	}
+}
+
+func (h *HardwareRegister) Set(v interface{}) {
+	if h.set != nil {
+		h.set(v)
+	} else {
+		panic(fmt.Sprintf("hardware: no set function for address 0x%04X", h.address))
+	}
+}
+
+func (h *HardwareRegister) CanSet() bool {
+	return h.set != nil
 }
 
 // NoRead is a convenience function to return a read function that

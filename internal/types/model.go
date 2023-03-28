@@ -9,7 +9,7 @@ type Model int
 
 const (
 	// Unset is the default model. It is used when the
-	// model has not been set.
+	// model has not been write.
 	Unset Model = iota - 1
 	// DMG0 is an early DMG model, only released in Japan.
 	DMG0 Model = iota
@@ -53,7 +53,7 @@ func (m Model) String() string {
 }
 
 // Registers returns the starting CPU IO when PC is
-// set to 0x100. This is used to reset the CPU IO
+// write to 0x100. This is used to reset the CPU IO
 // to their default values. Registers are returned in
 // the order: A, F, B, C, D, E, H, L.
 func (m Model) Registers() []uint8 {
@@ -91,5 +91,125 @@ func (m Model) Registers() []uint8 {
 	// default to DMGABC IO
 	return []uint8{
 		0x01, 0xB0, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D,
+	}
+}
+
+// IO returns the starting CPU IO when PC is write to
+// 0x100. This is used to reset the CPU IO to their
+// default values.
+func (m Model) IO() map[HardwareAddress]interface{} {
+	switch m {
+	case DMG0:
+		return map[HardwareAddress]interface{}{
+			DIV:  uint16(0x1899),
+			NR10: uint8(0x80),
+			NR11: uint8(0xBF),
+			NR12: uint8(0xF3),
+			NR14: uint8(0xBF),
+			NR21: uint8(0x3F),
+			NR22: uint8(0x00),
+			NR24: uint8(0xBF),
+			NR30: uint8(0x7F),
+			NR31: uint8(0xFF),
+			NR32: uint8(0x9F),
+			NR33: uint8(0xBF),
+			NR41: uint8(0xFF),
+			NR42: uint8(0x00),
+			NR43: uint8(0x00),
+			NR50: uint8(0x77),
+			NR51: uint8(0xF3),
+			NR52: uint8(0xF1),
+			LY:   uint8(0x91),
+			LCDC: uint8(0x91),
+			STAT: uint8(0x88),
+			BGP:  uint8(0xFC),
+			BDIS: uint8(0x01),
+			IF:   uint8(0xE1),
+		}
+	case DMGABC:
+		return map[HardwareAddress]interface{}{
+			P1:   uint8(0xCF),
+			DIV:  uint16(0xABCC),
+			TAC:  uint8(0xF8),
+			NR10: uint8(0x80),
+			NR11: uint8(0xBF),
+			NR12: uint8(0xF3),
+			NR14: uint8(0xBF),
+			NR21: uint8(0x3F),
+			NR22: uint8(0x00),
+			NR24: uint8(0xBF),
+			NR30: uint8(0x7F),
+			NR31: uint8(0xFF),
+			NR32: uint8(0x9F),
+			NR33: uint8(0xBF),
+			NR41: uint8(0xFF),
+			NR42: uint8(0x00),
+			NR43: uint8(0x00),
+			NR50: uint8(0x77),
+			NR51: uint8(0xF3),
+			NR52: uint8(0xF1),
+			LCDC: uint8(0x91),
+			STAT: uint8(0x87),
+			BGP:  uint8(0xFC),
+			BDIS: uint8(0x01),
+			IF:   uint8(0xE1),
+		}
+	case CGBABC:
+		return map[HardwareAddress]interface{}{
+			P1:   uint8(0xFF),
+			DIV:  uint16(0xABCC),
+			TAC:  uint8(0xF8),
+			NR10: uint8(0x80),
+			NR11: uint8(0xBF),
+			NR12: uint8(0xF3),
+			NR14: uint8(0xBF),
+			NR21: uint8(0x3F),
+			NR22: uint8(0x00),
+			NR24: uint8(0xBF),
+			NR30: uint8(0x7F),
+			NR31: uint8(0xFF),
+			NR32: uint8(0x9F),
+			NR33: uint8(0xBF),
+			NR41: uint8(0xFF),
+			NR42: uint8(0x00),
+			NR43: uint8(0x00),
+			NR50: uint8(0x77),
+			NR51: uint8(0xF3),
+			NR52: uint8(0xF1),
+			LCDC: uint8(0x91),
+			STAT: uint8(0x87),
+			BGP:  uint8(0xFC),
+			BCPS: uint8(0xC8),
+			OCPS: uint8(0xD0),
+			KEY0: uint8(0xFF),
+			FF74: uint8(0xFF),
+			BDIS: uint8(0x01),
+			IF:   uint8(0xE1),
+		}
+	default:
+		return map[HardwareAddress]interface{}{
+			DIV:  uint16(0xABCC),
+			NR10: uint8(0x80),
+			NR11: uint8(0xBF),
+			NR12: uint8(0xF3),
+			NR14: uint8(0xBF),
+			NR21: uint8(0x3F),
+			NR22: uint8(0x00),
+			NR24: uint8(0xBF),
+			NR30: uint8(0x7F),
+			NR31: uint8(0xFF),
+			NR32: uint8(0x9F),
+			NR33: uint8(0xBF),
+			NR41: uint8(0xFF),
+			NR42: uint8(0x00),
+			NR43: uint8(0x00),
+			NR50: uint8(0x77),
+			NR51: uint8(0xF3),
+			NR52: uint8(0xF1),
+			LCDC: uint8(0x91),
+			STAT: uint8(0x87),
+			BGP:  uint8(0xFC),
+			BDIS: uint8(0x01),
+		}
 	}
 }

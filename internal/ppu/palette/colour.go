@@ -14,20 +14,18 @@ type CGBPalette struct {
 	Palettes     [8]Palette
 	Index        byte
 	Incrementing bool
-
-	LastWrite uint8
 }
 
 // SetIndex updates the index of the palette.
 func (p *CGBPalette) SetIndex(value byte) {
 	p.Index = value & 0x3F
-	p.Incrementing = value&types.Bit7 != 0 // if bit 7 is set, incrementing is true
+	p.Incrementing = value&types.Bit7 != 0
 }
 
 // GetIndex returns the index of the palette.
 func (p *CGBPalette) GetIndex() byte {
 	if p.Incrementing {
-		return p.Index | 0x80
+		return p.Index | types.Bit7
 	} else {
 		return p.Index
 	}
@@ -82,8 +80,6 @@ func (p *CGBPalette) Write(value byte) {
 	if p.Incrementing {
 		p.Index = (p.Index + 1) & 0x3F
 	}
-
-	p.LastWrite = value
 }
 
 // GetColour returns the colour for a given palette index,
@@ -151,7 +147,6 @@ func (p *CGBPalette) Load(s *types.State) {
 		p.Palettes[i] = LoadPaletteFromState(s)
 	}
 	p.Index = s.Read8()
-	p.Incrementing = s.ReadBool()
 }
 
 func (p *CGBPalette) Save(s *types.State) {
@@ -159,5 +154,4 @@ func (p *CGBPalette) Save(s *types.State) {
 		pa.Save(s)
 	}
 	s.Write8(p.Index)
-	s.WriteBool(p.Incrementing)
 }

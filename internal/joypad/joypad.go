@@ -59,14 +59,17 @@ type State struct {
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
 	s := &State{
-		State: 0xFF,
 		irq:   irq,
+		State: 0xFF,
 	}
 	// set up the register
 	types.RegisterHardware(
 		types.P1,
 		s.Set,
 		s.Get,
+		types.WithSet(func(v interface{}) {
+			s.Register = v.(uint8)
+		}),
 	)
 	return s
 }

@@ -264,6 +264,25 @@ const (
 	//  Bit 7 - IR Port Enable (0=Disable, 1=Enable)
 	//  Bit 6 - IR Port Input  (0=Low, 1=High)
 	RP HardwareAddress = 0xFF56
+	// FF72 through FF75 are undocumented hardware registers.
+	FF72 HardwareAddress = 0xFF72
+	FF73 HardwareAddress = 0xFF73
+	FF74 HardwareAddress = 0xFF74
+	FF75 HardwareAddress = 0xFF75
+	// PCM12 is the address of the PCM12 hardware register. The PCM12
+	// contains a copy of the PCM12 data. The low 4 bits of PCM12
+	// are a copy of sound channel 1 PCM data, and the high 4 bits
+	// are a copy of sound channel 2 PCM data.
+	PCM12 HardwareAddress = 0xFF76
+	// PCM34 is the address of the PCM34 hardware register. The PCM34
+	// contains a copy of the PCM34 data. The low 4 bits of PCM34
+	// are a copy of sound channel 3 PCM data, and the high 4 bits
+	// are a copy of sound channel 4 PCM data.
+	PCM34 HardwareAddress = 0xFF77
+	// The register is set as follows:
+	//  Bit 7 - PCM12 Enable (0=Disable, 1=Enable)
+	//  Bit 6 - PCM12 Volume (0=Full, 1=Half)
+
 	// IE is the address of the IE hardware register. The IE
 	// hardware register is used to Enable interrupts. Writing a 1
 	// to a bit in IE Enables the corresponding interrupt, and writing

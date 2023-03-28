@@ -56,9 +56,10 @@ type MMU struct {
 
 	HDMA *HDMA
 
-	key0  uint8
-	key1  uint8
-	isGBC bool
+	key0        uint8
+	key1        uint8
+	isGBCCompat bool
+	isGBC       bool
 
 	flatMemory []uint8
 
@@ -66,6 +67,8 @@ type MMU struct {
 	IsMBC1      bool
 	wRAMOffset  uint16
 	wRAMBank    uint8
+	// undocumented registers
+	ff72, ff73, ff74, ff75 uint8
 }
 
 func (m *MMU) init() {
@@ -79,11 +82,9 @@ func (m *MMU) init() {
 		}, func() uint8 {
 			// TODO return different values depending on hardware (DMG/SGB/CGB)
 			if m.bootROMDone {
-				if m.isGBC {
-					return 0x11
-				} else {
-					return 0xFF
-				}
+
+				return 0xFF
+
 			}
 			return 0x00
 		})
@@ -92,12 +93,12 @@ func (m *MMU) init() {
 	types.RegisterHardware(
 		types.KEY0,
 		func(v uint8) {
-			if m.isGBC {
-				m.key0 = v & 0xf // only lower nibble is writable
+			if m.isGBC && !m.bootROMDone { // only r/w when boot rom is running TODO: verify this
+				m.key0 = v & 0b0000_1101
 			}
 		}, func() uint8 {
-			if m.isGBC {
-				return m.key0
+			if m.isGBC && !m.bootROMDone {
+				return m.key0 | 0b1111_0010
 			}
 			return 0xFF
 		})
@@ -126,9 +127,88 @@ func (m *MMU) init() {
 			}
 		}, func() uint8 {
 			if m.isGBC {
-				return m.wRAMBank
+				return m.wRAMBank | 0b1111_1100
 			}
 			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.FF72,
+		func(v uint8) {
+			if m.isGBCCompat {
+				m.ff72 = v
+			}
+		}, func() uint8 {
+			if m.isGBCCompat {
+				return m.ff72
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.FF73,
+		func(v uint8) {
+			if m.isGBCCompat {
+				m.ff73 = v
+			}
+		},
+		func() uint8 {
+			if m.isGBCCompat {
+				return m.ff73
+			}
+			return 0xFF
+		},
+	)
+	types.RegisterHardware(
+		types.FF74,
+		func(v uint8) {
+			if m.isGBCCompat {
+				m.ff74 = v
+			}
+		},
+		func() uint8 {
+			return 0xFF // always returns 0xFF TODO: verify this
+		},
+	)
+	types.RegisterHardware(
+		types.FF75,
+		func(v uint8) {
+			if m.isGBCCompat {
+				// only bits 4-6 are writable
+				m.ff75 = v & 0b0111_0000
+			}
+		},
+		func() uint8 {
+			if m.isGBCCompat {
+				return m.ff75 | 0b1000_1111
+			}
+			return 0xFF
+		},
+	)
+
+	types.RegisterHardware(
+		types.PCM12,
+		func(v uint8) {
+			//a.pcm12 = v
+		}, func() uint8 {
+			if m.isGBCCompat {
+				return 0
+			} else {
+				return 0xFF
+			}
+		},
+	)
+	types.RegisterHardware(
+		types.PCM34,
+		func(v uint8) {
+			//a.pcm34 = v
+		},
+		func() uint8 {
+			if m.isGBCCompat {
+				return 0
+			} else {
+				return 0xFF
+			}
 		},
 	)
 }
@@ -137,9 +217,10 @@ func (m *MMU) init() {
 func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 	m := &MMU{
 		Cart: cart,
+		Log:  log.New(),
 
 		Sound:       sound,
-		isGBC:       cart.Header().Hardware() == "CGB",
+		isGBCCompat: cart.Header().Hardware() == "CGB",
 		bootROMDone: true, // only set to false if boot rom is enabled
 		flatMemory:  make([]uint8, 65536),
 
@@ -236,25 +317,27 @@ func (m *MMU) Map() {
 	for i := 0xFF30; i < 0xFF40; i++ {
 		m.raw[i] = &addresses2[2]
 	}
+
+	m.isGBC = m.IsGBC()
 }
 
 func (m *MMU) SetBootROM(rom []byte) {
 	m.BootROM = boot.LoadBootROM(rom)
 	m.bootROMDone = false
 	if len(rom) == 0x900 {
-		m.isGBC = true
+		m.isGBCCompat = true
 		m.HDMA = NewHDMA(m)
 	} else {
-		m.isGBC = false
+		m.isGBCCompat = false
 	}
 }
 
 func (m *MMU) SetModel(model types.Model) {
 	switch model {
 	case types.DMG0, types.DMGABC:
-		m.isGBC = false
+		m.isGBCCompat = false
 	case types.CGB0, types.CGBABC:
-		m.isGBC = true
+		m.isGBCCompat = true
 		m.HDMA = NewHDMA(m)
 	}
 }
@@ -277,20 +360,21 @@ func (m *MMU) AttachVideo(video IOBus) {
 }
 
 func (m *MMU) IsGBCCompat() bool {
-	return m.isGBC
+	return m.isGBCCompat
 }
 
 func (m *MMU) IsGBC() bool {
-	return m.isGBC && m.Cart.Header().GameboyColor()
+	return m.isGBCCompat && m.Cart.Header().GameboyColor()
 }
 
 func (m *MMU) readCart(address uint16) uint8 {
 	// handle the boot ROM (if enabled)
 	if m.BootROM != nil && !m.bootROMDone {
 		if address < 0x100 {
+			// fmt.Printf("read from boot rom at 0x%04X\n", address)
 			return m.BootROM.Read(address)
 		}
-		if m.isGBC && address >= 0x200 && address < 0x900 {
+		if m.isGBCCompat && address >= 0x200 && address < 0x900 {
 			return m.BootROM.Read(address)
 		}
 	}
@@ -304,10 +388,7 @@ func (m *MMU) Read(address uint16) uint8 {
 	// m.loggedReads[address]++
 	switch {
 	case address < 0x4000:
-		if m.IsMBC1 {
-			return m.readCart(address)
-		}
-		return m.flatMemory[address]
+		return m.readCart(address)
 	case address >= 0xC000 && address < 0xD000:
 		return m.wRAM[address-0xC000]
 	case address >= 0xD000 && address < 0xE000:
@@ -374,4 +455,16 @@ func (m *MMU) Save(s *types.State) {
 		m.HDMA.Save(s)
 	}
 	m.Cart.MemoryBankController.Save(s)
+}
+
+func (m *MMU) Set(i types.HardwareAddress, v interface{}) {
+	register := m.registers[i&0xFF]
+	if register == nil {
+		panic(fmt.Sprintf("nil address at %04X", i))
+	}
+	if register.CanSet() {
+		register.Set(v)
+	} else {
+		register.Write(v.(uint8))
+	}
 }
