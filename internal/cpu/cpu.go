@@ -68,9 +68,11 @@ type CPU struct {
 	isGBC         bool
 	isMBC1        bool
 	hasFrame      bool
+	sound         *apu.APU
 }
 
 func shouldTickPPU(number uint16) bool {
+	return true
 	switch {
 	case number == 4:
 		return true
@@ -111,6 +113,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		sysClock:     0xABCC,
 		isMBC1:       mmu.IsMBC1,
 		isGBC:        mmu.IsGBC(),
+		sound:        sound,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -300,6 +303,10 @@ func (c *CPU) registerPointer(index uint8) *Register {
 func (c *CPU) tickCycle() {
 	c.tickFunc()
 	c.sysClock += 4
+	c.sound.Tick()
+	c.sound.Tick()
+	c.sound.Tick()
+	c.sound.Tick()
 }
 
 func (c *CPU) Frame() {
@@ -331,6 +338,7 @@ func (c *CPU) step() {
 
 func (c *CPU) stepSpecial() {
 	reqInt := false
+	delayHalt := false
 	// execute step based on mode
 	switch c.mode {
 	case ModeEnableIME:
@@ -338,8 +346,20 @@ func (c *CPU) stepSpecial() {
 		c.ime = true
 		c.mode = ModeNormal
 
-		// run one instruction
-		c.instructions[c.readInstruction()](c)
+		// read the next instruction
+		instr := c.readInstruction()
+
+		// handle the ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
+		if instr == 0x76 {
+			// if the next instruction from an EI is HALT, the interrupt is serviced and
+			// the execution returns to the HALT instruction
+			if c.irq.HasInterrupts() {
+				delayHalt = true
+			}
+		}
+
+		// execute the instruction
+		c.instructions[instr](c)
 
 		// check for interrupts
 		reqInt = c.ime && c.irq.Flag&c.irq.Enable > 0
@@ -365,6 +385,9 @@ func (c *CPU) stepSpecial() {
 		}
 	}
 
+	if delayHalt {
+		c.PC--
+	}
 	// did we get an interrupt?
 	if reqInt {
 		c.executeInterrupt()

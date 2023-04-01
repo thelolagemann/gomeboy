@@ -41,8 +41,8 @@ func init() {
 type APU struct {
 	playing, enabled bool
 
-	memory      [52]byte
-	waveformRam []byte
+	memory    [52]byte
+	audioData []byte
 
 	chan1, chan2, chan3, chan4 *Channel
 	TickCounter                int32
@@ -53,6 +53,7 @@ type APU struct {
 	currentIndex uint32
 
 	pcm12, pcm34 uint8
+	waveRAM      [16]byte
 }
 
 type buffer struct {
@@ -118,13 +119,18 @@ func (a *APU) registerHardware(address uint16, w func(value uint8)) {
 	types.RegisterHardware(
 		address,
 		func(v uint8) {
-			a.Tick()
-			a.memory[address-0xFF00] = v
-			w(v)
+			if a.playing || address == types.NR52 {
+				a.Tick()
+				a.memory[address-0xFF00] = v
+				w(v)
+			}
 		},
 		func() uint8 {
 			return a.memory[address-0xFF00] | orMasks[address-0xFF10]
 		},
+		types.WithSet(func(v interface{}) {
+			a.memory[address-0xFF00] = v.(uint8)
+		}),
 	)
 }
 
@@ -243,7 +249,7 @@ func (a *APU) init() {
 			if v&0b100_0000 != 0 {
 				duration = int(256-float64(a.chan3.length)*(1/256)) * sampleRate
 			}
-			a.chan3.generator = Waveform(func(i int) byte { return a.waveformRam[i] })
+			a.chan3.generator = Waveform(func(i int) byte { return a.audioData[i] })
 			a.chan3.duration = duration
 		}
 		frequencyValue := uint16(v&0b111)<<8 | uint16(a.memory[0x1D])
@@ -304,6 +310,17 @@ func (a *APU) init() {
 	a.registerHardware(types.NR52, func(v uint8) {
 		// Sound on/off
 		a.playing = v&0x80 != 0
+		a.memory[0x16] = v & 0xF0
+
+		if !a.playing {
+			for i := 0x00; i < 0x26; i++ {
+				a.memory[i] = 0
+			}
+			a.chan1.Reset(0)
+			a.chan2.Reset(0)
+			a.chan3.Reset(0)
+			a.chan4.Reset(0)
+		}
 	})
 }
 
@@ -312,7 +329,7 @@ func NewAPU() *APU {
 	b := &buffer{data: make([]byte, sampleRate*10), size: sampleRate * 10, sampleChan: make(chan [2]uint16, sampleRate)}
 	a := &APU{
 		playing:     false,
-		waveformRam: make([]byte, 0x20),
+		audioData:   make([]byte, 0x20),
 		audioBuffer: b,
 	}
 	a.init()
@@ -320,9 +337,9 @@ func NewAPU() *APU {
 	// Initialize waveform RAM
 	for i := 0x0; i < 0x20; i++ {
 		if i&2 == 0 {
-			a.waveformRam[i] = 0x00
+			a.audioData[i] = 0x00
 		} else {
-			a.waveformRam[i] = 0xFF
+			a.audioData[i] = 0xFF
 		}
 	}
 
@@ -386,7 +403,8 @@ var channel3Volume = []float64{
 // Read returns the value at the given address.
 func (a *APU) Read(address uint16) uint8 {
 	if address >= 0xFF30 && address <= 0xFF3F {
-		return a.waveformRam[address-0xFF30]
+		a.Tick()
+		return a.waveRAM[address-0xFF30]
 	}
 	panic(fmt.Sprintf("unhandled APU read at address: 0x%04X", address))
 }
@@ -396,8 +414,9 @@ func (a *APU) Write(address uint16, value uint8) {
 	if address >= 0xFF30 && address <= 0xFF3F {
 		a.Tick()
 		soundIndex := (address - 0xFF30) * 2
-		a.waveformRam[soundIndex] = (value >> 4) & 0xF * 0x11
-		a.waveformRam[soundIndex+1] = value & 0xF * 0x11
+		a.audioData[soundIndex] = (value >> 4) & 0xF * 0x11
+		a.audioData[soundIndex+1] = value & 0xF * 0x11
+		a.waveRAM[address-0xFF30] = value
 		return
 	}
 	panic("invalid address")
