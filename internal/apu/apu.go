@@ -3,14 +3,13 @@ package apu
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"math"
 	"sync"
 )
 
 const (
-	// sampleRate is the sample rate of the audio.
-	sampleRate = 48000
 	// twoPi is 2 * Pi.
 	twoPi = 2 * math.Pi
 	// perSample is the number of samples per second.
@@ -18,6 +17,14 @@ const (
 
 	// cpuTicksPerSample is the number of CPU ticks per sample.
 	cpuTicksPerSample = (4194304) / (sampleRate)
+)
+
+const (
+	bufferSize           = 1024
+	sampleRate           = 65536
+	samplePeriod         = 4194304 / sampleRate
+	frameSequencerRate   = 512
+	frameSequencerPeriod = 4194304 / frameSequencerRate
 )
 
 var (
@@ -41,12 +48,23 @@ func init() {
 type APU struct {
 	playing, enabled bool
 
-	memory    [52]byte
-	audioData []byte
+	memory      [52]byte
+	audioData   []byte
+	chan1       *channel1
+	chan2       *channel2
+	chan3       *channel3
+	chan4       *channel4
+	TickCounter int32
 
-	chan1, chan2, chan3, chan4 *Channel
-	TickCounter                int32
-	lVol, rVol                 float64
+	frameSequencerCounter   uint
+	frameSequencerStep      uint
+	frequencyCounter        uint
+	firstHalfOfLengthPeriod bool
+
+	vinLeft, vinRight       bool
+	volumeLeft, volumeRight uint8
+	leftEnable, rightEnable [4]bool
+	volumes                 [4]float64
 
 	audioBuffer  *buffer
 	player       *audio.Player
@@ -54,6 +72,12 @@ type APU struct {
 
 	pcm12, pcm34 uint8
 	waveRAM      [16]byte
+
+	bus mmu.IOBus
+}
+
+func (a *APU) AttachBus(bus mmu.IOBus) {
+	a.bus = bus
 }
 
 type buffer struct {
@@ -101,226 +125,93 @@ func (b *buffer) Read(p []byte) (int, error) {
 	return bytesCollected, nil
 }
 
-var orMasks = []byte{
-	// NR1x
-	0x80, 0x3F, 0x00, 0xFF, 0xBF,
-	// NR2x
-	0xFF, 0x3F, 0x00, 0xFF, 0xBF,
-	// NR3x
-	0x7F, 0xFF, 0x9F, 0xFF, 0xBF,
-	// NR4x
-	0xFF, 0xFF, 0x00, 0x00, 0xBF,
-	// NR5x
-	0x00, 0x00, 0x70,
-	// FF27 - FF2F 0xFF
-}
-
-func (a *APU) registerHardware(address uint16, w func(value uint8)) {
-	types.RegisterHardware(
-		address,
-		func(v uint8) {
-			if a.playing || address == types.NR52 {
-				a.Tick()
-				a.memory[address-0xFF00] = v
-				w(v)
-			}
-		},
-		func() uint8 {
-			return a.memory[address-0xFF00] | orMasks[address-0xFF10]
-		},
-		types.WithSet(func(v interface{}) {
-			a.memory[address-0xFF00] = v.(uint8)
-		}),
-	)
-}
-
 func (a *APU) init() {
-	// setup addresses
-
-	// Channel 1 (NR10 - NR14)
-	a.registerHardware(types.NR10, func(v uint8) {
-		// Sweep period, negate, shift
-		a.chan1.sweepStepLen = (a.memory[0x10] & 0b111_0000) >> 4
-		a.chan1.sweepSteps = a.memory[0x10] & 0b111
-		a.chan1.sweepIncrease = a.memory[0x10]&0b1000 == 0
-	})
-	a.registerHardware(types.NR11, func(v uint8) {
-		// Sound length, wave pattern duty
-		duty := (v & 0b1100_0000) >> 6
-		a.chan1.generator = Square(squareLimits[duty])
-		a.chan1.length = int(v & 0b0011_1111)
-	})
-	a.registerHardware(types.NR12, func(v uint8) {
-		// Envelope initial volume, direction, sweep length
-		envVolume, envDirection, envSweep := a.extractEnvelope(v)
-		a.chan1.envVolume = int(envVolume)
-		a.chan1.envSamples = int(envSweep) * sampleRate / 64
-		a.chan1.envIncrease = envDirection == 1
-	})
-	a.registerHardware(types.NR13, func(v uint8) {
-		// Frequency low
-		frequencyValue := uint16(a.memory[0x14]&0b111)<<8 | uint16(v)
-		a.chan1.frequency = 131072 / (2048 - float64(frequencyValue))
-	})
-	a.registerHardware(types.NR14, func(v uint8) {
-		// Frequency high, initial, counter/consecutive
-		frequencyValue := uint16(v&0b111)<<8 | uint16(a.memory[0x13])
-		a.chan1.frequency = 131072 / (2048 - float64(frequencyValue))
-		if v&0b1000_0000 != 0 {
-			if a.chan1.length == 0 {
-				a.chan1.length = 64
-			}
-
-			duration := -1
-			if v&0b100_0000 != 0 {
-				duration = int(float64(a.chan1.length)*(1/64)) * sampleRate
-			}
-			a.chan1.Reset(duration)
-			a.chan1.envSteps = a.chan1.envVolume
-			a.chan1.envStepsInit = a.chan1.envVolume
-		}
-	})
-	a.registerHardware(0xFF15, types.NoWrite)
-
-	// Channel 2 (NR20 - NR24)
-	a.registerHardware(types.NR21, func(v uint8) {
-		// Sound length, wave pattern duty
-		duty := (v & 0b1100_0000) >> 6
-		a.chan2.generator = Square(squareLimits[duty])
-		a.chan2.length = int(v & 0b11_1111)
-	})
-	a.registerHardware(types.NR22, func(v uint8) {
-		// Envelope initial volume, direction, sweep length
-		envVolume, envDirection, envSweep := a.extractEnvelope(v)
-		a.chan2.envVolume = int(envVolume)
-		a.chan2.envSamples = int(envSweep) * sampleRate / 64
-		a.chan2.envIncrease = envDirection == 1
-	})
-	a.registerHardware(types.NR23, func(v uint8) {
-		// Frequency low
-		frequencyValue := uint16(a.memory[0x19]&0b111)<<8 | uint16(v)
-		a.chan2.frequency = 131072 / (2048 - float64(frequencyValue))
-	})
-	a.registerHardware(types.NR24, func(v uint8) {
-		// Frequency high, initial, counter/consecutive
-		if v&0b1000_0000 != 0 {
-			if a.chan2.length == 0 {
-				a.chan2.length = 64
-			}
-
-			duration := -1
-			if v&0b100_0000 != 0 {
-				duration = int(float64(a.chan2.length)*(1/64)) * sampleRate
-			}
-			a.chan2.Reset(duration)
-			a.chan2.envSteps = a.chan2.envVolume
-			a.chan2.envStepsInit = a.chan2.envVolume
-		}
-		frequencyValue := uint16(v&0b111)<<8 | uint16(a.memory[0x18])
-		a.chan2.frequency = 131072 / (2048 - float64(frequencyValue))
-	})
-
-	// Channel 3 (NR30 - NR34)
-	a.registerHardware(types.NR30, func(v uint8) {
-		// DAC power
-		a.chan3.envStepsInit = int((v & 0b1000_0000) >> 7)
-	})
-	a.registerHardware(types.NR31, func(v uint8) {
-		// Sound length
-		a.chan3.length = int(v)
-	})
-	a.registerHardware(types.NR32, func(v uint8) {
-		selection := (v & 0b110_0000) >> 5
-		a.chan3.amplitude = channel3Volume[selection]
-	})
-	a.registerHardware(types.NR33, func(v uint8) {
-		// Frequency low
-		frequencyValue := uint16(a.memory[0x1E]&0b111)<<8 | uint16(v)
-		a.chan3.frequency = 65536 / (2048 - float64(frequencyValue))
-	})
-	a.registerHardware(types.NR34, func(v uint8) {
-		// Frequency high, initial, counter/consecutive
-		if v&0b1000_0000 != 0 {
-			if a.chan3.length == 0 {
-				a.chan3.length = 256
-			}
-
-			duration := -1
-			if v&0b100_0000 != 0 {
-				duration = int(256-float64(a.chan3.length)*(1/256)) * sampleRate
-			}
-			a.chan3.generator = Waveform(func(i int) byte { return a.audioData[i] })
-			a.chan3.duration = duration
-		}
-		frequencyValue := uint16(v&0b111)<<8 | uint16(a.memory[0x1D])
-		a.chan3.frequency = 65536 / (2048 - float64(frequencyValue))
-	})
-
-	// Channel 4 (NR40 - NR44)
-	a.registerHardware(types.NR41, func(v uint8) {
-		// Sound length
-		a.chan4.length = int(v & 0b11_1111)
-	})
-	a.registerHardware(types.NR42, func(v uint8) {
-		// Envelope initial volume, direction, sweep length
-		envVolume, envDirection, envSweep := a.extractEnvelope(v)
-		a.chan4.envVolume = int(envVolume)
-		a.chan4.envSamples = int(envSweep) * sampleRate / 64
-		a.chan4.envIncrease = envDirection == 1
-	})
-	a.registerHardware(types.NR43, func(v uint8) {
-		// Polynomial counter, shift clock frequency
-		shiftClock := float64((v & 0b1111_0000) >> 4)
-		divRation := float64(v & 0b111)
-		if divRation == 0 {
-			divRation = 0.5
-		}
-		a.chan4.frequency = 524288 / divRation / math.Pow(2, shiftClock+1)
-	})
-	a.registerHardware(types.NR44, func(v uint8) {
-		// Counter/consecutive, initial
-		if v&0x80 == 0x80 {
-			duration := -1
-			if v&0b100_0000 != 0 {
-				duration = int(float64(61-a.chan4.length)*(1/256)) * sampleRate
-			}
-			a.chan4.generator = Noise()
-			a.chan4.Reset(duration)
-			a.chan4.envSteps = a.chan4.envVolume
-			a.chan4.envStepsInit = a.chan4.envVolume
-		}
-	})
-
 	// Channel control (NR50 - NR52)
-	a.registerHardware(types.NR50, func(v uint8) {
-		// Channel control / ON-OFF / Volume
-		a.lVol = float64((a.memory[0x24]&0x70)>>4) / 7
-		a.rVol = float64(a.memory[0x24]&0x7) / 7
-	})
-	a.registerHardware(types.NR51, func(v uint8) {
-		a.chan1.onR = v&0x1 != 0
-		a.chan2.onR = v&0x2 != 0
-		a.chan3.onR = v&0x4 != 0
-		a.chan4.onR = v&0x8 != 0
-		a.chan1.onL = v&0x10 != 0
-		a.chan2.onL = v&0x20 != 0
-		a.chan3.onL = v&0x40 != 0
-		a.chan4.onL = v&0x80 != 0
-	})
-	a.registerHardware(types.NR52, func(v uint8) {
-		// Sound on/off
-		a.playing = v&0x80 != 0
-		a.memory[0x16] = v & 0xF0
-
-		if !a.playing {
-			for i := 0x00; i < 0x26; i++ {
-				a.memory[i] = 0
-			}
-			a.chan1.Reset(0)
-			a.chan2.Reset(0)
-			a.chan3.Reset(0)
-			a.chan4.Reset(0)
+	types.RegisterHardware(types.NR50, func(v uint8) {
+		if !a.enabled {
+			return
 		}
+		// Channel control / ON-OFF / Volume
+		a.volumeRight = v & 0x7
+		a.volumeLeft = (v >> 4) & 0x7
+
+		a.vinRight = v&types.Bit3 != 0
+		a.vinLeft = v&types.Bit7 != 0
+	}, func() uint8 {
+		b := a.volumeRight | a.volumeLeft<<4
+		if a.vinRight {
+			b |= types.Bit3
+		}
+		if a.vinLeft {
+			b |= types.Bit7
+		}
+		return b
+	})
+	types.RegisterHardware(types.NR51, func(v uint8) {
+		if !a.enabled {
+			return
+		}
+		// Channel Left/Right enable
+		a.rightEnable[0] = v&types.Bit0 != 0
+		a.rightEnable[1] = v&types.Bit1 != 0
+		a.rightEnable[2] = v&types.Bit2 != 0
+		a.rightEnable[3] = v&types.Bit3 != 0
+
+		a.leftEnable[0] = v&types.Bit4 != 0
+		a.leftEnable[1] = v&types.Bit5 != 0
+		a.leftEnable[2] = v&types.Bit6 != 0
+		a.leftEnable[3] = v&types.Bit7 != 0
+	}, func() uint8 {
+		b := uint8(0)
+		for i := 0; i < 4; i++ {
+			if a.rightEnable[i] {
+				b |= 1 << i
+			}
+			if a.leftEnable[i] {
+				b |= 1 << (i + 4)
+			}
+		}
+		return b
+	})
+	types.RegisterHardware(types.NR52, func(v uint8) {
+		if v&types.Bit7 == 0 && a.enabled {
+			// Power off (registers are reset)
+			for i := types.NR10; i <= types.NR51; i++ {
+				if i == types.NR41 {
+					continue // Power off does not reset length counter
+				}
+				a.bus.Write(i, 0)
+			}
+			a.enabled = false
+		} else if v&types.Bit7 != 0 && !a.enabled {
+			// Power on
+			a.enabled = true
+			a.frameSequencerStep = 0
+			a.chan1.lengthCounter = 0
+			a.chan2.lengthCounter = 0
+			a.chan3.lengthCounter = 0
+			a.chan4.lengthCounter = 0
+		}
+	}, func() uint8 {
+		b := uint8(0)
+		if a.enabled {
+			b |= types.Bit7
+		}
+
+		if a.chan1.channel.enabled {
+			b |= types.Bit0
+		}
+		if a.chan2.channel.enabled {
+			b |= types.Bit1
+		}
+		if a.chan3.channel.enabled {
+			b |= types.Bit2
+		}
+		if a.chan4.channel.enabled {
+			b |= types.Bit3
+		}
+
+		return b | 0x70
 	})
 }
 
@@ -328,26 +219,20 @@ func (a *APU) init() {
 func NewAPU() *APU {
 	b := &buffer{data: make([]byte, sampleRate*10), size: sampleRate * 10, sampleChan: make(chan [2]uint16, sampleRate)}
 	a := &APU{
-		playing:     false,
-		audioData:   make([]byte, 0x20),
-		audioBuffer: b,
+		playing:               false,
+		audioBuffer:           b,
+		volumes:               [4]float64{1.0, 1.0, 1.0, 1.0},
+		frequencyCounter:      95,
+		frameSequencerCounter: 8192,
+		frameSequencerStep:    0,
 	}
 	a.init()
 
-	// Initialize waveform RAM
-	for i := 0x0; i < 0x20; i++ {
-		if i&2 == 0 {
-			a.audioData[i] = 0x00
-		} else {
-			a.audioData[i] = 0xFF
-		}
-	}
-
 	// Initialize channels
-	a.chan1 = NewChannel()
-	a.chan2 = NewChannel()
-	a.chan3 = NewChannel()
-	a.chan4 = NewChannel()
+	a.chan1 = newChannel1(a)
+	a.chan2 = newChannel2(a)
+	a.chan3 = newChannel3(a)
+	a.chan4 = newChannel4(a)
 
 	// initialize audio
 	player, err := context.NewPlayer(a.audioBuffer)
@@ -362,49 +247,86 @@ func NewAPU() *APU {
 // Tick advances the APU by the given number of CPU ticks and
 // speed given.
 func (a *APU) Tick() {
-	if !a.playing || !a.enabled {
-		return
+	if a.frameSequencerCounter--; a.frameSequencerCounter <= 0 {
+		a.frameSequencerCounter = frameSequencerPeriod
+
+		switch a.frameSequencerStep {
+		case 0:
+			a.chan1.lengthStep()
+			a.chan2.lengthStep()
+			a.chan3.lengthStep()
+			a.chan4.lengthStep()
+		case 2:
+			a.chan1.lengthStep()
+			a.chan2.lengthStep()
+			a.chan3.lengthStep()
+			a.chan4.lengthStep()
+			a.chan1.sweepClock()
+		case 4:
+			a.chan1.lengthStep()
+			a.chan2.lengthStep()
+			a.chan3.lengthStep()
+			a.chan4.lengthStep()
+		case 6:
+			a.chan1.lengthStep()
+			a.chan2.lengthStep()
+			a.chan3.lengthStep()
+			a.chan4.lengthStep()
+			a.chan1.sweepClock()
+		case 7:
+			a.chan1.volumeStep()
+			a.chan2.volumeStep()
+			a.chan4.volumeStep()
+		}
+
+		a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
 	}
-	if a.TickCounter < cpuTicksPerSample {
-		return
+
+	a.chan1.step()
+	a.chan2.step()
+	a.chan3.step()
+	a.chan4.step()
+
+	if a.frequencyCounter--; a.frequencyCounter <= 0 {
+		a.frequencyCounter = samplePeriod
+
+		left, right := 0, 0
+		output := uint8(0)
+
+		// get the output from each channel
+		for i := 0; i < 4; i++ {
+			switch i {
+			case 0:
+				output = a.chan1.output
+			case 1:
+				output = a.chan2.output
+			case 2:
+				output = a.chan3.output
+			case 3:
+				output = a.chan4.output
+			}
+
+			// multiply the output by the volume
+			output *= uint8(a.volumes[i])
+
+			// add the output to the left and right channels
+			if a.leftEnable[i] {
+				left += int(output)
+			}
+			if a.rightEnable[i] {
+				right += int(output)
+			}
+		}
+
+		// add the output to the buffer
+		a.audioBuffer.sampleChan <- [2]uint16{uint16(left), uint16(right)}
 	}
-
-	for i := int32(0); i < a.TickCounter/cpuTicksPerSample; i++ {
-		// sample channels
-		chn1l, chn1r := a.chan1.Sample()
-		chn2l, chn2r := a.chan2.Sample()
-		chn3l, chn3r := a.chan3.Sample()
-		chn4l, chn4r := a.chan4.Sample()
-
-		// mix channels
-		valL := uint16((chn1l+chn2l+chn3l+chn4l)/4) * 128
-		valR := uint16((chn1r+chn2r+chn3r+chn4r)/4) * 128
-
-		// write to buffer
-		a.audioBuffer.sampleChan <- [2]uint16{valL, valR}
-		a.TickCounter -= cpuTicksPerSample
-	}
-}
-
-var squareLimits = []float64{
-	0: -0.25,
-	1: -0.5,
-	2: 0,
-	3: 0.5,
-}
-
-var channel3Volume = []float64{
-	0: 0,
-	1: 1,
-	2: 0.5,
-	3: 0.25,
 }
 
 // Read returns the value at the given address.
 func (a *APU) Read(address uint16) uint8 {
 	if address >= 0xFF30 && address <= 0xFF3F {
-		a.Tick()
-		return a.waveRAM[address-0xFF30]
+		return a.chan3.readWaveRAM(address)
 	}
 	panic(fmt.Sprintf("unhandled APU read at address: 0x%04X", address))
 }
@@ -412,23 +334,10 @@ func (a *APU) Read(address uint16) uint8 {
 // Write writes the value to the given address.
 func (a *APU) Write(address uint16, value uint8) {
 	if address >= 0xFF30 && address <= 0xFF3F {
-		a.Tick()
-		soundIndex := (address - 0xFF30) * 2
-		a.audioData[soundIndex] = (value >> 4) & 0xF * 0x11
-		a.audioData[soundIndex+1] = value & 0xF * 0x11
-		a.waveRAM[address-0xFF30] = value
+		a.chan3.writeWaveRAM(address, value)
 		return
 	}
 	panic("invalid address")
-}
-
-// extractEnvelope extracts the envelope volume, direction and sweep
-// from the given byte.
-func (a *APU) extractEnvelope(value uint8) (volume, direction, sweep byte) {
-	volume = (value & 0xF0) >> 4
-	direction = (value & 0x8) >> 3
-	sweep = value & 0x7
-	return
 }
 
 // Pause pauses the APU.
@@ -444,4 +353,24 @@ func (a *APU) Play() {
 	a.enabled = true
 	a.audioBuffer.start()
 	a.player.Play()
+}
+
+func (a *APU) clearRegisters() {
+	a.vinLeft = false
+	a.vinRight = false
+	a.volumeLeft = 0
+	a.volumeRight = 0
+
+	a.enabled = false
+
+	a.leftEnable = [4]bool{false, false, false, false}
+	a.rightEnable = [4]bool{false, false, false, false}
+}
+
+func (a *APU) EmptyBuffer() {
+	go func() {
+		for {
+			<-a.audioBuffer.sampleChan
+		}
+	}()
 }
