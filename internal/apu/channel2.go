@@ -27,12 +27,28 @@ func newChannel2(a *APU) *channel2 {
 	c.volumeChannel = newVolumeChannel(c2)
 
 	types.RegisterHardware(0xff15, types.NoWrite, types.NoRead)
-	types.RegisterHardware(types.NR21, writeEnabled(a, func(v uint8) {
-		c.duty = (v & 0xC0) >> 6
-		c.lengthLoad = v & 0x3F
-		c.lengthCounter = 0x40 - uint(c.lengthLoad)
-	}), func() uint8 {
-		return c.duty<<6 | 0x3F
+	types.RegisterHardware(types.NR21, func(v uint8) {
+		if a.enabled {
+			c.duty = (v & 0xC0) >> 6 // duty can only be changed when enabled
+		}
+		switch a.model {
+		case types.CGBABC:
+			if a.enabled {
+				c.lengthLoad = v & 0x3F
+				c.lengthCounter = 0x40 - uint(c.lengthLoad)
+			}
+		case types.DMGABC, types.DMG0:
+			c.lengthLoad = v & 0x3F
+			c.lengthCounter = 0x40 - uint(c.lengthLoad)
+		default:
+			c.lengthLoad = v & 0x3F
+			c.lengthCounter = 0x40 - uint(c.lengthLoad)
+		}
+	}, func() uint8 {
+		if a.enabled {
+			return (c.duty << 6) | 0x3F
+		}
+		return 0x3F
 	})
 	types.RegisterHardware(types.NR22, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR23, writeEnabled(a, func(v uint8) {
@@ -50,13 +66,18 @@ func newChannel2(a *APU) *channel2 {
 		c.lengthCounterEnabled = lengthCounterEnabled
 		trigger := v&types.Bit7 != 0
 		if trigger {
-			c.enabled = c.dacEnabled
+			if c.dacEnabled {
+				c.enabled = true
+			}
+
+			// init length counter
 			if c.lengthCounter == 0 {
 				c.lengthCounter = 0x40
 				if c.lengthCounterEnabled && a.firstHalfOfLengthPeriod {
 					c.lengthCounter--
 				}
 			}
+			c.initVolumeEnvelope()
 		}
 	}), func() uint8 {
 		b := uint8(0)
@@ -67,6 +88,16 @@ func newChannel2(a *APU) *channel2 {
 	})
 
 	return c
+}
+
+func (c *channel2) getAmplitude() float32 {
+	if c.enabled && c.dacEnabled {
+		dacInput := channel2Duty[c.duty][c.waveDutyPosition] * c.currentVolume
+		dacOutput := (float32(dacInput) / 7.5) - 1
+		return dacOutput
+	} else {
+		return 0
+	}
 }
 
 var (

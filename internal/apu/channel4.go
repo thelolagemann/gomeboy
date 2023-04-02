@@ -40,10 +40,18 @@ func newChannel4(a *APU) *channel4 {
 	c.volumeChannel = newVolumeChannel(c2)
 
 	types.RegisterHardware(0xFF1F, types.NoWrite, types.NoRead)
-	types.RegisterHardware(types.NR41, writeEnabled(a, func(v uint8) {
-		c.lengthLoad = v & 0x3F
-		c.lengthCounter = 0x40 - uint(c.lengthLoad)
-	}), func() uint8 {
+	types.RegisterHardware(types.NR41, func(v uint8) {
+		switch a.model {
+		case types.CGBABC:
+			if a.enabled {
+				c.lengthLoad = v & 0x3F
+				c.lengthCounter = 0x40 - uint(c.lengthLoad)
+			}
+		case types.DMGABC, types.DMG0:
+			c.lengthLoad = v & 0x3F
+			c.lengthCounter = 0x40 - uint(c.lengthLoad)
+		}
+	}, func() uint8 {
 		return 0xFF // write only
 	})
 	types.RegisterHardware(types.NR42, writeEnabled(a, c.setNRx2), c.getNRx2)
@@ -82,4 +90,14 @@ func newChannel4(a *APU) *channel4 {
 		return b | 0xBF
 	})
 	return c
+}
+
+func (c *channel4) getAmplitude() float32 {
+	if c.enabled && c.dacEnabled {
+		dacInput := uint8(c.lfsr&0b1) ^ 0b1*c.currentVolume
+		dacOutput := (float32(dacInput) / 7.5) - 1
+		return dacOutput
+	} else {
+		return 0
+	}
 }

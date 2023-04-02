@@ -189,7 +189,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	start := time.Now()
 	frameStart := time.Now()
 	renderTimes := make([]time.Duration, 0, int(FrameRate))
-	// g.APU.Play()
+	g.APU.Play()
 
 	// check if the cartridge has a ram controller and start a ticker to save the ram
 	var saveTicker *time.Ticker
@@ -334,6 +334,12 @@ func Debug() GameBoyOpt {
 	}
 }
 
+func NoAudio() GameBoyOpt {
+	return func(gb *GameBoy) {
+		gb.APU.Pause()
+	}
+}
+
 func SerialDebugger(output *string) GameBoyOpt {
 	return func(gb *GameBoy) {
 		// used to intercept serial output and store it in a string
@@ -426,6 +432,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	timerCtl := timer.NewController(interrupt)
 	sound := apu.NewAPU()
 	memBus := mmu.NewMMU(cart, sound)
+	sound.AttachBus(memBus)
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
 	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl)
@@ -491,6 +498,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		}
 	}
 	video.StartRendering()
+
+	sound.SetModel(g.model)
 
 	// setup starting register values
 	if g.MMU.BootROM == nil && !g.loadedFromState {

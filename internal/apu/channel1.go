@@ -7,27 +7,26 @@ import (
 type channel struct {
 	enabled    bool
 	dacEnabled bool
-	output     uint8
 
 	// NRx1
 	lengthCounter         uint
-	cyclesSinceLengthStep uint16
+	cyclesSinceLengthStep uint8
 
 	// NRx4
-	lengthCounterEnabled bool
 	frequencyTimer       uint16
+	lengthCounterEnabled bool
 
 	reloadFrequencyTimer func()
 	stepWaveGeneration   func()
 }
 
 func (c *channel) step() {
+	c.frequencyTimer--
 	if c.frequencyTimer == 0 {
 		c.reloadFrequencyTimer()
 		c.stepWaveGeneration()
 	}
 
-	c.frequencyTimer--
 	c.cyclesSinceLengthStep++
 }
 
@@ -82,7 +81,9 @@ func (v *volumeChannel) setNRx2(v2 uint8) {
 	v.envelopeAddMode = envelopeAddMode
 	v.period = v2 & 0x7
 	v.dacEnabled = v2&0xF8 > 0
-	v.enabled = v.dacEnabled
+	if !v.dacEnabled {
+		v.enabled = false
+	}
 }
 
 func (v *volumeChannel) getNRx2() uint8 {
@@ -163,7 +164,9 @@ func newChannel1(a *APU) *channel1 {
 		c.sweepPeriod = (v & 0x70) >> 4
 		c.negate = v&types.Bit3 != 0
 		c.shift = v & 0x7
-		c.enabled = !c.negate && c.negateHasHappened
+		if !c.negate && c.negateHasHappened {
+			c.enabled = false
+		}
 	}), func() uint8 {
 		b := (c.sweepPeriod << 4) | (c.shift)
 		if c.negate {
@@ -171,12 +174,29 @@ func newChannel1(a *APU) *channel1 {
 		}
 		return b | 0x80
 	})
-	types.RegisterHardware(types.NR11, writeEnabled(a, func(v uint8) {
-		c.duty = (v & 0xC0) >> 6
-		c.lengthLoad = v & 0x3F
-		c.lengthCounter = uint(0x40 - c.lengthLoad)
-	}), func() uint8 {
-		return (c.duty << 6) | 0x3F
+	types.RegisterHardware(types.NR11, func(v uint8) {
+		if a.enabled {
+			c.duty = (v & 0xC0) >> 6 // duty can only be changed when enabled
+		}
+		switch a.model {
+		case types.CGBABC:
+			if a.enabled {
+				c.lengthLoad = v & 0x3F
+				c.lengthCounter = 0x40 - uint(c.lengthLoad)
+			}
+		case types.DMGABC, types.DMG0:
+			c.lengthLoad = v & 0x3F
+			c.lengthCounter = 0x40 - uint(c.lengthLoad)
+		default:
+			// TODO add more models, for now emulate as DMG
+			c.lengthLoad = v & 0x3F
+			c.lengthCounter = 0x40 - uint(c.lengthLoad)
+		}
+	}, func() uint8 {
+		if a.enabled {
+			return (c.duty << 6) | 0x3F
+		}
+		return 0x3F
 	})
 	types.RegisterHardware(types.NR12, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR13, writeEnabled(a, func(v uint8) {
@@ -203,6 +223,7 @@ func newChannel1(a *APU) *channel1 {
 					c.lengthCounter--
 				}
 			}
+			c.initVolumeEnvelope()
 			c.frequencyShadow = c.frequency
 			if c.sweepPeriod > 0 {
 				c.sweepTimer = c.sweepPeriod
@@ -237,7 +258,11 @@ func (c *channel1) sweepClock() {
 		c.sweepTimer--
 	}
 	if c.sweepTimer == 0 {
-		c.sweepTimer = 8
+		if c.sweepPeriod > 0 {
+			c.sweepTimer = c.sweepPeriod
+		} else {
+			c.sweepTimer = 8
+		}
 		if c.sweepEnabled && c.sweepPeriod > 0 {
 			calculated := c.frequencyCalculation()
 			if calculated <= 0x07FF && c.shift > 0 {
@@ -252,7 +277,7 @@ func (c *channel1) sweepClock() {
 func (c *channel1) frequencyCalculation() uint16 {
 	calculated := c.frequencyShadow >> c.shift
 	if c.negate {
-		calculated = -calculated
+		calculated = c.frequencyShadow - 1*calculated
 	}
 	calculated += c.frequencyShadow
 	if calculated > 0x07FF {
@@ -260,6 +285,16 @@ func (c *channel1) frequencyCalculation() uint16 {
 	}
 	c.negateHasHappened = c.negate
 	return calculated
+}
+
+func (c *channel1) getAmplitude() float32 {
+	if c.enabled && c.dacEnabled {
+		dacInput := channel1Duty[c.duty][c.waveDutyPosition] * c.currentVolume
+		dacOutput := (float32(dacInput) / 7.5) - 1
+		return dacOutput
+	} else {
+		return 0
+	}
 }
 
 var (

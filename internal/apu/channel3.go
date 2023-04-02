@@ -1,6 +1,8 @@
 package apu
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type channel3 struct {
 	*channel
@@ -18,12 +20,18 @@ type channel3 struct {
 	// NR33/34
 	frequency uint16
 
-	ticksSinceRead uint8
+	ticksSinceRead      uint8
+	waveRAMLastPosition uint8
+
+	// embed APU to access from wave RAM Read/Write
+	apu *APU
 }
 
 func newChannel3(a *APU) *channel3 {
 	c := &channel3{
-		channel: newChannel(),
+		channel:         newChannel(),
+		waveRAMPosition: 4,
+		apu:             a,
 	}
 
 	c.channel.reloadFrequencyTimer = func() {
@@ -32,7 +40,9 @@ func newChannel3(a *APU) *channel3 {
 
 	types.RegisterHardware(types.NR30, writeEnabled(a, func(v uint8) {
 		c.dacEnabled = v&types.Bit7 != 0
-		c.enabled = c.dacEnabled
+		if !c.dacEnabled {
+			c.enabled = false
+		}
 	}), func() uint8 {
 		b := uint8(0)
 		if c.channel.dacEnabled {
@@ -40,10 +50,21 @@ func newChannel3(a *APU) *channel3 {
 		}
 		return b | 0x7F
 	})
-	types.RegisterHardware(types.NR31, writeEnabled(a, func(v uint8) {
-		c.lengthLoad = v
-		c.lengthCounter = 0x100 - uint(c.lengthLoad)
-	}), func() uint8 {
+	types.RegisterHardware(types.NR31, func(v uint8) {
+		switch a.model {
+		case types.CGBABC:
+			if a.enabled {
+				c.lengthLoad = v
+				c.lengthCounter = 0x100 - uint(c.lengthLoad)
+			}
+		case types.DMGABC, types.DMG0:
+			c.lengthLoad = v
+			c.lengthCounter = 0x100 - uint(c.lengthLoad)
+		default:
+			c.lengthLoad = v
+			c.lengthCounter = 0x100 - uint(c.lengthLoad)
+		}
+	}, func() uint8 {
 		return 0xFF // write only
 	})
 	types.RegisterHardware(types.NR32, writeEnabled(a, func(v uint8) {
@@ -75,8 +96,24 @@ func newChannel3(a *APU) *channel3 {
 		}
 		c.lengthCounterEnabled = lengthCounterEnabled
 		if v&types.Bit7 != 0 {
+			// handle blarrgs 10-wave trigger while on test
+			if c.isEnabled() && c.frequencyTimer == 2 && (a.model != types.CGBABC && a.model != types.CGB0) {
+				pos := c.waveRAMPosition >> 1
+
+				if pos < 4 {
+					c.waveRAM[0] = c.waveRAM[pos]
+				} else {
+					// align to 4 bytes
+					pos &^= 3
+
+					// copy 4 bytes
+					copy(c.waveRAM[0:4], c.waveRAM[pos:pos+4])
+				}
+			}
+
 			// trigger
 			c.enabled = c.dacEnabled
+
 			if c.lengthCounter == 0 {
 				c.lengthCounter = 0x100
 				if c.lengthCounterEnabled && a.firstHalfOfLengthPeriod {
@@ -84,8 +121,11 @@ func newChannel3(a *APU) *channel3 {
 				}
 			}
 			c.waveRAMPosition = 0
-			c.frequencyTimer = (2048-c.frequency)*2 + 6 // + 6 to pass blargg's 09-wave read while on test
+			c.waveRAMLastPosition = 0
+
+			c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
 		}
+
 	}), func() uint8 {
 		b := uint8(0)
 		if c.lengthCounterEnabled {
@@ -99,19 +139,39 @@ func newChannel3(a *APU) *channel3 {
 
 func (c *channel3) step() {
 	c.ticksSinceRead++
-
 	if c.frequencyTimer--; c.frequencyTimer == 0 {
 		c.frequencyTimer = (2048 - c.frequency) * 2
-		c.ticksSinceRead = 0
-		c.waveRAMPosition = (c.waveRAMPosition + 1) % 32
-		c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMPosition/2]
+
+		if c.isEnabled() {
+			c.ticksSinceRead = 0
+			c.waveRAMLastPosition = c.waveRAMPosition >> 1
+			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
+
+			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
+		} else {
+			c.waveRAMSampleBuffer = 0
+		}
+	}
+}
+
+func (c *channel3) getAmplitude() float32 {
+	if c.enabled && c.dacEnabled {
+		shift := 0
+		if c.waveRAMPosition&1 == 0 {
+			shift = 4
+		}
+		dacInput := ((c.waveRAMSampleBuffer >> shift) & 0x0F) >> c.volumeCodeShift
+		dacOutput := (float32(dacInput) / 7.5) - 1
+		return dacOutput
+	} else {
+		return 0
 	}
 }
 
 func (c *channel3) readWaveRAM(address uint16) uint8 {
 	if c.isEnabled() {
-		if c.ticksSinceRead < 2 {
-			return c.waveRAM[c.waveRAMPosition/2]
+		if c.ticksSinceRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
+			return c.waveRAM[c.waveRAMLastPosition]
 		} else {
 			return 0xFF
 		}
@@ -122,8 +182,8 @@ func (c *channel3) readWaveRAM(address uint16) uint8 {
 
 func (c *channel3) writeWaveRAM(address uint16, value uint8) {
 	if c.isEnabled() {
-		if c.ticksSinceRead < 2 {
-			c.waveRAM[c.waveRAMPosition/2] = value
+		if c.ticksSinceRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
+			c.waveRAM[c.waveRAMLastPosition] = value
 		}
 	} else {
 		c.waveRAM[address-0xFF30] = value

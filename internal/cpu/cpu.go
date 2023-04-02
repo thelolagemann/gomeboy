@@ -303,14 +303,11 @@ func (c *CPU) registerPointer(index uint8) *Register {
 func (c *CPU) tickCycle() {
 	c.tickFunc()
 	c.sysClock += 4
-	c.sound.Tick()
-	c.sound.Tick()
-	c.sound.Tick()
-	c.sound.Tick()
+	c.sound.TickM()
 }
 
 func (c *CPU) Frame() {
-	for !c.hasFrame && !c.DebugBreakpoint {
+	for !c.hasFrame {
 		if c.isGBC && c.mmu.HDMA.Copying {
 			c.hdmaTick4()
 			continue
@@ -349,10 +346,12 @@ func (c *CPU) stepSpecial() {
 		// read the next instruction
 		instr := c.readInstruction()
 
-		// handle the ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
+		// handle ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
 		if instr == 0x76 {
-			// if the next instruction from an EI is HALT, the interrupt is serviced and
-			// the execution returns to the HALT instruction
+			// if an EI instruction is directly succeeded by a HALT instruction,
+			// and there is a pending interrupt, the interrupt will be serviced
+			// first, before the interrupt returns control to the HALT instruction,
+			// effectively delaying the execution of HALT by one instruction.
 			if c.irq.HasInterrupts() {
 				delayHalt = true
 			}
@@ -441,6 +440,7 @@ func (c *CPU) readByte(addr uint16) uint8 {
 	if addr < 0x4000 && !c.isMBC1 {
 		return c.cartFixedBank[addr]
 	}
+
 	return c.mmu.Read(addr)
 }
 

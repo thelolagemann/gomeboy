@@ -1,40 +1,27 @@
 package apu
 
 import (
+	"encoding/binary"
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/veandco/go-sdl2/sdl"
 	"math"
-	"sync"
 )
 
 const (
-	// twoPi is 2 * Pi.
-	twoPi = 2 * math.Pi
-	// perSample is the number of samples per second.
-	perSample = 1 / float64(sampleRate)
-
-	// cpuTicksPerSample is the number of CPU ticks per sample.
-	cpuTicksPerSample = (4194304) / (sampleRate)
-)
-
-const (
-	bufferSize           = 1024
-	sampleRate           = 65536
+	bufferSize           = 4096
+	sampleRate           = 262144 // 262.144 kHz
 	samplePeriod         = 4194304 / sampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
 )
 
-var (
-	context *audio.Context
-)
-
 func init() {
-	context = audio.NewContext(sampleRate)
-
-	// wait for context to be ready
+	// initialize SDL audio
+	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
+		panic(fmt.Sprintf("failed to initialize SDL audio: %v", err))
+	}
 }
 
 // APU represents the GameBoy's audio processing unit. It comprises 4
@@ -56,73 +43,36 @@ type APU struct {
 	chan4       *channel4
 	TickCounter int32
 
-	frameSequencerCounter   uint
-	frameSequencerStep      uint
-	frequencyCounter        uint
+	frameSequencerCounter   uint32
+	frameSequencerStep      uint8
+	frequencyCounter        uint32
 	firstHalfOfLengthPeriod bool
 
 	vinLeft, vinRight       bool
 	volumeLeft, volumeRight uint8
 	leftEnable, rightEnable [4]bool
-	volumes                 [4]float64
 
-	audioBuffer  *buffer
-	player       *audio.Player
 	currentIndex uint32
 
 	pcm12, pcm34 uint8
 	waveRAM      [16]byte
 
 	bus mmu.IOBus
+
+	Debug struct {
+		ChannelEnabled [4]bool
+	}
+
+	model         types.Model
+	bufferPos     int
+	audioDeviceID sdl.AudioDeviceID
+	buffer        []byte
+
+	HeldTicks uint32
 }
 
 func (a *APU) AttachBus(bus mmu.IOBus) {
 	a.bus = bus
-}
-
-type buffer struct {
-	data           []byte
-	readPosition   int
-	writePosition  int
-	size           int
-	bytesToCollect int
-	sync.RWMutex
-
-	sampleChan chan [2]uint16
-}
-
-func (b *buffer) start() {
-	go func() {
-		for {
-			select {
-			case sample := <-b.sampleChan:
-				b.Lock()
-				// copy sample to buffer
-				copy(b.data[b.writePosition:b.writePosition+4], []byte{byte(sample[0]), byte(sample[0] >> 8), byte(sample[1]), byte(sample[1] >> 8)})
-
-				b.writePosition = (b.writePosition + 4) % b.size
-				b.bytesToCollect += 4
-				b.Unlock()
-			}
-		}
-	}()
-}
-
-func (b *buffer) Read(p []byte) (int, error) {
-	b.RLock()
-	defer b.RUnlock()
-	var bytesCollected int
-	for i := 0; i < b.bytesToCollect && i < len(p); i += 4 {
-		p[i] = b.data[b.readPosition]
-		p[i+1] = b.data[b.readPosition+1]
-		p[i+2] = b.data[b.readPosition+2]
-		p[i+3] = b.data[b.readPosition+3]
-		b.readPosition = (b.readPosition + 4) % b.size
-		bytesCollected += 4
-	}
-
-	b.bytesToCollect -= bytesCollected
-	return bytesCollected, nil
 }
 
 func (a *APU) init() {
@@ -175,11 +125,7 @@ func (a *APU) init() {
 	})
 	types.RegisterHardware(types.NR52, func(v uint8) {
 		if v&types.Bit7 == 0 && a.enabled {
-			// Power off (registers are reset)
 			for i := types.NR10; i <= types.NR51; i++ {
-				if i == types.NR41 {
-					continue // Power off does not reset length counter
-				}
 				a.bus.Write(i, 0)
 			}
 			a.enabled = false
@@ -187,10 +133,7 @@ func (a *APU) init() {
 			// Power on
 			a.enabled = true
 			a.frameSequencerStep = 0
-			a.chan1.lengthCounter = 0
-			a.chan2.lengthCounter = 0
-			a.chan3.lengthCounter = 0
-			a.chan4.lengthCounter = 0
+
 		}
 	}, func() uint8 {
 		b := uint8(0)
@@ -215,16 +158,18 @@ func (a *APU) init() {
 	})
 }
 
+func (a *APU) SetModel(model types.Model) {
+	a.model = model
+}
+
 // NewAPU returns a new APU.
 func NewAPU() *APU {
-	b := &buffer{data: make([]byte, sampleRate*10), size: sampleRate * 10, sampleChan: make(chan [2]uint16, sampleRate)}
 	a := &APU{
 		playing:               false,
-		audioBuffer:           b,
-		volumes:               [4]float64{1.0, 1.0, 1.0, 1.0},
-		frequencyCounter:      95,
+		frequencyCounter:      16,
 		frameSequencerCounter: 8192,
 		frameSequencerStep:    0,
+		buffer:                make([]byte, bufferSize),
 	}
 	a.init()
 
@@ -235,92 +180,113 @@ func NewAPU() *APU {
 	a.chan4 = newChannel4(a)
 
 	// initialize audio
-	player, err := context.NewPlayer(a.audioBuffer)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create player: %v", err))
+	spec := &sdl.AudioSpec{
+		Freq:     sampleRate,
+		Format:   sdl.AUDIO_F32SYS,
+		Channels: 2,
+		Samples:  bufferSize,
+		Callback: nil,
+		UserData: nil,
 	}
-	a.player = player
-	a.player.SetBufferSize(100)
+
+	if id, err := sdl.OpenAudioDevice("", false, spec, nil, 0); err != nil {
+		panic(err)
+	} else {
+		a.audioDeviceID = id
+	}
+
+	sdl.PauseAudioDevice(a.audioDeviceID, false)
+
 	return a
 }
 
-// Tick advances the APU by the given number of CPU ticks and
-// speed given.
-func (a *APU) Tick() {
-	if a.frameSequencerCounter--; a.frameSequencerCounter <= 0 {
-		a.frameSequencerCounter = frameSequencerPeriod
+// Tick
+func (a *APU) TickM() {
+	// we don't need to do anything if the APU is disabled, not playing or no held ticks
 
-		switch a.frameSequencerStep {
-		case 0:
-			a.chan1.lengthStep()
-			a.chan2.lengthStep()
-			a.chan3.lengthStep()
-			a.chan4.lengthStep()
-		case 2:
-			a.chan1.lengthStep()
-			a.chan2.lengthStep()
-			a.chan3.lengthStep()
-			a.chan4.lengthStep()
-			a.chan1.sweepClock()
-		case 4:
-			a.chan1.lengthStep()
-			a.chan2.lengthStep()
-			a.chan3.lengthStep()
-			a.chan4.lengthStep()
-		case 6:
-			a.chan1.lengthStep()
-			a.chan2.lengthStep()
-			a.chan3.lengthStep()
-			a.chan4.lengthStep()
-			a.chan1.sweepClock()
-		case 7:
-			a.chan1.volumeStep()
-			a.chan2.volumeStep()
-			a.chan4.volumeStep()
-		}
+	for i := uint8(0); i < 4; i++ {
+		if a.frameSequencerCounter--; a.frameSequencerCounter <= 0 {
+			a.frameSequencerCounter = frameSequencerPeriod
+			a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 
-		a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
-	}
-
-	a.chan1.step()
-	a.chan2.step()
-	a.chan3.step()
-	a.chan4.step()
-
-	if a.frequencyCounter--; a.frequencyCounter <= 0 {
-		a.frequencyCounter = samplePeriod
-
-		left, right := 0, 0
-		output := uint8(0)
-
-		// get the output from each channel
-		for i := 0; i < 4; i++ {
-			switch i {
+			switch a.frameSequencerStep {
 			case 0:
-				output = a.chan1.output
-			case 1:
-				output = a.chan2.output
+				a.chan1.lengthStep()
+				a.chan2.lengthStep()
+				a.chan3.lengthStep()
+				a.chan4.lengthStep()
 			case 2:
-				output = a.chan3.output
-			case 3:
-				output = a.chan4.output
+				a.chan1.lengthStep()
+				a.chan2.lengthStep()
+				a.chan3.lengthStep()
+				a.chan4.lengthStep()
+				a.chan1.sweepClock()
+			case 4:
+				a.chan1.lengthStep()
+				a.chan2.lengthStep()
+				a.chan3.lengthStep()
+				a.chan4.lengthStep()
+			case 6:
+				a.chan1.lengthStep()
+				a.chan2.lengthStep()
+				a.chan3.lengthStep()
+				a.chan4.lengthStep()
+				a.chan1.sweepClock()
+			case 7:
+				a.chan1.volumeStep()
+				a.chan2.volumeStep()
+				a.chan4.volumeStep()
 			}
 
-			// multiply the output by the volume
-			output *= uint8(a.volumes[i])
-
-			// add the output to the left and right channels
-			if a.leftEnable[i] {
-				left += int(output)
-			}
-			if a.rightEnable[i] {
-				right += int(output)
-			}
+			a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
 		}
 
-		// add the output to the buffer
-		a.audioBuffer.sampleChan <- [2]uint16{uint16(left), uint16(right)}
+		a.chan1.step()
+		a.chan2.step()
+		a.chan3.step()
+		a.chan4.step()
+
+		if a.frequencyCounter--; a.frequencyCounter <= 0 {
+			a.frequencyCounter = samplePeriod
+
+			channel1Amplitude := a.chan1.getAmplitude()
+			channel2Amplitude := a.chan2.getAmplitude()
+			channel3Amplitude := a.chan3.getAmplitude()
+			channel4Amplitude := a.chan4.getAmplitude()
+
+			left := float32(0)
+			right := float32(0)
+			for i, amplitude := range []float32{channel1Amplitude, channel2Amplitude, channel3Amplitude, channel4Amplitude} {
+				if a.leftEnable[i] && !a.Debug.ChannelEnabled[i] {
+					left += amplitude
+				}
+				if a.rightEnable[i] && !a.Debug.ChannelEnabled[i] {
+					right += amplitude
+				}
+			}
+
+			left = ((float32(a.volumeLeft) / 7) * left) / 4
+			right = ((float32(a.volumeRight) / 7) * right) / 4
+
+			var buf [8]byte
+			binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(left))
+			binary.LittleEndian.PutUint32(buf[4:], math.Float32bits(right))
+
+			// push to internal buffer
+			copy(a.buffer[a.bufferPos:], buf[:])
+			a.bufferPos += 8
+
+			// push to SDL buffer when internal buffer is full
+			if a.bufferPos >= bufferSize {
+				// wait until the buffer is empty
+				if err := sdl.QueueAudio(a.audioDeviceID, a.buffer); err != nil {
+					panic(err)
+				}
+				a.bufferPos = 0
+			}
+		}
 	}
+
 }
 
 // Read returns the value at the given address.
@@ -333,6 +299,7 @@ func (a *APU) Read(address uint16) uint8 {
 
 // Write writes the value to the given address.
 func (a *APU) Write(address uint16, value uint8) {
+
 	if address >= 0xFF30 && address <= 0xFF3F {
 		a.chan3.writeWaveRAM(address, value)
 		return
@@ -344,33 +311,12 @@ func (a *APU) Write(address uint16, value uint8) {
 func (a *APU) Pause() {
 	a.playing = false
 	a.enabled = false
-	a.player.Pause()
+	sdl.PauseAudioDevice(a.audioDeviceID, true)
 }
 
 // Play resumes the APU.
 func (a *APU) Play() {
 	a.playing = true
 	a.enabled = true
-	a.audioBuffer.start()
-	a.player.Play()
-}
-
-func (a *APU) clearRegisters() {
-	a.vinLeft = false
-	a.vinRight = false
-	a.volumeLeft = 0
-	a.volumeRight = 0
-
-	a.enabled = false
-
-	a.leftEnable = [4]bool{false, false, false, false}
-	a.rightEnable = [4]bool{false, false, false, false}
-}
-
-func (a *APU) EmptyBuffer() {
-	go func() {
-		for {
-			<-a.audioBuffer.sampleChan
-		}
-	}()
+	// sdl.PauseAudioDevice(a.audioDeviceID, false)
 }
