@@ -9,8 +9,7 @@ type channel struct {
 	dacEnabled bool
 
 	// NRx1
-	lengthCounter         uint
-	cyclesSinceLengthStep uint8
+	lengthCounter uint
 
 	// NRx4
 	frequencyTimer       uint16
@@ -26,8 +25,6 @@ func (c *channel) step() {
 		c.reloadFrequencyTimer()
 		c.stepWaveGeneration()
 	}
-
-	c.cyclesSinceLengthStep++
 }
 
 type volumeChannel struct {
@@ -115,7 +112,6 @@ func (c *channel) lengthStep() {
 		c.lengthCounter--
 		c.enabled = c.lengthCounter > 0
 	}
-	c.cyclesSinceLengthStep = 0
 }
 
 type channel1 struct {
