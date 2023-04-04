@@ -437,7 +437,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	sound := apu.NewAPU(sched)
 	memBus := mmu.NewMMU(cart, sound)
 	sound.AttachBus(memBus)
-	video := ppu.New(memBus, interrupt)
+	video := ppu.New(memBus, interrupt, sched)
 	memBus.AttachVideo(video)
 	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl, sched)
 	video.AttachNotifyFrame(func() {
@@ -468,9 +468,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		if !(!serialCtl.TransferRequest || !serialCtl.InternalClock) {
 			key |= 0b0000_0010
 		}
-		if video.Enabled {
-			key |= 0b0000_0100
-		}
 		if video.DMA.Enabled {
 			key |= 0b0000_1000
 		}
@@ -481,7 +478,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	}
 
 	video.DMA.AttachRegenerate(regenerateTickCycle)
-	video.AttachRegenerate(regenerateTickCycle)
 	timerCtl.AttachRegenerate(regenerateTickCycle)
 	serialCtl.AttachRegenerate(regenerateTickCycle)
 

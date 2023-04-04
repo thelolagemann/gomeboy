@@ -164,45 +164,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		timerCtl.TickM(c.sysClock)
 		serialCtl.TickM(c.sysClock)
 	}
-	videoT := func() {
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
 
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
-	serialVideo := func() {
-		serialCtl.TickM(c.sysClock)
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
-	timerVideo := func() {
-		timerCtl.TickM(c.sysClock)
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
-	timerSerialVideo := func() {
-		timerCtl.TickM(c.sysClock)
-		serialCtl.TickM(c.sysClock)
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
 	dma := func() {
 		video.DMA.TickM()
 	}
@@ -223,70 +185,16 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 
 		serialCtl.TickM(c.sysClock)
 	}
-	videoDma := func() {
-		video.DMA.TickM()
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
-	timerDmaVideo := func() {
-		video.DMA.TickM()
-		timerCtl.TickM(c.sysClock)
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
-	serialDmaVideo := func() {
-		video.DMA.TickM()
-
-		serialCtl.TickM(c.sysClock)
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
-	timerSerialDmaVideo := func() {
-		video.DMA.TickM()
-
-		timerCtl.TickM(c.sysClock)
-		serialCtl.TickM(c.sysClock)
-
-		video.Dots += c.perTickCount
-		video.CurrentCycle += uint64(c.perTickCount)
-
-		if shouldTickPPU(video.Dots) {
-			video.Tick()
-		}
-	}
 
 	c.tickFuncs = [16]func(){
 		0b0000_0000: func() {},
 		0b0000_0001: timerT,
 		0b0000_0010: serialT,
 		0b0000_0011: timerSerial,
-		0b0000_0100: videoT,
-		0b0000_0101: timerVideo,
-		0b0000_0110: serialVideo,
-		0b0000_0111: timerSerialVideo,
 		0b0000_1000: dma,
 		0b0000_1001: timerDma,
 		0b0000_1010: serialDma,
 		0b0000_1011: timerSerialDma,
-		0b0000_1100: videoDma,
-		0b0000_1101: timerDmaVideo,
-		0b0000_1110: serialDmaVideo,
-		0b0000_1111: timerSerialDmaVideo,
 	}
 	c.tickFunc = c.tickFuncs[0]
 
@@ -309,9 +217,6 @@ func (c *CPU) tickCycle() {
 
 	// tick the internal clock
 	c.sysClock += 4
-
-	// tick the sound
-	c.sound.TickM()
 
 	// tick the scheduler
 	if c.doubleSpeed {

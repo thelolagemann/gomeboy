@@ -10,6 +10,16 @@ const (
 	APUChannel3WaveRAM
 	APUChannel4
 	APUSample
+
+	PPUHBlank
+	PPUHBlankInterrupt
+	PPUVBlank
+	PPUVBlankInterrupt
+	PPUVBlankLast
+	PPUOAMSearch
+	PPUVRAMTransfer
+	PPULYReset
+	PPUGlitchedLine0
 )
 
 type Event struct {

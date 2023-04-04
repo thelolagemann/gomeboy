@@ -18,17 +18,17 @@ type Scheduler struct {
 	cycles uint64
 	root   *Event
 
-	eventHandlers [7]func() // 7 is the number of event types
-	events        [7]*Event // only one event of each type can be scheduled at a time
+	eventHandlers [16]func() // 7 is the number of event types
+	events        [16]*Event // only one event of each type can be scheduled at a time
 }
 
 func NewScheduler() *Scheduler {
 	s := &Scheduler{
 		cycles: 0,
-		events: [7]*Event{},
+		events: [16]*Event{},
 	}
 
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 16; i++ {
 		s.events[i] = &Event{}
 	}
 
@@ -61,6 +61,7 @@ func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 }
 
 func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
+
 	// when the event is scheduled, it is scheduled for the current cycle + the cycle
 	// at which it should be executed
 	atCycle := s.cycles + cycle

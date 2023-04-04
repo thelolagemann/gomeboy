@@ -8,6 +8,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
 	"github.com/thelolagemann/go-gameboy/internal/ram"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
 	"image/color"
@@ -66,7 +67,6 @@ type PPU struct {
 
 	backgroundLineRendered [ScreenHeight]bool
 
-	Dots               uint16
 	bus                *mmu.MMU
 	statInterruptDelay bool
 	RefreshScreen      bool
@@ -82,7 +82,6 @@ type PPU struct {
 	reversedColourNumberLUT [256][256][8]uint8
 	modeInterruptLUT        [4][256]bool
 
-	cycleFunc   func()
 	notifyFrame func()
 
 	// debug
@@ -97,6 +96,8 @@ type PPU struct {
 	lastDirty    uint16
 	CurrentCycle uint64
 	lastLine     bool
+
+	s *scheduler.Scheduler
 }
 
 func (p *PPU) init() {
@@ -116,7 +117,12 @@ func (p *PPU) init() {
 		if wasOn && !p.Enabled {
 			// the screen should not be turned off unless in vblank
 			if p.mode != lcd.VBlank {
-				panic("PPU: Screen was turned off while not in VBlank")
+				// panic("PPU: Screen was turned off while not in VBlank")
+			}
+
+			// deschedule all PPU events
+			for i := scheduler.PPUHBlank; i < scheduler.PPUGlitchedLine0; i++ {
+				p.s.DescheduleEvent(i)
 			}
 
 			// clear the screen
@@ -126,16 +132,14 @@ func (p *PPU) init() {
 			// reset the scanline
 			p.lyCompare = 0
 			p.CurrentScanline = 0
-			p.cycleFunc()
 		} else if !wasOn && p.Enabled {
 
 			p.checkLYC()
 			p.checkStatInterrupts(false)
 
-			// if the screen was turned on, reset the clock
-			p.Dots = 4
-			p.delayedTick = true
-			p.cycleFunc()
+			// schedule the end of first line
+			p.s.ScheduleEvent(scheduler.PPUGlitchedLine0, 80)
+
 		}
 		if old != p.Raw {
 			p.dirtyBackground(lcdc)
@@ -453,7 +457,7 @@ func (p *PPU) StartRendering() {
 	p.isGBCCompat = p.bus.IsGBCCompat()
 }
 
-func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
+func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 	oam := NewOAM()
 	p := &PPU{
 		TileData: [2][384]Tile{},
@@ -465,10 +469,135 @@ func New(mmu *mmu.MMU, irq *interrupts.Service) *PPU {
 			ram.NewRAM(8192),
 			ram.NewRAM(8192),
 		},
-		DMA: NewDMA(mmu, oam)}
+		DMA: NewDMA(mmu, oam),
+		s:   s,
+	}
 
 	p.init()
+
+	s.RegisterEvent(scheduler.PPUVBlankInterrupt, func() {
+		p.irq.Request(interrupts.VBlankFlag)
+		p.checkStatInterrupts(true)
+	})
+	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
+		p.mode = lcd.HBlank
+		p.checkStatInterrupts(false)
+		p.mode = lcd.VRAM
+	})
+	s.RegisterEvent(scheduler.PPUVBlankLast, func() {
+		p.mode = lcd.OAM
+		p.windowInternal = 0
+		p.checkStatInterrupts(false)
+
+		// schedule the end of the OAM search
+		s.ScheduleEvent(scheduler.PPUOAMSearch, 84)
+	})
+	s.RegisterEvent(scheduler.PPULYReset, func() {
+		p.CurrentScanline = 0
+		p.checkLYC()
+	})
+	s.RegisterEvent(scheduler.PPUGlitchedLine0, p.endGlitchedFirstLine)
+	s.RegisterEvent(scheduler.PPUHBlank, p.endHBlank)
+	s.RegisterEvent(scheduler.PPUVBlank, p.endVBlank)
+	s.RegisterEvent(scheduler.PPUOAMSearch, p.endOAMSearch)
+	s.RegisterEvent(scheduler.PPUVRAMTransfer, p.endVRAMTransfer)
 	return p
+}
+
+func (p *PPU) endHBlank() {
+	// notify HDMA that HBlank has ended
+	if p.isGBC {
+		p.bus.HDMA.SetHBlank()
+	}
+
+	// increment scanline
+	p.CurrentScanline++
+
+	// check if we've reached the end of the screen
+	if p.CurrentScanline == 144 {
+		// VBlank
+		p.mode = lcd.VBlank
+
+		// request VBlank interrupt (DMG is immediate, CGB is delayed)
+		if !p.isGBCCompat {
+			p.irq.Request(interrupts.VBlankFlag)
+		} else {
+			p.s.ScheduleEvent(scheduler.PPUVBlankInterrupt, 4)
+		}
+
+		// check LYC & STAT interrupt
+		p.checkLYC()
+		p.checkStatInterrupts(true)
+
+		// flag that we need to render the frame
+		p.RefreshScreen = true
+		p.notifyFrame()
+
+		if p.backgroundDirty {
+			for i := 0; i < ScreenHeight; i++ {
+				p.backgroundLineRendered[i] = false
+			}
+		}
+		p.backgroundDirty = false
+
+		// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
+		if !p.Cleared() {
+			p.renderBlank()
+		}
+
+		// schedule end of VBlank for (456 cycles later)
+		p.s.ScheduleEvent(scheduler.PPUVBlank, 456)
+	} else {
+		p.checkLYC()
+		// OAM
+		p.mode = lcd.OAM
+		p.checkStatInterrupts(false)
+
+		// schedule end of OAM search for (84 cycles later)
+		p.s.ScheduleEvent(scheduler.PPUOAMSearch, 84)
+	}
+}
+
+func (p *PPU) endOAMSearch() {
+	p.mode = lcd.VRAM
+	// no STAT interrupt for OAM search, so we don't need to check for it
+
+	// HBlank interrupt is raised 1-M cycle before entering HBlank, so we need to schedule
+	// that before scheduling the end of VRAM search
+	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.scrollX&0x7]-4))
+	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, uint64(scrollXvRAM[p.scrollX&0x7]))
+}
+
+func (p *PPU) endVRAMTransfer() {
+	p.mode = lcd.HBlank
+	p.renderScanline()
+
+	// schedule end of HBlank
+	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.scrollX&0x7]))
+}
+
+func (p *PPU) endVBlank() {
+	p.CurrentScanline++
+	p.checkLYC()
+	p.checkStatInterrupts(false)
+
+	if p.CurrentScanline == 153 {
+		// LY is reset to 0 4 cycles into line 153
+		p.s.ScheduleEvent(scheduler.PPULYReset, 4)
+
+		// Last VBlank line
+		p.s.ScheduleEvent(scheduler.PPUVBlankLast, 456)
+	} else {
+		// reschedule end of VBlank
+		p.s.ScheduleEvent(scheduler.PPUVBlank, 456)
+	}
+}
+
+func (p *PPU) endGlitchedFirstLine() {
+	p.checkLYC()
+	p.checkStatInterrupts(false)
+	// schedule end of VRAM search for (84 cycles later)
+	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 84)
 }
 
 // TODO save compatibility palette
@@ -738,133 +867,6 @@ var (
 	scrollXHblank = [8]uint16{200, 196, 196, 196, 196, 192, 192, 192}
 	scrollXvRAM   = [8]uint16{172, 176, 176, 176, 176, 180, 180, 180}
 )
-
-// Tick the PPU by one cycle. This will update the PPU's state and
-// render the current scanline if necessary.
-func (p *PPU) Tick() {
-	// p.bus.Log.Debugf("ppu tick: %v dots in mode %v, line %v %v", p.Dots, p.mode, p.CurrentScanline, p.CurrentCycle)
-	// step logic (ordered by number of ticks required to optimize calls)
-	switch p.mode {
-	case lcd.HBlank:
-		// are we handling the line 0 M-cycle delay?
-		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/ppu/lcdon_timing-GS.s#L24
-		if p.delayedTick {
-			if p.Dots == 84 {
-				p.delayedTick = false
-				p.Dots = 0
-
-				p.checkLYC()
-				p.checkStatInterrupts(false)
-
-				// go to mode 3
-				p.mode = lcd.VRAM
-			}
-			return
-		}
-
-		// have we reached the cycle threshold for the next scanline?
-		if p.Dots >= 192 && p.Dots == scrollXHblank[p.scrollX&0x7] {
-			// notify HDMA that we're in HBlank
-			if p.isGBC {
-				p.bus.HDMA.SetHBlank()
-			}
-			// reset cycle and increment scanline
-			p.Dots = 0
-			p.CurrentScanline++
-
-			// check if we've reached the end of the visible screen
-			// and need to enter VBlank
-			if p.CurrentScanline == 144 {
-				// enter VBlank mode
-				p.mode = lcd.VBlank
-
-				// request VBlank interrupt (DMG is immediate, CGB is delayed)
-				if !p.isGBCCompat {
-					p.irq.Request(interrupts.VBlankFlag)
-				}
-				p.checkLYC()
-				p.checkStatInterrupts(true)
-
-				// flag that the screen needs to be refreshed
-				p.RefreshScreen = true
-				p.notifyFrame()
-				if p.backgroundDirty {
-					for i := 0; i < ScreenHeight; i++ {
-						p.backgroundLineRendered[i] = false
-					}
-				}
-				p.backgroundDirty = false
-
-				// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
-				if !p.Cleared() {
-					p.renderBlank()
-				}
-
-				// update palette
-				//palette.UpdatePalette()
-			} else {
-				// check LYC
-				p.checkLYC()
-
-				// enter OAM mode
-				p.mode = lcd.OAM
-				p.checkStatInterrupts(false)
-			}
-		}
-
-	case lcd.VRAM:
-		// hblank interrupt is raised 1-M-cycle before entering HBlank
-		if p.Dots == scrollXvRAM[p.scrollX&0x07]-4 {
-			p.mode = lcd.HBlank
-			p.checkStatInterrupts(false)
-			p.mode = lcd.VRAM
-		}
-		if p.Dots == scrollXvRAM[p.scrollX&0x07] {
-			p.mode = lcd.HBlank
-			p.renderScanline()
-			p.Dots = 0
-		}
-	case lcd.OAM:
-		if p.Dots == 84 {
-			p.mode = lcd.VRAM
-			p.Dots = 0
-		}
-	case lcd.VBlank:
-		// interrupt is raised 1-M-cycle into VBlank on CGB
-		if p.CurrentScanline == 144 && p.isGBCCompat {
-			if p.Dots == 4 {
-				p.irq.Request(interrupts.VBlankFlag)
-				p.checkStatInterrupts(true)
-			}
-		}
-		// LY is set to 0 4 T-cycles into line 153
-		if p.CurrentScanline == 153 || p.lastLine {
-			if p.Dots == 4 {
-				p.lastLine = true
-				p.CurrentScanline = 0
-				p.checkLYC()
-			}
-			if p.Dots == 456 {
-				p.mode = lcd.OAM
-				p.windowInternal = 0
-				p.Dots = 0
-
-				p.checkStatInterrupts(false)
-				p.lastLine = false
-			}
-		} else {
-			if p.Dots == 456 {
-				p.Dots = 0
-				p.CurrentScanline++
-
-				// check LYC
-				p.checkLYC()
-				p.checkStatInterrupts(false)
-			}
-		}
-
-	}
-}
 
 func (p *PPU) renderScanline() {
 	if p.CurrentScanline >= ScreenHeight {
@@ -1257,7 +1259,6 @@ func (p *PPU) Load(s *types.State) {
 	// load the vRAM data
 	p.vRAMBank = s.Read8()
 	p.DMA.Load(s)
-	p.Dots = s.Read16()
 	p.RefreshScreen = s.ReadBool()
 	p.statInterruptDelay = s.ReadBool()
 	p.delayedTick = s.ReadBool()
@@ -1279,7 +1280,6 @@ func (p *PPU) Save(s *types.State) {
 	p.vRAM[1].Save(s)           // 8192 bytes
 	s.Write8(p.vRAMBank)        // 1 byte
 	p.DMA.Save(s)
-	s.Write16(p.Dots)
 	s.WriteBool(p.RefreshScreen)
 	s.WriteBool(p.statInterruptDelay)
 	s.WriteBool(p.delayedTick)
@@ -1323,8 +1323,4 @@ func combine(c1, c2 color.Color) color.Color {
 
 func (p *PPU) AttachNotifyFrame(fn func()) {
 	p.notifyFrame = fn
-}
-
-func (p *PPU) AttachRegenerate(cycle func()) {
-	p.cycleFunc = cycle
 }
