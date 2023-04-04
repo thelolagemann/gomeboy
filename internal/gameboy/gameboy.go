@@ -12,6 +12,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
@@ -425,17 +426,20 @@ func Speed(speed float64) GameBoyOpt {
 func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	types.Lock.Lock()
 	defer types.Lock.Unlock()
+
+	sched := scheduler.NewScheduler()
+
 	cart := cartridge.NewCartridge(rom)
 	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
 	serialCtl := serial.NewController(interrupt)
 	timerCtl := timer.NewController(interrupt)
-	sound := apu.NewAPU()
+	sound := apu.NewAPU(sched)
 	memBus := mmu.NewMMU(cart, sound)
 	sound.AttachBus(memBus)
 	video := ppu.New(memBus, interrupt)
 	memBus.AttachVideo(video)
-	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl)
+	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl, sched)
 	video.AttachNotifyFrame(func() {
 		processor.HasFrame()
 	})

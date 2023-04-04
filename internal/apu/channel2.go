@@ -1,18 +1,12 @@
 package apu
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type channel2 struct {
 	*volumeChannel
-
-	waveDutyPosition uint8
-
-	// NR21
-	duty       uint8
-	lengthLoad uint8
-
-	// NR23/24
-	frequency uint16
 }
 
 func newChannel2(a *APU) *channel2 {
@@ -22,34 +16,13 @@ func newChannel2(a *APU) *channel2 {
 		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
 	}
 	c2.reloadFrequencyTimer = func() {
-		c.frequencyTimer = (2048 - c.frequency) * 4
+		a.s.ScheduleEvent(scheduler.APUChannel2, uint64((2048-c.frequency)*4))
 	}
 	c.volumeChannel = newVolumeChannel(c2)
+	a.s.RegisterEvent(scheduler.APUChannel2, c.step)
 
 	types.RegisterHardware(0xff15, types.NoWrite, types.NoRead)
-	types.RegisterHardware(types.NR21, func(v uint8) {
-		if a.enabled {
-			c.duty = (v & 0xC0) >> 6 // duty can only be changed when enabled
-		}
-		switch a.model {
-		case types.CGBABC:
-			if a.enabled {
-				c.lengthLoad = v & 0x3F
-				c.lengthCounter = 0x40 - uint(c.lengthLoad)
-			}
-		case types.DMGABC, types.DMG0:
-			c.lengthLoad = v & 0x3F
-			c.lengthCounter = 0x40 - uint(c.lengthLoad)
-		default:
-			c.lengthLoad = v & 0x3F
-			c.lengthCounter = 0x40 - uint(c.lengthLoad)
-		}
-	}, func() uint8 {
-		if a.enabled {
-			return (c.duty << 6) | 0x3F
-		}
-		return 0x3F
-	})
+	types.RegisterHardware(types.NR21, conditionalWriteWithFallback(c.setNRx1, c.setNRx1CGB, a.model == types.DMGABC), c.getNRx1)
 	types.RegisterHardware(types.NR22, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR23, writeEnabled(a, func(v uint8) {
 		c.frequency = (c.frequency & 0x700) | uint16(v)
@@ -77,6 +50,11 @@ func newChannel2(a *APU) *channel2 {
 					c.lengthCounter--
 				}
 			}
+
+			// init frequency timer
+			a.s.DescheduleEvent(scheduler.APUChannel2)
+			c.reloadFrequencyTimer()
+
 			c.initVolumeEnvelope()
 		}
 	}), func() uint8 {
@@ -90,11 +68,9 @@ func newChannel2(a *APU) *channel2 {
 	return c
 }
 
-func (c *channel2) getAmplitude() float32 {
+func (c *channel2) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
-		dacInput := channel2Duty[c.duty][c.waveDutyPosition] * c.currentVolume
-		dacOutput := (float32(dacInput) / 7.5) - 1
-		return dacOutput
+		return channel2Duty[c.duty][c.waveDutyPosition] * c.currentVolume
 	} else {
 		return 0
 	}

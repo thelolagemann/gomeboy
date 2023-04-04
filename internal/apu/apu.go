@@ -4,17 +4,19 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/veandco/go-sdl2/sdl"
-	"math"
 )
 
 const (
-	bufferSize           = 4096
-	sampleRate           = 262144 // 262.144 kHz
-	samplePeriod         = 4194304 / sampleRate
+	bufferSize           = 2048
+	emulatedSampleRate   = 4194304 / 64
+	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
+
+	targetSampleRate = 96000
 )
 
 func init() {
@@ -69,6 +71,8 @@ type APU struct {
 	buffer        []byte
 
 	HeldTicks uint32
+
+	s *scheduler.Scheduler
 }
 
 func (a *APU) AttachBus(bus mmu.IOBus) {
@@ -156,6 +160,17 @@ func (a *APU) init() {
 
 		return b | 0x70
 	})
+
+	types.RegisterHardware(types.PCM12, func(v uint8) {
+		// PCM12 is a read-only register that returns the current PCM12 value
+	}, func() uint8 {
+		return a.pcm12
+	})
+	types.RegisterHardware(types.PCM34, func(v uint8) {
+		// PCM34 is a read-only register that returns the current PCM34 value
+	}, func() uint8 {
+		return a.pcm34
+	})
 }
 
 func (a *APU) SetModel(model types.Model) {
@@ -163,13 +178,14 @@ func (a *APU) SetModel(model types.Model) {
 }
 
 // NewAPU returns a new APU.
-func NewAPU() *APU {
+func NewAPU(s *scheduler.Scheduler) *APU {
 	a := &APU{
 		playing:               false,
 		frequencyCounter:      16,
 		frameSequencerCounter: 8192,
 		frameSequencerStep:    0,
 		buffer:                make([]byte, bufferSize),
+		s:                     s,
 	}
 	a.init()
 
@@ -181,8 +197,8 @@ func NewAPU() *APU {
 
 	// initialize audio
 	spec := &sdl.AudioSpec{
-		Freq:     sampleRate,
-		Format:   sdl.AUDIO_F32SYS,
+		Freq:     emulatedSampleRate,
+		Format:   sdl.AUDIO_U16SYS,
 		Channels: 2,
 		Samples:  bufferSize,
 		Callback: nil,
@@ -194,99 +210,100 @@ func NewAPU() *APU {
 	} else {
 		a.audioDeviceID = id
 	}
+	s.RegisterEvent(scheduler.APUFrameSequencer, a.stepFrameSequencer)
+	s.RegisterEvent(scheduler.APUSample, a.sample)
 
+	a.stepFrameSequencer()
+	a.sample()
 	sdl.PauseAudioDevice(a.audioDeviceID, false)
-
 	return a
 }
 
-// Tick
-func (a *APU) TickM() {
-	// we don't need to do anything if the APU is disabled, not playing or no held ticks
+func (a *APU) stepFrameSequencer() {
+	a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 
-	for i := uint8(0); i < 4; i++ {
-		if a.frameSequencerCounter--; a.frameSequencerCounter <= 0 {
-			a.frameSequencerCounter = frameSequencerPeriod
-			a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
+	switch a.frameSequencerStep {
+	case 0:
+		a.chan1.lengthStep()
+		a.chan2.lengthStep()
+		a.chan3.lengthStep()
+		a.chan4.lengthStep()
+	case 2:
+		a.chan1.lengthStep()
+		a.chan2.lengthStep()
+		a.chan3.lengthStep()
+		a.chan4.lengthStep()
+		a.chan1.sweepClock()
+	case 4:
+		a.chan1.lengthStep()
+		a.chan2.lengthStep()
+		a.chan3.lengthStep()
+		a.chan4.lengthStep()
+	case 6:
+		a.chan1.lengthStep()
+		a.chan2.lengthStep()
+		a.chan3.lengthStep()
+		a.chan4.lengthStep()
+		a.chan1.sweepClock()
+	case 7:
+		a.chan1.volumeStep()
+		a.chan2.volumeStep()
+		a.chan4.volumeStep()
+	}
 
-			switch a.frameSequencerStep {
-			case 0:
-				a.chan1.lengthStep()
-				a.chan2.lengthStep()
-				a.chan3.lengthStep()
-				a.chan4.lengthStep()
-			case 2:
-				a.chan1.lengthStep()
-				a.chan2.lengthStep()
-				a.chan3.lengthStep()
-				a.chan4.lengthStep()
-				a.chan1.sweepClock()
-			case 4:
-				a.chan1.lengthStep()
-				a.chan2.lengthStep()
-				a.chan3.lengthStep()
-				a.chan4.lengthStep()
-			case 6:
-				a.chan1.lengthStep()
-				a.chan2.lengthStep()
-				a.chan3.lengthStep()
-				a.chan4.lengthStep()
-				a.chan1.sweepClock()
-			case 7:
-				a.chan1.volumeStep()
-				a.chan2.volumeStep()
-				a.chan4.volumeStep()
-			}
+	a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
 
-			a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
+	// schedule next frame sequencer step in 8192 cycles
+	a.s.ScheduleEvent(scheduler.APUFrameSequencer, frameSequencerPeriod)
+}
+
+func (a *APU) sample() {
+	channel1Amplitude := a.chan1.getAmplitude()
+	channel2Amplitude := a.chan2.getAmplitude()
+	channel3Amplitude := a.chan3.getAmplitude()
+	channel4Amplitude := a.chan4.getAmplitude()
+
+	left := uint16(0)
+	right := uint16(0)
+	for i, amplitude := range []uint8{channel1Amplitude, channel2Amplitude, channel3Amplitude, channel4Amplitude} {
+		if a.leftEnable[i] && !a.Debug.ChannelEnabled[i] {
+			left += uint16(amplitude)
 		}
-
-		a.chan1.step()
-		a.chan2.step()
-		a.chan3.step()
-		a.chan4.step()
-
-		if a.frequencyCounter--; a.frequencyCounter <= 0 {
-			a.frequencyCounter = samplePeriod
-
-			channel1Amplitude := a.chan1.getAmplitude()
-			channel2Amplitude := a.chan2.getAmplitude()
-			channel3Amplitude := a.chan3.getAmplitude()
-			channel4Amplitude := a.chan4.getAmplitude()
-
-			left := float32(0)
-			right := float32(0)
-			for i, amplitude := range []float32{channel1Amplitude, channel2Amplitude, channel3Amplitude, channel4Amplitude} {
-				if a.leftEnable[i] && !a.Debug.ChannelEnabled[i] {
-					left += amplitude
-				}
-				if a.rightEnable[i] && !a.Debug.ChannelEnabled[i] {
-					right += amplitude
-				}
-			}
-
-			left = ((float32(a.volumeLeft) / 7) * left) / 4
-			right = ((float32(a.volumeRight) / 7) * right) / 4
-
-			var buf [8]byte
-			binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(left))
-			binary.LittleEndian.PutUint32(buf[4:], math.Float32bits(right))
-
-			// push to internal buffer
-			copy(a.buffer[a.bufferPos:], buf[:])
-			a.bufferPos += 8
-
-			// push to SDL buffer when internal buffer is full
-			if a.bufferPos >= bufferSize {
-				// wait until the buffer is empty
-				if err := sdl.QueueAudio(a.audioDeviceID, a.buffer); err != nil {
-					panic(err)
-				}
-				a.bufferPos = 0
-			}
+		if a.rightEnable[i] && !a.Debug.ChannelEnabled[i] {
+			right += uint16(amplitude)
 		}
 	}
 
+	var buf [4]byte
+	binary.LittleEndian.PutUint16(buf[:], left*128*uint16(a.volumeLeft))
+	binary.LittleEndian.PutUint16(buf[2:], right*128*uint16(a.volumeRight))
+
+	// push to internal buffer
+	copy(a.buffer[a.bufferPos:], buf[:])
+	a.bufferPos += 4
+
+	// push to SDL buffer when internal buffer is full
+	if a.bufferPos >= bufferSize {
+		// wait until the buffer is empty
+		if err := sdl.QueueAudio(a.audioDeviceID, a.buffer); err != nil {
+			panic(err)
+		}
+		a.bufferPos = 0
+	}
+
+	// schedule next sample in samplePeriod cycles
+	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)
+}
+
+// TickM
+func (a *APU) TickM() {
+	for i := 0; i < 4; i++ {
+		// chan 3 & 4 aren't scheduled for now (TODO)
+		a.chan3.step()
+		if !a.chan4.isScheduled {
+			a.chan4.step()
+		}
+	}
 }
 
 // Read returns the value at the given address.

@@ -1,6 +1,9 @@
 package apu
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type channel4 struct {
 	*volumeChannel
@@ -14,6 +17,8 @@ type channel4 struct {
 	clockShift  uint8
 	widthMode   uint8
 	divisorCode uint8
+
+	isScheduled bool
 }
 
 func newChannel4(a *APU) *channel4 {
@@ -31,13 +36,22 @@ func newChannel4(a *APU) *channel4 {
 		}
 	}
 	c2.reloadFrequencyTimer = func() {
+		inCycles := uint64(0)
 		if c.divisorCode == 0 {
-			c.frequencyTimer = 8 << c.clockShift
+			inCycles = 8 << c.clockShift
 		} else {
-			c.frequencyTimer = uint16((c.divisorCode << 4) << c.clockShift)
+			inCycles = uint64(c.divisorCode<<4) << c.clockShift
+		}
+		if inCycles > 8 {
+			a.s.ScheduleEvent(scheduler.APUChannel4, inCycles)
+			c.isScheduled = true
+		} else {
+			c.frequencyTimer = uint16(inCycles)
+			c.isScheduled = false
 		}
 	}
 	c.volumeChannel = newVolumeChannel(c2)
+	a.s.RegisterEvent(scheduler.APUChannel4, c.step)
 
 	types.RegisterHardware(0xFF1F, types.NoWrite, types.NoRead)
 	types.RegisterHardware(types.NR41, func(v uint8) {
@@ -78,10 +92,16 @@ func newChannel4(a *APU) *channel4 {
 					c.lengthCounter--
 				}
 			}
+
+			// reload frequency timer
+			a.s.DescheduleEvent(scheduler.APUChannel4)
+			c.isScheduled = false
+			c.reloadFrequencyTimer()
+
+			c.initVolumeEnvelope()
+			// reset LFSR
+			c.lfsr = 0x7FFF
 		}
-		c.initVolumeEnvelope()
-		// reset LFSR
-		c.lfsr = 0x7FFF
 	}), func() uint8 {
 		b := uint8(0)
 		if c.lengthCounterEnabled {
@@ -92,12 +112,18 @@ func newChannel4(a *APU) *channel4 {
 	return c
 }
 
-func (c *channel4) getAmplitude() float32 {
+func (c *channel4) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
-		dacInput := uint8(c.lfsr&0b1) ^ 0b1*c.currentVolume
-		dacOutput := (float32(dacInput) / 7.5) - 1
-		return dacOutput
+		return uint8(c.lfsr&0b1) ^ 0b1*c.currentVolume
 	} else {
 		return 0
+	}
+}
+
+func (c *channel4) step() {
+	c.frequencyTimer--
+	if c.frequencyTimer == 0 {
+		c.reloadFrequencyTimer()
+		c.stepWaveGeneration()
 	}
 }

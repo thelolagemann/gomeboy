@@ -1,118 +1,9 @@
 package apu
 
 import (
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
-
-type channel struct {
-	enabled    bool
-	dacEnabled bool
-
-	// NRx1
-	lengthCounter uint
-
-	// NRx4
-	frequencyTimer       uint16
-	lengthCounterEnabled bool
-
-	reloadFrequencyTimer func()
-	stepWaveGeneration   func()
-}
-
-func (c *channel) step() {
-	c.frequencyTimer--
-	if c.frequencyTimer == 0 {
-		c.reloadFrequencyTimer()
-		c.stepWaveGeneration()
-	}
-}
-
-type volumeChannel struct {
-	*channel
-
-	// NRx2
-	startingVolume  uint8
-	envelopeAddMode bool
-	period          uint8
-
-	volumeEnvelopeTimer      uint8
-	currentVolume            uint8
-	volumeEnvelopeIsUpdating bool
-}
-
-func (v *volumeChannel) volumeStep() {
-	if v.period != 0 {
-		if v.volumeEnvelopeTimer > 0 {
-			v.volumeEnvelopeTimer--
-			if v.volumeEnvelopeTimer == 0 {
-				v.volumeEnvelopeTimer = v.period
-				if v.currentVolume < 0xF && v.envelopeAddMode || v.currentVolume > 0 && !v.envelopeAddMode {
-					if v.envelopeAddMode {
-						v.currentVolume++
-					} else {
-						v.currentVolume--
-					}
-				} else {
-					v.volumeEnvelopeIsUpdating = false
-				}
-			}
-		}
-	}
-}
-
-func (v *volumeChannel) setNRx2(v2 uint8) {
-	envelopeAddMode := v2&types.Bit3 != 0
-
-	// zombie mode glitch (see https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware#Zombie_Mode)
-	if v.enabled {
-		if v.period == 0 && v.volumeEnvelopeIsUpdating || !v.envelopeAddMode {
-			v.currentVolume++
-		}
-		if envelopeAddMode != v.envelopeAddMode {
-			v.currentVolume = 0x10 - v.currentVolume
-		}
-		v.currentVolume &= 0x0F
-	}
-
-	v.startingVolume = v2 >> 4
-	v.envelopeAddMode = envelopeAddMode
-	v.period = v2 & 0x7
-	v.dacEnabled = v2&0xF8 > 0
-	if !v.dacEnabled {
-		v.enabled = false
-	}
-}
-
-func (v *volumeChannel) getNRx2() uint8 {
-	b := (v.startingVolume << 4) | v.period
-	if v.envelopeAddMode {
-		b |= types.Bit3
-	}
-	return b
-}
-
-func (v *volumeChannel) initVolumeEnvelope() {
-	v.volumeEnvelopeTimer = v.period
-	v.currentVolume = v.startingVolume
-	v.volumeEnvelopeIsUpdating = true
-}
-
-func newChannel() *channel {
-	c := &channel{}
-
-	return c
-}
-
-func (c *channel) isEnabled() bool {
-	return c.enabled && c.dacEnabled
-}
-
-func (c *channel) lengthStep() {
-	if c.lengthCounterEnabled && c.lengthCounter > 0 {
-		c.lengthCounter--
-		c.enabled = c.lengthCounter > 0
-	}
-}
 
 type channel1 struct {
 	// NR10
@@ -124,16 +15,17 @@ type channel1 struct {
 	sweepEnabled      bool
 	negateHasHappened bool
 
-	// NR11
-	duty       uint8
-	lengthLoad uint8
+	*volumeChannel
+}
 
-	// NR13/14
-	frequency uint16
-
-	waveDutyPosition uint8
-
-	*volumeChannel // lengthCounter, enabled, dacEnabled, output
+func conditionalWriteWithFallback(f func(v uint8), fallback func(v uint8), cond bool) func(v uint8) {
+	return func(v uint8) {
+		if cond {
+			f(v)
+		} else {
+			fallback(v)
+		}
+	}
 }
 
 func writeEnabled(a *APU, f func(v uint8)) func(v uint8) {
@@ -152,9 +44,10 @@ func newChannel1(a *APU) *channel1 {
 		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
 	}
 	c2.reloadFrequencyTimer = func() {
-		c.frequencyTimer = (2048 - c.frequency) * 4
+		a.s.ScheduleEvent(scheduler.APUChannel1, uint64((2048-c.frequency)*4))
 	}
 	c.volumeChannel = newVolumeChannel(c2)
+	a.s.RegisterEvent(scheduler.APUChannel1, c.step)
 
 	types.RegisterHardware(types.NR10, writeEnabled(a, func(v uint8) {
 		c.sweepPeriod = (v & 0x70) >> 4
@@ -170,30 +63,7 @@ func newChannel1(a *APU) *channel1 {
 		}
 		return b | 0x80
 	})
-	types.RegisterHardware(types.NR11, func(v uint8) {
-		if a.enabled {
-			c.duty = (v & 0xC0) >> 6 // duty can only be changed when enabled
-		}
-		switch a.model {
-		case types.CGBABC:
-			if a.enabled {
-				c.lengthLoad = v & 0x3F
-				c.lengthCounter = 0x40 - uint(c.lengthLoad)
-			}
-		case types.DMGABC, types.DMG0:
-			c.lengthLoad = v & 0x3F
-			c.lengthCounter = 0x40 - uint(c.lengthLoad)
-		default:
-			// TODO add more models, for now emulate as DMG
-			c.lengthLoad = v & 0x3F
-			c.lengthCounter = 0x40 - uint(c.lengthLoad)
-		}
-	}, func() uint8 {
-		if a.enabled {
-			return (c.duty << 6) | 0x3F
-		}
-		return 0x3F
-	})
+	types.RegisterHardware(types.NR11, conditionalWriteWithFallback(c.setNRx1, c.setNRx1CGB, a.model == types.DMGABC), c.getNRx1)
 	types.RegisterHardware(types.NR12, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR13, writeEnabled(a, func(v uint8) {
 		c.frequency = (c.frequency & 0x700) | uint16(v)
@@ -219,6 +89,11 @@ func newChannel1(a *APU) *channel1 {
 					c.lengthCounter--
 				}
 			}
+			// deschedule the current event
+			a.s.DescheduleEvent(scheduler.APUChannel1)
+			// schedule the next event
+			c.reloadFrequencyTimer()
+
 			c.initVolumeEnvelope()
 			c.frequencyShadow = c.frequency
 			if c.sweepPeriod > 0 {
@@ -283,11 +158,9 @@ func (c *channel1) frequencyCalculation() uint16 {
 	return calculated
 }
 
-func (c *channel1) getAmplitude() float32 {
+func (c *channel1) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
-		dacInput := channel1Duty[c.duty][c.waveDutyPosition] * c.currentVolume
-		dacOutput := (float32(dacInput) / 7.5) - 1
-		return dacOutput
+		return channel1Duty[c.duty][c.waveDutyPosition] * c.currentVolume
 	} else {
 		return 0
 	}

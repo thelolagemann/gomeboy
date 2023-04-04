@@ -123,7 +123,7 @@ func newChannel3(a *APU) *channel3 {
 			c.waveRAMPosition = 0
 			c.waveRAMLastPosition = 0
 
-			c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
+			c.frequencyTimer = ((2048 - c.frequency) * 2) + 6 // + 6 to pass blargg's 09-wave read while on test
 		}
 
 	}), func() uint8 {
@@ -142,7 +142,7 @@ func (c *channel3) step() {
 	if c.frequencyTimer--; c.frequencyTimer == 0 {
 		c.frequencyTimer = (2048 - c.frequency) * 2
 
-		if c.isEnabled() {
+		if c.enabled && c.dacEnabled {
 			c.ticksSinceRead = 0
 			c.waveRAMLastPosition = c.waveRAMPosition >> 1
 			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
@@ -154,15 +154,13 @@ func (c *channel3) step() {
 	}
 }
 
-func (c *channel3) getAmplitude() float32 {
+func (c *channel3) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
 		shift := 0
 		if c.waveRAMPosition&1 == 0 {
 			shift = 4
 		}
-		dacInput := ((c.waveRAMSampleBuffer >> shift) & 0x0F) >> c.volumeCodeShift
-		dacOutput := (float32(dacInput) / 7.5) - 1
-		return dacOutput
+		return ((c.waveRAMSampleBuffer >> shift) & 0x0F) >> c.volumeCodeShift
 	} else {
 		return 0
 	}

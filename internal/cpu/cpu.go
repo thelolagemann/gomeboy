@@ -5,6 +5,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/serial"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
@@ -69,6 +70,7 @@ type CPU struct {
 	isMBC1        bool
 	hasFrame      bool
 	sound         *apu.APU
+	scheduler     *scheduler.Scheduler
 }
 
 func shouldTickPPU(number uint16) bool {
@@ -104,7 +106,7 @@ func shouldTickPPU(number uint16) bool {
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, video *ppu.PPU, sound *apu.APU, serialCtl *serial.Controller) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, video *ppu.PPU, sound *apu.APU, serialCtl *serial.Controller, sched *scheduler.Scheduler) *CPU {
 	c := &CPU{
 		Registers:    Registers{},
 		mmu:          mmu,
@@ -114,6 +116,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		isMBC1:       mmu.IsMBC1,
 		isGBC:        mmu.IsGBC(),
 		sound:        sound,
+		scheduler:    sched,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -301,9 +304,32 @@ func (c *CPU) registerPointer(index uint8) *Register {
 }
 
 func (c *CPU) tickCycle() {
+	// tick the components
 	c.tickFunc()
+
+	// tick the internal clock
 	c.sysClock += 4
+
+	// tick the sound
 	c.sound.TickM()
+
+	// tick the scheduler
+	if c.doubleSpeed {
+		c.scheduler.Tick(2)
+	} else {
+		c.scheduler.Tick(4)
+	}
+
+	// handle any scheduled events
+	for {
+		// check if we have a scheduled event at this cycle
+		if c.scheduler.Next() > c.scheduler.Cycle() {
+			break
+		}
+
+		// execute the event
+		c.scheduler.DoEvent()
+	}
 }
 
 func (c *CPU) Frame() {
