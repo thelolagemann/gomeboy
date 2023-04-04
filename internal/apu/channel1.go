@@ -63,7 +63,20 @@ func newChannel1(a *APU) *channel1 {
 		}
 		return b | 0x80
 	})
-	types.RegisterHardware(types.NR11, conditionalWriteWithFallback(c.setNRx1, c.setNRx1CGB, a.model == types.DMGABC), c.getNRx1)
+	types.RegisterHardware(types.NR11, func(v uint8) {
+		if a.enabled {
+			c.setDuty(v)
+		}
+
+		switch a.model {
+		case types.CGBABC, types.CGB0:
+			if a.enabled {
+				c.setLength(v)
+			}
+		case types.DMGABC, types.DMG0:
+			c.setLength(v)
+		}
+	}, c.getNRx1)
 	types.RegisterHardware(types.NR12, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR13, writeEnabled(a, func(v uint8) {
 		c.frequency = (c.frequency & 0x700) | uint16(v)

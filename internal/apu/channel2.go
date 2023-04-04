@@ -22,7 +22,20 @@ func newChannel2(a *APU) *channel2 {
 	a.s.RegisterEvent(scheduler.APUChannel2, c.step)
 
 	types.RegisterHardware(0xff15, types.NoWrite, types.NoRead)
-	types.RegisterHardware(types.NR21, conditionalWriteWithFallback(c.setNRx1, c.setNRx1CGB, a.model == types.DMGABC), c.getNRx1)
+	types.RegisterHardware(types.NR21, func(v uint8) {
+		if a.enabled {
+			c.setDuty(v)
+		}
+
+		switch a.model {
+		case types.CGBABC, types.CGB0:
+			if a.enabled {
+				c.setLength(v)
+			}
+		case types.DMGABC, types.DMG0:
+			c.setLength(v)
+		}
+	}, c.getNRx1)
 	types.RegisterHardware(types.NR22, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR23, writeEnabled(a, func(v uint8) {
 		c.frequency = (c.frequency & 0x700) | uint16(v)

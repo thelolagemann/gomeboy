@@ -123,7 +123,7 @@ func newChannel3(a *APU) *channel3 {
 			c.waveRAMPosition = 0
 			c.waveRAMLastPosition = 0
 
-			c.frequencyTimer = ((2048 - c.frequency) * 2) + 6 // + 6 to pass blargg's 09-wave read while on test
+			c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
 		}
 
 	}), func() uint8 {

@@ -63,12 +63,16 @@ func (v *volumeChannel) volumeStep() {
 	}
 }
 
-func (v *volumeChannel) setNRx1(v1 uint8) {
-	// duty can only be changed when enabled
-	if v.enabled {
-		v.duty = (v1 & 0xC0) >> 6
-	}
+func (v *volumeChannel) setDuty(duty uint8) {
+	v.duty = (duty & 0xC0) >> 6
+}
 
+func (v *volumeChannel) setLength(length uint8) {
+	v.lengthLoad = length & 0x3F
+	v.lengthCounter = 0x40 - uint(v.lengthLoad)
+}
+
+func (v *volumeChannel) setNRx1(v1 uint8) {
 	v.lengthLoad = v1 & 0x3F
 	v.lengthCounter = 0x40 - uint(v.lengthLoad)
 }

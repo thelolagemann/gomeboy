@@ -19,10 +19,25 @@ const (
 	targetSampleRate = 96000
 )
 
+var (
+	audioDeviceID sdl.AudioDeviceID
+)
+
 func init() {
 	// initialize SDL audio
 	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
 		panic(fmt.Sprintf("failed to initialize SDL audio: %v", err))
+	}
+
+	// open audio device
+	var err error
+	if audioDeviceID, err = sdl.OpenAudioDevice("", false, &sdl.AudioSpec{
+		Freq:     emulatedSampleRate,
+		Format:   sdl.AUDIO_U16SYS,
+		Channels: 2,
+		Samples:  bufferSize,
+	}, nil, 0); err != nil {
+		panic(fmt.Sprintf("failed to open audio device: %v", err))
 	}
 }
 
@@ -65,10 +80,9 @@ type APU struct {
 		ChannelEnabled [4]bool
 	}
 
-	model         types.Model
-	bufferPos     int
-	audioDeviceID sdl.AudioDeviceID
-	buffer        []byte
+	model     types.Model
+	bufferPos int
+	buffer    []byte
 
 	HeldTicks uint32
 
@@ -116,6 +130,9 @@ func (a *APU) init() {
 		a.leftEnable[2] = v&types.Bit6 != 0
 		a.leftEnable[3] = v&types.Bit7 != 0
 	}, func() uint8 {
+		if !a.enabled {
+			return 0
+		}
 		b := uint8(0)
 		for i := 0; i < 4; i++ {
 			if a.rightEnable[i] {
@@ -196,26 +213,13 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 	a.chan4 = newChannel4(a)
 
 	// initialize audio
-	spec := &sdl.AudioSpec{
-		Freq:     emulatedSampleRate,
-		Format:   sdl.AUDIO_U16SYS,
-		Channels: 2,
-		Samples:  bufferSize,
-		Callback: nil,
-		UserData: nil,
-	}
 
-	if id, err := sdl.OpenAudioDevice("", false, spec, nil, 0); err != nil {
-		panic(err)
-	} else {
-		a.audioDeviceID = id
-	}
 	s.RegisterEvent(scheduler.APUFrameSequencer, a.stepFrameSequencer)
 	s.RegisterEvent(scheduler.APUSample, a.sample)
 
 	a.stepFrameSequencer()
 	a.sample()
-	sdl.PauseAudioDevice(a.audioDeviceID, false)
+	sdl.PauseAudioDevice(audioDeviceID, false)
 	return a
 }
 
@@ -285,7 +289,7 @@ func (a *APU) sample() {
 	// push to SDL buffer when internal buffer is full
 	if a.bufferPos >= bufferSize {
 		// wait until the buffer is empty
-		if err := sdl.QueueAudio(a.audioDeviceID, a.buffer); err != nil {
+		if err := sdl.QueueAudio(audioDeviceID, a.buffer); err != nil {
 			panic(err)
 		}
 		a.bufferPos = 0
@@ -298,11 +302,8 @@ func (a *APU) sample() {
 // TickM
 func (a *APU) TickM() {
 	for i := 0; i < 4; i++ {
-		// chan 3 & 4 aren't scheduled for now (TODO)
+		// chan 3 isn't scheduled for now (TODO)
 		a.chan3.step()
-		if !a.chan4.isScheduled {
-			a.chan4.step()
-		}
 	}
 }
 
@@ -328,7 +329,7 @@ func (a *APU) Write(address uint16, value uint8) {
 func (a *APU) Pause() {
 	a.playing = false
 	a.enabled = false
-	sdl.PauseAudioDevice(a.audioDeviceID, true)
+	sdl.PauseAudioDevice(audioDeviceID, true)
 }
 
 // Play resumes the APU.
