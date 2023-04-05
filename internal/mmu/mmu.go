@@ -186,31 +186,6 @@ func (m *MMU) init() {
 		},
 	)
 
-	types.RegisterHardware(
-		types.PCM12,
-		func(v uint8) {
-			//a.pcm12 = v
-		}, func() uint8 {
-			if m.isGBCCompat {
-				return 0
-			} else {
-				return 0xFF
-			}
-		},
-	)
-	types.RegisterHardware(
-		types.PCM34,
-		func(v uint8) {
-			//a.pcm34 = v
-		},
-		func() uint8 {
-			if m.isGBCCompat {
-				return 0
-			} else {
-				return 0xFF
-			}
-		},
-	)
 }
 
 // NewMMU returns a new MMU.
@@ -385,6 +360,7 @@ func (m *MMU) readCart(address uint16) uint8 {
 // Read returns the value at the given address. It handles all the memory
 // banks, mirroring, I/O, etc.
 func (m *MMU) Read(address uint16) uint8 {
+
 	// m.loggedReads[address]++
 	switch {
 	case address < 0x4000:

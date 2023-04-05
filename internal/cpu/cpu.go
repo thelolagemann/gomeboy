@@ -31,8 +31,6 @@ const (
 	ModeHaltBug
 	// ModeHaltDI is the halt DI CPU mode.
 	ModeHaltDI
-	// ModeEnableIME is the enable IME CPU mode.
-	ModeEnableIME
 )
 
 // CPU represents the Gameboy CPU. It is responsible for executing instructions.
@@ -46,8 +44,7 @@ type CPU struct {
 	Debug           bool
 	DebugBreakpoint bool
 
-	ime      bool
-	sysClock uint16
+	ime bool
 
 	doubleSpeed  bool
 	perTickCount uint16
@@ -112,11 +109,11 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		mmu:          mmu,
 		irq:          irq,
 		perTickCount: 4,
-		sysClock:     0xABCC,
-		isMBC1:       mmu.IsMBC1,
-		isGBC:        mmu.IsGBC(),
-		sound:        sound,
-		scheduler:    sched,
+		//sysClock:     0xABCC,
+		isMBC1:    mmu.IsMBC1,
+		isGBC:     mmu.IsGBC(),
+		sound:     sound,
+		scheduler: sched,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -140,65 +137,22 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, timerCtl *timer.Controller, v
 		c.cartFixedBank[i] = mmu.Cart.Read(i)
 	}
 
-	types.RegisterHardware(
-		types.DIV,
-		func(v uint8) {
-			c.sysClock = 0 // any write to DIV resets it
-		},
-		func() uint8 {
-			// return bits 6-13 of divider register
-			return uint8(c.sysClock >> 8) // TODO actually return bits 6-13
-		},
-		types.WithSet(func(v interface{}) {
-			c.sysClock = v.(uint16)
-		}),
-	)
-
-	timerT := func() {
-		timerCtl.TickM(c.sysClock)
-	}
 	serialT := func() {
-		serialCtl.TickM(c.sysClock)
-	}
-	timerSerial := func() {
-		timerCtl.TickM(c.sysClock)
-		serialCtl.TickM(c.sysClock)
-	}
-
-	dma := func() {
-		video.DMA.TickM()
-	}
-	timerDma := func() {
-		video.DMA.TickM()
-		timerCtl.TickM(c.sysClock)
-
-	}
-	serialDma := func() {
-		video.DMA.TickM()
-
-		serialCtl.TickM(c.sysClock)
-	}
-	timerSerialDma := func() {
-		video.DMA.TickM()
-
-		timerCtl.TickM(c.sysClock)
-
-		serialCtl.TickM(c.sysClock)
+		serialCtl.TickM(0)
 	}
 
 	c.tickFuncs = [16]func(){
 		0b0000_0000: func() {},
-		0b0000_0001: timerT,
 		0b0000_0010: serialT,
-		0b0000_0011: timerSerial,
-		0b0000_1000: dma,
-		0b0000_1001: timerDma,
-		0b0000_1010: serialDma,
-		0b0000_1011: timerSerialDma,
 	}
 	c.tickFunc = c.tickFuncs[0]
 
 	return c
+}
+
+func (c *CPU) enableIME() {
+	c.ime = true
+
 }
 
 // registerIndex returns a Register pointer for the given index.
@@ -215,18 +169,12 @@ func (c *CPU) tickCycle() {
 	// tick the components
 	c.tickFunc()
 
-	// tick the internal clock
-	c.sysClock += 4
-
 	// tick the scheduler
-	if c.doubleSpeed {
-		c.scheduler.Tick(2)
-	} else {
-		c.scheduler.Tick(4)
-	}
+	c.scheduler.Tick(4)
 
 	// handle any scheduled events
 	for {
+		// fmt.Printf("executing event at cycle %d (next event at %d)\n", c.scheduler.Cycle(), c.scheduler.Next())
 		// check if we have a scheduled event at this cycle
 		if c.scheduler.Next() > c.scheduler.Cycle() {
 			break
@@ -238,7 +186,7 @@ func (c *CPU) tickCycle() {
 }
 
 func (c *CPU) Frame() {
-	for !c.hasFrame {
+	for !c.hasFrame && !c.DebugBreakpoint {
 		if c.isGBC && c.mmu.HDMA.Copying {
 			c.hdmaTick4()
 			continue
@@ -265,6 +213,9 @@ func (c *CPU) step() {
 }
 
 func (c *CPU) stepSpecial() {
+
+	// fmt.Printf("stepSpecial: %d\n", c.mode)
+
 	reqInt := false
 	delayHalt := false
 	// execute step based on mode

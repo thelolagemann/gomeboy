@@ -5,47 +5,93 @@
 package timer
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+)
+
+const (
+	divPeriod = 16 // 16384 Hz, 32768 Hz in double speed mode
 )
 
 // Controller is a timer controller. It is used to generate
 // interrupts at a specific frequency. The frequency can be
 // configured using the types.TAC register.
 type Controller struct {
-	currentBit  uint16
-	internalDiv uint16
+	currentBit  uint8
+	internalDiv uint8
 
-	tima               uint8
-	ticksSinceOverflow uint8
-	tma                uint8
-	tac                uint8
+	tima uint8
+	tma  uint8
+	tac  uint8
 
-	Enabled   bool
-	lastBit   bool
-	overflow  bool
-	cycleFunc func()
+	doubleSpeed bool
 
 	irq *interrupts.Service
+	s   *scheduler.Scheduler
+
+	externalDiv   uint8
+	reloading     bool
+	reloadPending bool
+	reloadCancel  bool
+	enabled       bool
+	lastCycle     uint64
 }
 
 // NewController returns a new timer controller.
-func NewController(irq *interrupts.Service) *Controller {
+func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
 	c := &Controller{
-		irq:        irq,
-		currentBit: bits[0],
-		tac:        0xF8,
+		irq:         irq,
+		internalDiv: 0xAB,
+		s:           s,
 	}
+	s.RegisterEvent(scheduler.TimerTIMAIncrement, c.scheduledTIMAIncrement)
+	s.RegisterEvent(scheduler.TimerTIMAReload, c.reloadTIMA)
+	s.RegisterEvent(scheduler.TimerTIMAFinishReload, func() {
+		c.reloading = false
+	})
+	types.RegisterHardware(
+		types.DIV,
+		func(v uint8) {
+			// reset the internal div register
+			c.internalDiv = 0
+
+			internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+			if internal&timerBits[c.currentBit] != 0 && c.enabled {
+				c.timaIncrement(false)
+			}
+
+			c.lastCycle = s.Cycle()
+			// TODO APU frame sequencer is tied to the DIV register
+
+			// deschedule and reschedule tima increment
+			s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+			s.DescheduleEvent(scheduler.TimerTIMAReload)
+			s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
+
+			s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(timaCycles[c.currentBit]))
+		}, func() uint8 {
+			c.internalDiv = uint8(((s.Cycle() - c.lastCycle) & 0xFFFF) >> 8)
+			return c.internalDiv
+		},
+		types.WithSet(func(v interface{}) {
+
+		}))
+
 	// set up registers
 	types.RegisterHardware(
 		types.TIMA,
 		func(v uint8) {
-			// writes to TIMA are ignored if written the same tick it is
-			// reloading
-			if c.ticksSinceOverflow != 5 {
+			// if you write to TIMA the same tick that TIMA is reloading
+			// TIMA will be set to the value of TMA
+			if !c.reloading {
 				c.tima = v
-				c.overflow = false
-				c.ticksSinceOverflow = 0
+			} else {
+				c.tima = c.tma
+			}
+			if c.reloadPending {
+				c.reloadCancel = true
 			}
 		}, func() uint8 {
 			return c.tima
@@ -55,9 +101,10 @@ func NewController(irq *interrupts.Service) *Controller {
 		types.TMA,
 		func(v uint8) {
 			c.tma = v
-			// if you write to TMA the same tick that TIMA is reloading,
+
+			// if you write to TMA the same tick that TIMA is reloading
 			// TIMA will be set to the new value of TMA
-			if c.ticksSinceOverflow == 5 {
+			if c.reloading {
 				c.tima = v
 			}
 		}, func() uint8 {
@@ -67,94 +114,104 @@ func NewController(irq *interrupts.Service) *Controller {
 	types.RegisterHardware(
 		types.TAC,
 		func(v uint8) {
-			wasEnabled := c.Enabled
-			oldBit := c.currentBit
-			// 00 = shift by 9 bits
-			// 01 = shift by 3 bits
-			// 10 = shift by 5 bits
-			// 11 = shift by 7 bits
-
-			c.tac = v
-			c.currentBit = bits[v&0b11]
-			c.Enabled = (v & 0x4) == 0x4
-
-			c.timaGlitch(wasEnabled, oldBit)
-			c.cycleFunc()
+			c.changeSpeed(v & 0b11)
+			if c.enabled && v&types.Bit2 == 0 {
+				fmt.Println("unexpected timer increase from disable")
+				internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+				if internal&timerBits[c.currentBit] != 0 {
+					c.timaIncrement(false)
+				}
+			}
+			c.enabled = v&types.Bit2 == types.Bit2
 		}, func() uint8 {
-			return c.tac | 0b11111000
+			v := uint8(0)
+			v |= c.currentBit & 0b11
+			if c.enabled {
+				v |= types.Bit2
+			}
+
+			return v
 		},
 	)
 
 	return c
 }
 
-// TickM ticks the timer controller by 1 M-Cycle (4 T-Cycles).
-func (c *Controller) TickM(sysClock uint16) {
-	selectedBit := c.currentBit
-	for i := 0; i < 4; i++ {
-		// increment divider register
-		sysClock++
-
-		// get the new bit
-		newBit := (sysClock & selectedBit) != 0
-
-		// detect a falling edge
-		if !newBit && c.lastBit {
-			// increment timer
-			c.tima++
-
-			// check for overflow
-			if c.tima == 0 {
-				c.overflow = true
-				c.ticksSinceOverflow = 0
-			}
-		}
-
-		// update last bit
-		c.lastBit = newBit
-
-		// check for overflow
-		if c.overflow {
-			c.ticksSinceOverflow++
-
-			// handle ticks since overflow
-			switch c.ticksSinceOverflow {
-			case 4:
-				c.irq.Request(interrupts.TimerFlag)
-			case 5:
-				c.tima = c.tma
-			case 6:
-				c.overflow = false
-				c.ticksSinceOverflow = 0
-			}
-		}
-	}
-
-	c.internalDiv = sysClock
+var timaCycles = [4]uint32{
+	1024,
+	16,
+	64,
+	256,
 }
 
-// timaGlitch handles the glitch that occurs when the timer is Enabled
-// or disabled.
-func (c *Controller) timaGlitch(wasEnabled bool, oldBit uint16) {
-	if !wasEnabled {
-		return
+// reloadTIMA is called by the scheduler when the timer
+// should be reloaded.
+func (c *Controller) reloadTIMA() {
+	// acknowledge reload
+	c.reloadPending = false
+
+	// if the reload was not cancelled, set the timer to the new value
+	if !c.reloadCancel {
+		c.tima = c.tma
+		c.irq.Request(interrupts.TimerFlag)
+		c.reloadCancel = false // reset cancel flag
 	}
 
-	if c.internalDiv&oldBit != 0 {
-		if !c.Enabled || !(c.internalDiv&c.currentBit != 0) {
-			c.tima++
+	// set reloading flag & schedule finish reload
+	c.reloading = true
+	c.s.ScheduleEvent(scheduler.TimerTIMAFinishReload, 4)
+}
 
-			if c.tima == 0 {
-				c.tima = c.tma
-				c.irq.Request(interrupts.TimerFlag)
+func (c *Controller) timaIncrement(delay bool) {
+	if c.enabled {
+		c.tima++
+
+		// if the timer overflows, reload it
+		if c.tima == 0 {
+			// set reload pending
+			c.reloadPending = true
+
+			// schedule overflow IRQ
+			if delay {
+				c.s.ScheduleEvent(scheduler.TimerTIMAReload, 4) // TODO handle double speed
+			} else {
+				c.s.ScheduleEvent(scheduler.TimerTIMAReload, 0)
 			}
-
-			c.lastBit = false
 		}
 	}
 }
 
-var bits = [4]uint16{512, 8, 32, 128}
+// scheduledTIMAIncrement is called by the scheduler when the timer
+// should increment.
+func (c *Controller) scheduledTIMAIncrement() {
+	c.timaIncrement(true)
+	c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(timaCycles[c.currentBit]))
+}
+
+func (c *Controller) changeSpeed(newBit uint8) {
+	internal := uint16((c.s.Cycle() - c.lastCycle) & 0xFFFF)
+	if newBit != c.currentBit {
+		if (internal&timerBits[c.currentBit] == 1 && internal&timerBits[newBit] == 0) && c.enabled {
+			c.timaIncrement(false)
+		}
+
+		ticksUntilIncrement := (rescheduleMasks[newBit] + 1) - (internal & rescheduleMasks[newBit])
+		c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+		c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(ticksUntilIncrement))
+	}
+
+	c.currentBit = newBit
+}
+
+var rescheduleMasks = [4]uint16{
+	0b1111111111,
+	0b1111,
+	0b111111,
+	0b11111111,
+}
+var timerBits = [4]uint16{
+	9, 3, 5, 7,
+}
 
 var _ types.Stater = (*Controller)(nil)
 
@@ -164,11 +221,6 @@ func (c *Controller) Load(s *types.State) {
 	c.tma = s.Read8()
 	c.tac = s.Read8()
 
-	c.Enabled = s.ReadBool()
-	c.currentBit = s.Read16()
-	c.lastBit = s.ReadBool()
-	c.overflow = s.ReadBool()
-	c.ticksSinceOverflow = s.Read8()
 }
 
 // Save saves the state of the controller.
@@ -176,14 +228,4 @@ func (c *Controller) Save(s *types.State) {
 	s.Write8(c.tima)
 	s.Write8(c.tma)
 	s.Write8(c.tac)
-
-	s.WriteBool(c.Enabled)
-	s.Write16(c.currentBit)
-	s.WriteBool(c.lastBit)
-	s.WriteBool(c.overflow)
-	s.Write8(c.ticksSinceOverflow)
-}
-
-func (c *Controller) AttachRegenerate(cycle func()) {
-	c.cycleFunc = cycle
 }
