@@ -1,6 +1,8 @@
 package apu
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import (
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
 
 type channel struct {
 	enabled    bool
@@ -20,6 +22,7 @@ type channel struct {
 func (c *channel) step() {
 	c.stepWaveGeneration()
 	c.reloadFrequencyTimer()
+
 }
 
 type volumeChannel struct {

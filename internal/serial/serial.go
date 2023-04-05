@@ -2,6 +2,7 @@ package serial
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
@@ -37,7 +38,7 @@ type Controller struct {
 	AttachedDevice    Device              // the device that is attached to this controller.
 	resultFallingEdge bool                // the result of the last falling edge. (Bit 8 of DIV: 8.192 kHz)
 
-	cycleFunc func()
+	s *scheduler.Scheduler // the scheduler.
 }
 
 // Attach attaches a Device to the Controller.
@@ -52,7 +53,7 @@ func (c *Controller) Attach(d Device) {
 // By default, the Controller is attached to a nullDevice, which acts as if
 // there is no device attached. This is the same as if the device is not
 // plugged in. If you want to attach a device, use the Controller.Attach method.
-func NewController(irq *interrupts.Service) *Controller {
+func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
 	c := &Controller{
 		irq:            irq,
 		AttachedDevice: nullDevice{},
@@ -69,7 +70,6 @@ func NewController(irq *interrupts.Service) *Controller {
 		c.control = v | 0x7E // bits 1-6 are always set
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
-		c.cycleFunc()
 	}, func() uint8 {
 		return c.control | 0x7E
 	})
@@ -180,8 +180,4 @@ func (c *Controller) Save(s *types.State) {
 	s.Write8(c.count)
 	s.WriteBool(c.InternalClock)
 	s.WriteBool(c.resultFallingEdge)
-}
-
-func (c *Controller) AttachRegenerate(cycle func()) {
-	c.cycleFunc = cycle
 }

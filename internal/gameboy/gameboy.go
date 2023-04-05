@@ -432,14 +432,14 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	cart := cartridge.NewCartridge(rom)
 	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
-	serialCtl := serial.NewController(interrupt)
+	serialCtl := serial.NewController(interrupt, sched)
 	timerCtl := timer.NewController(interrupt, sched)
 	sound := apu.NewAPU(sched)
 	memBus := mmu.NewMMU(cart, sound)
 	sound.AttachBus(memBus)
 	video := ppu.New(memBus, interrupt, sched)
 	memBus.AttachVideo(video)
-	processor := cpu.NewCPU(memBus, interrupt, timerCtl, video, sound, serialCtl, sched)
+	processor := cpu.NewCPU(memBus, interrupt, sched)
 	video.AttachNotifyFrame(func() {
 		processor.HasFrame()
 	})
@@ -458,21 +458,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		speed:      1.0,
 		Close:      make(chan struct{}),
 	}
-
-	regenerateTickCycle := func() {
-		//start := time.Now()
-		var key uint8
-		if !(!serialCtl.TransferRequest || !serialCtl.InternalClock) {
-			key |= 0b0000_0010
-		}
-
-		g.CPU.SetTickKey(key)
-		// g.Logger.Debugf("tick func regenerated timer: %v dma: %v ppu: %v serial: %v last regeneration was %d cycles ago %0b", timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, g.lastTick, key)
-		//g.Logger.Debugf("tick func regenerated in %s\t timer: %v dma: %v ppu: %v serial: %v %0b", time.Since(start), timerCtl.Enabled, video.DMA.Enabled, video.Enabled, serialCtl.TransferRequest || serialCtl.InternalClock, key)
-		//time.Sleep(100 * time.Millisecond)
-	}
-
-	serialCtl.AttachRegenerate(regenerateTickCycle)
 
 	// apply options
 	for _, opt := range opts {
@@ -493,6 +478,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	video.StartRendering()
 
 	sound.SetModel(g.model)
+	processor.SetModel(g.model)
 
 	// setup starting register values
 	if g.MMU.BootROM == nil && !g.loadedFromState {

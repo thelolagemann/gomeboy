@@ -469,7 +469,7 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 			ram.NewRAM(8192),
 			ram.NewRAM(8192),
 		},
-		DMA: NewDMA(mmu, oam),
+		DMA: NewDMA(mmu, oam, s),
 		s:   s,
 	}
 
@@ -545,7 +545,7 @@ func (p *PPU) endHBlank() {
 			p.renderBlank()
 		}
 
-		// schedule end of VBlank for (456 cycles later)
+		// schedule end of VBlank period for (456 cycles later)
 		p.s.ScheduleEvent(scheduler.PPUVBlank, 456)
 	} else {
 		p.checkLYC()
@@ -1028,11 +1028,8 @@ func (p *PPU) renderBackgroundScanline() {
 	xPos := p.scrollX
 	xPixelPos := xPos & 7
 
-	// get the first tile map row
-	tileMapRow := p.tileMaps[p.BackgroundTileMap][yPos>>3]
-
 	// get the first tile entry
-	tileEntry := tileMapRow[xPos>>3]
+	tileEntry := p.tileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
 	tileID := tileEntry.GetID(p.UsingSignedTileData())
 
 	yPixelPos := yPos
@@ -1085,7 +1082,7 @@ func (p *PPU) renderBackgroundScanline() {
 			xPos += 8
 
 			// get the next tile entry
-			tileEntry = tileMapRow[xPos>>3]
+			tileEntry = p.tileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
 			tileID = tileEntry.GetID(p.UsingSignedTileData())
 
 			if p.isGBC || p.bus.BootROM != nil && !p.bus.IsBootROMDone() {

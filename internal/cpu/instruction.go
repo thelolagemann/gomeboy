@@ -2,6 +2,8 @@ package cpu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
+	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
 type Instruction struct {
@@ -45,7 +47,7 @@ func init() {
 			}
 
 		} else {
-			c.mode = ModeStop
+			c.skipHALT()
 		}
 	})
 	DefineInstruction(0x27, "DAA", func(cpu *CPU) {
@@ -85,12 +87,17 @@ func init() {
 	})
 	DefineInstruction(0x76, "HALT", func(c *CPU) {
 		if c.ime {
-			c.mode = ModeHalt
+			c.skipHALT()
 		} else {
 			if c.irq.HasInterrupts() {
-				c.mode = ModeHaltBug
+				c.doHALTBug()
 			} else {
-				c.mode = ModeHaltDI
+				switch c.model {
+				case types.MGB: // TODO handle MGB oam HALT weirdness
+					c.DebugBreakpoint = true
+				default:
+					c.skipHALT()
+				}
 			}
 		}
 	})
@@ -98,7 +105,22 @@ func init() {
 		c.instructionsCB[c.readOperand()](c)
 	})
 	DefineInstruction(0xF3, "DI", func(c *CPU) { c.ime = false })
-	DefineInstruction(0xFB, "EI", func(c *CPU) { c.mode = ModeEnableIME })
+	DefineInstruction(0xFB, "EI", func(c *CPU) {
+		// handle ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
+		if c.mmu.Read(c.PC) == 0x76 {
+			// if an EI instruction is directly succeeded by a HALT instruction,
+			// and there is a pending interrupt, the interrupt will be serviced
+			// first, before the interrupt returns control to the HALT instruction,
+			// effectively delaying the execution of HALT by one instruction.
+			if c.irq.HasInterrupts() {
+				c.s.ScheduleEvent(scheduler.EIHaltDelay, 4)
+			} else {
+				c.s.ScheduleEvent(scheduler.EIPending, 4)
+			}
+		} else {
+			c.s.ScheduleEvent(scheduler.EIPending, 4)
+		}
+	})
 	generateBitInstructions()
 	generateLoadRegisterToRegisterInstructions()
 	generateLogicInstructions()

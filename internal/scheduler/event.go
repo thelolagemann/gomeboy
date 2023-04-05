@@ -1,6 +1,6 @@
 package scheduler
 
-type EventType int
+type EventType uint8
 
 const (
 	APUFrameSequencer EventType = iota
@@ -20,17 +20,26 @@ const (
 	PPUVRAMTransfer
 	PPULYReset
 	PPUGlitchedLine0
+
+	DMAStartTransfer
+	DMAEndTransfer
+	DMATransfer
+
+	TimerTIMAReload
+	TimerTIMAFinishReload
+	TimerTIMAIncrement
+
+	EIPending
+	HaltDI
+	EIHaltDelay
+)
+
+const (
+	eventTypes = 25
 )
 
 type Event struct {
 	cycle     uint64
 	eventType EventType
-	fn        func()
 	next      *Event
-}
-
-func (e *Event) Reset() {
-	e.cycle = 0
-	e.eventType = 0
-	e.fn = nil
 }

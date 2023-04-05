@@ -3,7 +3,6 @@ package scheduler
 import "C"
 import (
 	"fmt"
-	"math"
 )
 
 // Scheduler is a simple event scheduler that can be used to schedule events
@@ -18,17 +17,21 @@ type Scheduler struct {
 	cycles uint64
 	root   *Event
 
-	eventHandlers [16]func() // 7 is the number of event types
-	events        [16]*Event // only one event of each type can be scheduled at a time
+	eventHandlers [256]func() // set to 256 (uint8 max) avoids bounds check on eventHandlers[eventType]()
+	events        [256]*Event // only one event of each type can be scheduled at a time
+	nextEventAt   uint64
 }
 
 func NewScheduler() *Scheduler {
 	s := &Scheduler{
 		cycles: 0,
-		events: [16]*Event{},
+		events: [256]*Event{},
 	}
 
-	for i := 0; i < 16; i++ {
+	// initialize the events with the number of event types
+	// to avoid the cost of allocating a new event for each
+	// scheduled event
+	for i := 0; i < eventTypes; i++ {
 		s.events[i] = &Event{}
 	}
 
@@ -37,18 +40,6 @@ func NewScheduler() *Scheduler {
 
 func (s *Scheduler) Cycle() uint64 {
 	return s.cycles
-}
-
-func (s *Scheduler) Tick(c uint64) {
-	s.cycles += c
-}
-
-func (s *Scheduler) Next() uint64 {
-	if s.root == nil {
-		return math.MaxUint64
-	}
-
-	return s.root.cycle
 }
 
 // RegisterEvent registers a function of the EventType to be called when
@@ -60,6 +51,36 @@ func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 	s.eventHandlers[eventType] = fn
 }
 
+// Tick advances the scheduler by the given number of cycles. This will
+// execute all scheduled events up to the current cycle. If an event is
+// scheduled for the current cycle, it will be executed and removed from
+// the list. If an event is scheduled for a cycle in the future, it will
+// be executed when the scheduler is ticked with the cycle at which it
+// should be executed.
+func (s *Scheduler) Tick(c uint64) {
+	// increment the cycle counter
+	s.cycles += c
+
+	// skip if there are no events scheduled
+	if s.nextEventAt > s.cycles {
+		return
+	}
+
+	// execute all scheduled events up to the current cycle
+	for nextEvent := s.nextEventAt; nextEvent <= s.cycles; nextEvent = s.root.cycle {
+		event := s.root
+
+		s.root = event.next
+
+		// execute the event
+		s.eventHandlers[event.eventType]()
+	}
+
+	// update the next event to be executed
+	s.nextEventAt = s.root.cycle
+}
+
+// ScheduleEvent schedules an event to be executed at the given cycle.
 func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 
 	// when the event is scheduled, it is scheduled for the current cycle + the cycle
@@ -70,17 +91,23 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 	this := s.events[eventType]
 	this.cycle = atCycle
 	this.eventType = eventType
-	this.fn = s.eventHandlers[eventType]
+
 	this.next = nil
+
+	if s.root == nil {
+		s.root = this
+		return
+	} else if atCycle < s.nextEventAt {
+		// the event should be executed before the current event
+		// so we can just prepend it
+		this.next = s.root
+		s.root = this
+		s.nextEventAt = atCycle
+		return
+	}
 
 	event := s.root
 	for {
-		if event == nil {
-			// no scheduled events, so we can just add the event to the root
-			s.root = this
-			break
-		}
-
 		if atCycle < event.cycle {
 			// the event should be executed before the current event
 			// so we need to insert it before the current event
@@ -90,12 +117,12 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 				// and there is no previous event, so we can just prepend it
 				this.next = event
 				s.root = this
+				s.nextEventAt = atCycle
 				break
 			} else if prev.cycle <= atCycle {
 				// the event should be executed between the previous event
 				// and the current event, so we can just insert it
 				this.next = event
-
 				prev.next = this
 
 				break
@@ -115,6 +142,10 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 }
 
 func (s *Scheduler) DescheduleEvent(eventType EventType) {
+	if s.root == nil {
+		return
+	}
+
 	var prev *Event
 	event := s.root
 
@@ -133,22 +164,29 @@ func (s *Scheduler) DescheduleEvent(eventType EventType) {
 	}
 }
 
-func (s *Scheduler) DoEvent() {
+func (s *Scheduler) DoEvent() uint64 {
 	event := s.root
-	if event == nil {
-		return
-	}
 
 	s.root = event.next
-	event.fn()
+	s.eventHandlers[event.eventType]()
 
+	return s.root.cycle
+}
+
+// Skip invokes the scheduler to execute the next event, by setting the
+// current cycle to the cycle at which the next event is scheduled to be
+// executed. This is useful when the CPU is halted, and the scheduler
+// should be invoked to execute until the CPU is un-halted by an interrupt.
+func (s *Scheduler) Skip() {
+	s.cycles = s.nextEventAt
+	s.nextEventAt = s.DoEvent()
 }
 
 func (s *Scheduler) String() string {
 	result := ""
 	event := s.root
 	for event != nil {
-		result += fmt.Sprintf("%s:%d->", event.eventType, event.cycle)
+		result += fmt.Sprintf("%d:%d->", event.eventType, event.cycle)
 		event = event.next
 	}
 	return result

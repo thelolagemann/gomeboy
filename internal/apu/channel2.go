@@ -90,7 +90,7 @@ func (c *channel2) getAmplitude() uint8 {
 }
 
 var (
-	channel2Duty = [4][8]uint8{
+	channel2Duty = [256][256]uint8{
 		{0, 0, 0, 0, 0, 0, 0, 1},
 		{1, 0, 0, 0, 0, 0, 0, 1},
 		{1, 0, 0, 0, 0, 1, 1, 1},

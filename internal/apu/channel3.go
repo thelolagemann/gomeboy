@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
@@ -35,8 +36,20 @@ func newChannel3(a *APU) *channel3 {
 	}
 
 	c.channel.reloadFrequencyTimer = func() {
-		c.frequencyTimer = (2048 - c.frequency) * 2
+		if c.enabled && c.dacEnabled {
+			c.ticksSinceRead = 0
+			c.waveRAMLastPosition = c.waveRAMPosition >> 1
+			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
+
+			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
+		} else {
+			c.waveRAMSampleBuffer = 0
+		}
+
+		a.s.ScheduleEvent(scheduler.APUChannel3, uint64((2048-c.frequency)*2))
 	}
+
+	a.s.RegisterEvent(scheduler.APUChannel3, c.reloadFrequencyTimer)
 
 	types.RegisterHardware(types.NR30, writeEnabled(a, func(v uint8) {
 		c.dacEnabled = v&types.Bit7 != 0
@@ -123,7 +136,9 @@ func newChannel3(a *APU) *channel3 {
 			c.waveRAMPosition = 0
 			c.waveRAMLastPosition = 0
 
-			c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
+			a.s.DescheduleEvent(scheduler.APUChannel3)
+			a.s.ScheduleEvent(scheduler.APUChannel3, uint64((2048-c.frequency)*2)+6)
+			// c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
 		}
 
 	}), func() uint8 {
@@ -137,7 +152,7 @@ func newChannel3(a *APU) *channel3 {
 	return c
 }
 
-func (c *channel3) step() {
+/*func (c *channel3) step() {
 	c.ticksSinceRead++
 	if c.frequencyTimer--; c.frequencyTimer == 0 {
 		c.frequencyTimer = (2048 - c.frequency) * 2
@@ -152,7 +167,7 @@ func (c *channel3) step() {
 			c.waveRAMSampleBuffer = 0
 		}
 	}
-}
+}*/
 
 func (c *channel3) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {

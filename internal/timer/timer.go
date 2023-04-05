@@ -57,7 +57,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			// reset the internal div register
 			c.internalDiv = 0
 
-			internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+			internal := (s.Cycle() - c.lastCycle) & 0xFFFF
 			if internal&timerBits[c.currentBit] != 0 && c.enabled {
 				c.timaIncrement(false)
 			}
@@ -70,10 +70,9 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			s.DescheduleEvent(scheduler.TimerTIMAReload)
 			s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
 
-			s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(timaCycles[c.currentBit]))
+			s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
 		}, func() uint8 {
-			c.internalDiv = uint8(((s.Cycle() - c.lastCycle) & 0xFFFF) >> 8)
-			return c.internalDiv
+			return uint8(uint16(((s.Cycle() - c.lastCycle) & 0xFFFF) >> 8))
 		},
 		types.WithSet(func(v interface{}) {
 
@@ -117,7 +116,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			c.changeSpeed(v & 0b11)
 			if c.enabled && v&types.Bit2 == 0 {
 				fmt.Println("unexpected timer increase from disable")
-				internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+				internal := (s.Cycle() - c.lastCycle) & 0xFFFF
 				if internal&timerBits[c.currentBit] != 0 {
 					c.timaIncrement(false)
 				}
@@ -134,10 +133,12 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 		},
 	)
 
+	// c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(timaCycles[c.currentBit]*2))
+
 	return c
 }
 
-var timaCycles = [4]uint32{
+var timaCycles = [4]uint64{
 	1024,
 	16,
 	64,
@@ -189,7 +190,7 @@ func (c *Controller) scheduledTIMAIncrement() {
 }
 
 func (c *Controller) changeSpeed(newBit uint8) {
-	internal := uint16((c.s.Cycle() - c.lastCycle) & 0xFFFF)
+	internal := (c.s.Cycle() - c.lastCycle) & 0xFFFF
 	if newBit != c.currentBit {
 		if (internal&timerBits[c.currentBit] == 1 && internal&timerBits[newBit] == 0) && c.enabled {
 			c.timaIncrement(false)
@@ -203,13 +204,13 @@ func (c *Controller) changeSpeed(newBit uint8) {
 	c.currentBit = newBit
 }
 
-var rescheduleMasks = [4]uint16{
+var rescheduleMasks = [4]uint64{
 	0b1111111111,
 	0b1111,
 	0b111111,
 	0b11111111,
 }
-var timerBits = [4]uint16{
+var timerBits = [4]uint64{
 	9, 3, 5, 7,
 }
 

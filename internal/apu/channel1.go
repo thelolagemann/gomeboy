@@ -18,16 +18,6 @@ type channel1 struct {
 	*volumeChannel
 }
 
-func conditionalWriteWithFallback(f func(v uint8), fallback func(v uint8), cond bool) func(v uint8) {
-	return func(v uint8) {
-		if cond {
-			f(v)
-		} else {
-			fallback(v)
-		}
-	}
-}
-
 func writeEnabled(a *APU, f func(v uint8)) func(v uint8) {
 	return func(v uint8) {
 		if a.enabled {
@@ -180,7 +170,7 @@ func (c *channel1) getAmplitude() uint8 {
 }
 
 var (
-	channel1Duty = [4][8]uint8{
+	channel1Duty = [256][256]uint8{
 		{0, 0, 0, 0, 0, 0, 0, 1},
 		{1, 0, 0, 0, 0, 0, 0, 1},
 		{1, 0, 0, 0, 0, 1, 1, 1},

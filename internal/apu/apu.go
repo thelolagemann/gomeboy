@@ -1,12 +1,12 @@
 package apu
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/veandco/go-sdl2/sdl"
+	"unsafe"
 )
 
 const (
@@ -278,33 +278,26 @@ func (a *APU) sample() {
 		}
 	}
 
-	var buf [4]byte
-	binary.LittleEndian.PutUint16(buf[:], left*128*uint16(a.volumeLeft))
-	binary.LittleEndian.PutUint16(buf[2:], right*128*uint16(a.volumeRight))
+	// push to internal buffer using unsafe
+	*(*uint16)(unsafe.Pointer(&a.buffer[a.bufferPos])) = left * 128 * uint16(a.volumeLeft)
+	*(*uint16)(unsafe.Pointer(&a.buffer[a.bufferPos+2])) = right * 128 * uint16(a.volumeRight)
 
-	// push to internal buffer
-	copy(a.buffer[a.bufferPos:], buf[:])
 	a.bufferPos += 4
 
 	// push to SDL buffer when internal buffer is full
 	if a.bufferPos >= bufferSize {
-		// wait until the buffer is empty
-		if err := sdl.QueueAudio(audioDeviceID, a.buffer); err != nil {
-			panic(err)
+		// are we playing?
+		if a.playing {
+			// wait until the buffer is empty
+			if err := sdl.QueueAudio(audioDeviceID, a.buffer); err != nil {
+				panic(err)
+			}
 		}
 		a.bufferPos = 0
 	}
 
 	// schedule next sample in samplePeriod cycles
 	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)
-}
-
-// TickM
-func (a *APU) TickM() {
-	for i := 0; i < 4; i++ {
-		// chan 3 isn't scheduled for now (TODO)
-		a.chan3.step()
-	}
 }
 
 // Read returns the value at the given address.
