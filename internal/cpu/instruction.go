@@ -104,7 +104,9 @@ func init() {
 	DefineInstruction(0xCB, "CB Prefix", func(c *CPU) {
 		c.instructionsCB[c.readOperand()](c)
 	})
-	DefineInstruction(0xF3, "DI", func(c *CPU) { c.ime = false })
+	DefineInstruction(0xF3, "DI", func(c *CPU) {
+		c.ime = false
+	})
 	DefineInstruction(0xFB, "EI", func(c *CPU) {
 		// handle ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
 		if c.mmu.Read(c.PC) == 0x76 {

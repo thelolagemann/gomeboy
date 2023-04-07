@@ -54,8 +54,6 @@ type MMU struct {
 
 	Log log.Logger
 
-	HDMA *HDMA
-
 	key0        uint8
 	key1        uint8
 	isGBCCompat bool
@@ -205,9 +203,7 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 		wRAMOffset:  0x4000,
 		wRAMBank:    1,
 	}
-	if m.IsGBCCompat() {
-		m.HDMA = NewHDMA(m)
-	}
+
 	m.init()
 
 	return m
@@ -301,7 +297,6 @@ func (m *MMU) SetBootROM(rom []byte) {
 	m.bootROMDone = false
 	if len(rom) == 0x900 {
 		m.isGBCCompat = true
-		m.HDMA = NewHDMA(m)
 	} else {
 		m.isGBCCompat = false
 	}
@@ -313,7 +308,6 @@ func (m *MMU) SetModel(model types.Model) {
 		m.isGBCCompat = false
 	case types.CGB0, types.CGBABC:
 		m.isGBCCompat = true
-		m.HDMA = NewHDMA(m)
 	}
 }
 
@@ -412,13 +406,9 @@ func (m *MMU) Write(address uint16, value uint8) {
 var _ types.Stater = (*MMU)(nil)
 
 func (m *MMU) Load(s *types.State) {
-
 	m.key0 = s.Read8()
 	m.key1 = s.Read8()
 	m.bootROMDone = s.ReadBool()
-	if m.HDMA != nil {
-		m.HDMA.Load(s)
-	}
 	m.Cart.MemoryBankController.Load(s)
 }
 
@@ -426,10 +416,6 @@ func (m *MMU) Save(s *types.State) {
 	s.Write8(m.key0)
 	s.Write8(m.key1)
 	s.WriteBool(m.bootROMDone)
-
-	if m.HDMA != nil {
-		m.HDMA.Save(s)
-	}
 	m.Cart.MemoryBankController.Save(s)
 }
 

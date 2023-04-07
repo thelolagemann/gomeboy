@@ -196,6 +196,7 @@ func generateRSTInstructions() {
 	for i := uint8(0); i < 8; i++ {
 		address := uint16(i * 8)
 		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU) {
+			fmt.Println("RST", address)
 			c.pushStack(uint8(c.PC>>8), uint8(c.PC&0xFF))
 			c.PC = address
 		})

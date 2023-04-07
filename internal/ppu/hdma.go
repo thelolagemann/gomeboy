@@ -1,0 +1,93 @@
+package ppu
+
+import (
+	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
+	"github.com/thelolagemann/go-gameboy/internal/types"
+)
+
+type HDMA struct {
+	length uint8
+
+	hdma5       uint8
+	source      uint16
+	destination uint16
+	complete    bool
+
+	s    *scheduler.Scheduler
+	vRAM func(uint16, uint8)
+	bus  mmu.IOBus
+}
+
+func NewHDMA(bus mmu.IOBus, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HDMA {
+	h := &HDMA{
+		vRAM: vRAM,
+		s:    s,
+		bus:  bus,
+	}
+
+	types.RegisterHardware(types.HDMA1, func(v uint8) {
+		h.source &= 0x00F0
+		h.source |= (uint16(v) << 8) & 0xFF00
+	}, types.NoRead)
+	types.RegisterHardware(types.HDMA2, func(v uint8) {
+		h.source &= 0xFF00
+		h.source |= uint16(v) & 0x00F0
+	}, types.NoRead)
+	types.RegisterHardware(types.HDMA3, func(v uint8) {
+		h.destination &= 0x00F0
+		h.destination |= (uint16(v) << 8) & 0xFF00
+	}, types.NoRead)
+	types.RegisterHardware(types.HDMA4, func(v uint8) {
+		h.destination &= 0xFF00
+		h.destination |= uint16(v) & 0x00F0
+	}, types.NoRead)
+	types.RegisterHardware(types.HDMA5, func(v uint8) {
+		// GDMA if bit 7 isn't set
+		if v&types.Bit7 == 0 {
+			// is there a pending HDMA transfer?
+			if h.hdma5&types.Bit7 == 0 {
+				// disable HDMA, keeping the length
+				h.hdma5 |= types.Bit7
+			} else {
+				// otherwise, perform the GDMA transfer
+				length := ((v & 0x7F) + 1) * 16 // length in bytes
+				for i := uint8(0); i < length; i++ {
+					h.vRAM(h.destination&0x1FFF, h.bus.Read(h.source))
+
+					h.source++
+					h.destination++
+				}
+				h.hdma5 = 0xFF
+			}
+		} else {
+			// HDMA
+			h.hdma5 = v & 0x7F
+		}
+	}, func() uint8 {
+		return h.hdma5
+	})
+
+	return h
+}
+
+// doHDMA is called during the HBlank period to perform the HDMA transfer
+func (h *HDMA) doHDMA() {
+	fmt.Println("HDMA")
+	// if the HDMA is disabled, return
+	if h.hdma5&types.Bit7 != 0 {
+		return
+	}
+
+	// perform the transfer
+	for i := uint8(0); i < 16; i++ {
+		h.vRAM(h.destination&0x1FFF, h.bus.Read(h.source))
+
+		h.source++
+		h.destination++
+	}
+
+	// decrement the length
+	h.hdma5--
+}

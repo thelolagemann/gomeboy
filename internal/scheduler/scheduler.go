@@ -3,6 +3,7 @@ package scheduler
 import "C"
 import (
 	"fmt"
+	"math"
 )
 
 // Scheduler is a simple event scheduler that can be used to schedule events
@@ -17,15 +18,20 @@ type Scheduler struct {
 	cycles uint64
 	root   *Event
 
-	eventHandlers [256]func() // set to 256 (uint8 max) avoids bounds check on eventHandlers[eventType]()
-	events        [256]*Event // only one event of each type can be scheduled at a time
-	nextEventAt   uint64
+	events      []*Event // only one event of each type can be scheduled at a time
+	nextEventAt uint64
 }
 
 func NewScheduler() *Scheduler {
 	s := &Scheduler{
 		cycles: 0,
-		events: [256]*Event{},
+		events: make([]*Event, eventTypes),
+		root: &Event{
+			cycle: math.MaxUint64,
+			handler: func() {
+				fmt.Println("scheduler: no event handler found")
+			},
+		},
 	}
 
 	// initialize the events with the number of event types
@@ -48,7 +54,8 @@ func (s *Scheduler) Cycle() uint64 {
 // invoke the garbage collector, despite the functions always performing
 // the same task.
 func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
-	s.eventHandlers[eventType] = fn
+	s.events[eventType].handler = fn
+	s.events[eventType].eventType = eventType
 }
 
 // Tick advances the scheduler by the given number of cycles. This will
@@ -61,28 +68,42 @@ func (s *Scheduler) Tick(c uint64) {
 	// increment the cycle counter
 	s.cycles += c
 
-	// skip if there are no events scheduled
+	// if the next event is scheduled for a cycle in the future,
+	// then we can return early and avoid iterating over the list
+	// of events
 	if s.nextEventAt > s.cycles {
 		return
 	}
+	//fmt.Println(s.String())
 
-	// execute all scheduled events up to the current cycle
-	for nextEvent := s.nextEventAt; nextEvent <= s.cycles; nextEvent = s.root.cycle {
+	// update the next event to be executed
+	s.nextEventAt = s.doEvents(s.nextEventAt)
+}
+
+// doEvents executes all events scheduled in the list up to the given
+// cycle. It returns the cycle at which the next event should be executed.
+func (s *Scheduler) doEvents(nextEvent uint64) uint64 {
+	for nextEvent <= s.cycles {
+		// we need to copy the event to a local variable
+		// as the handler may schedule a new event, which
+		// could modify the event in the list
 		event := s.root
 
+		// set the next event to be executed
 		s.root = event.next
 
 		// execute the event
-		s.eventHandlers[event.eventType]()
+		event.handler()
+
+		// set the cycle to the next event to be executed
+		nextEvent = s.root.cycle
 	}
 
-	// update the next event to be executed
-	s.nextEventAt = s.root.cycle
+	return nextEvent
 }
 
 // ScheduleEvent schedules an event to be executed at the given cycle.
 func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
-
 	// when the event is scheduled, it is scheduled for the current cycle + the cycle
 	// at which it should be executed
 	atCycle := s.cycles + cycle
@@ -90,14 +111,8 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 	var prev *Event
 	this := s.events[eventType]
 	this.cycle = atCycle
-	this.eventType = eventType
 
-	this.next = nil
-
-	if s.root == nil {
-		s.root = this
-		return
-	} else if atCycle < s.nextEventAt {
+	if atCycle < s.root.cycle {
 		// the event should be executed before the current event
 		// so we can just prepend it
 		this.next = s.root
@@ -164,11 +179,13 @@ func (s *Scheduler) DescheduleEvent(eventType EventType) {
 	}
 }
 
+// TODO pass in event type to avoid BCE in the loop
+// TODO
 func (s *Scheduler) DoEvent() uint64 {
 	event := s.root
 
 	s.root = event.next
-	s.eventHandlers[event.eventType]()
+	event.handler()
 
 	return s.root.cycle
 }
@@ -190,4 +207,15 @@ func (s *Scheduler) String() string {
 		event = event.next
 	}
 	return result
+}
+
+func (s *Scheduler) Until(increment EventType) uint64 {
+	event := s.root
+	for event != nil {
+		if event.eventType == increment {
+			return event.cycle - s.cycles
+		}
+		event = event.next
+	}
+	return 0
 }

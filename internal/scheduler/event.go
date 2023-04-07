@@ -7,7 +7,8 @@ const (
 	APUChannel1
 	APUChannel2
 	APUChannel3
-	APUChannel3WaveRAM
+	APUChannel3WaveRAMWriteCorruption
+	APUChannel3WaveRAMWriteCorruptionEnd
 	APUChannel4
 	APUSample
 
@@ -25,6 +26,7 @@ const (
 	DMAEndTransfer
 	DMATransfer
 
+	TimerInterrupt
 	TimerTIMAReload
 	TimerTIMAFinishReload
 	TimerTIMAIncrement
@@ -35,11 +37,12 @@ const (
 )
 
 const (
-	eventTypes = 25
+	eventTypes = 28
 )
 
 type Event struct {
 	cycle     uint64
 	eventType EventType
 	next      *Event
+	handler   func()
 }

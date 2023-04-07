@@ -97,7 +97,8 @@ type PPU struct {
 	CurrentCycle uint64
 	lastLine     bool
 
-	s *scheduler.Scheduler
+	hdma *HDMA
+	s    *scheduler.Scheduler
 }
 
 func (p *PPU) init() {
@@ -450,11 +451,12 @@ func (p *PPU) init() {
 
 // TODO pass channel to send frame to
 func (p *PPU) StartRendering() {
-	if p.bus.IsGBCCompat() {
-		p.bus.HDMA.AttachVRAM(p.writeVRAM)
-	}
 	p.isGBC = p.bus.IsGBC()
 	p.isGBCCompat = p.bus.IsGBCCompat()
+
+	if p.isGBCCompat {
+		p.hdma = NewHDMA(p.bus, p.writeVRAM, p.s)
+	}
 }
 
 func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
@@ -505,10 +507,6 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 }
 
 func (p *PPU) endHBlank() {
-	// notify HDMA that HBlank has ended
-	if p.isGBC {
-		p.bus.HDMA.SetHBlank()
-	}
 
 	// increment scanline
 	p.CurrentScanline++
@@ -570,6 +568,10 @@ func (p *PPU) endOAMSearch() {
 
 func (p *PPU) endVRAMTransfer() {
 	p.mode = lcd.HBlank
+	// is there pending HDMA?
+	if p.isGBCCompat {
+		p.hdma.doHDMA()
+	}
 	p.renderScanline()
 
 	// schedule end of HBlank
@@ -642,6 +644,7 @@ func (p *PPU) Read(address uint16) uint8 {
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
 		if p.oamUnlocked() && !p.DMA.IsTransferring() {
+			fmt.Printf("PPU: Reading from OAM: %X (%x)\n", address, p.oam.Read(address-0xFE00))
 			return p.oam.Read(address - 0xFE00)
 		}
 		return 0xff

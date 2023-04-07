@@ -77,6 +77,7 @@ func NewDMA(bus *mmu.MMU, oam *OAM, s *scheduler.Scheduler) *DMA {
 
 			// schedule DMA start for 1-M-cycle
 			d.s.ScheduleEvent(scheduler.DMAStartTransfer, 8)
+
 			//d.s.ScheduleEvent(scheduler.DMATransfer, 8)
 
 		},

@@ -5,14 +5,9 @@
 package timer
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
-)
-
-const (
-	divPeriod = 16 // 16384 Hz, 32768 Hz in double speed mode
 )
 
 // Controller is a timer controller. It is used to generate
@@ -20,13 +15,11 @@ const (
 // configured using the types.TAC register.
 type Controller struct {
 	currentBit  uint8
-	internalDiv uint8
+	internalDiv uint16
 
 	tima uint8
 	tma  uint8
 	tac  uint8
-
-	doubleSpeed bool
 
 	irq *interrupts.Service
 	s   *scheduler.Scheduler
@@ -42,10 +35,13 @@ type Controller struct {
 // NewController returns a new timer controller.
 func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
 	c := &Controller{
-		irq:         irq,
-		internalDiv: 0xAB,
-		s:           s,
+		irq: irq,
+		s:   s,
 	}
+
+	s.RegisterEvent(scheduler.TimerInterrupt, func() {
+		c.irq.Request(interrupts.TimerFlag)
+	})
 	s.RegisterEvent(scheduler.TimerTIMAIncrement, c.scheduledTIMAIncrement)
 	s.RegisterEvent(scheduler.TimerTIMAReload, c.reloadTIMA)
 	s.RegisterEvent(scheduler.TimerTIMAFinishReload, func() {
@@ -54,14 +50,25 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 	types.RegisterHardware(
 		types.DIV,
 		func(v uint8) {
-			// reset the internal div register
-			c.internalDiv = 0
+			// writing to DIV resets the counter to 0, so the TIMA
+			// could also be affected by a falling edge, if the selected bit
+			// of DIV would go from 1 to 0 and the timer is enabled
 
-			internal := (s.Cycle() - c.lastCycle) & 0xFFFF
-			if internal&timerBits[c.currentBit] != 0 && c.enabled {
-				c.timaIncrement(false)
+			// calculate internal div TODO make this a function
+			internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+
+			// check for a spurious increment caused by the div reset
+			if internal&timerBits[c.currentBit] != 0 && c.enabled { // we don't need to check the new value, because it's always 0
+				c.tima++
+
+				// if the timer overflows, reload it
+				if c.tima == 0 {
+					c.tima = c.tma
+					c.irq.Request(interrupts.TimerFlag)
+				}
 			}
 
+			// update the last cycle
 			c.lastCycle = s.Cycle()
 			// TODO APU frame sequencer is tied to the DIV register
 
@@ -69,6 +76,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			s.DescheduleEvent(scheduler.TimerTIMAIncrement)
 			s.DescheduleEvent(scheduler.TimerTIMAReload)
 			s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
+			s.DescheduleEvent(scheduler.TimerInterrupt)
 
 			s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
 		}, func() uint8 {
@@ -113,23 +121,25 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 	types.RegisterHardware(
 		types.TAC,
 		func(v uint8) {
+			oldBit := c.currentBit
 			c.changeSpeed(v & 0b11)
 			if c.enabled && v&types.Bit2 == 0 {
-				fmt.Println("unexpected timer increase from disable")
-				internal := (s.Cycle() - c.lastCycle) & 0xFFFF
-				if internal&timerBits[c.currentBit] != 0 {
-					c.timaIncrement(false)
+				internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+				if internal&timerBits[oldBit] != 0 {
+					c.tima++
+
+					// if the timer overflows, reload it
+					if c.tima == 0 {
+						c.tima = c.tma
+						c.irq.Request(interrupts.TimerFlag)
+					}
 				}
 			}
 			c.enabled = v&types.Bit2 == types.Bit2
-		}, func() uint8 {
-			v := uint8(0)
-			v |= c.currentBit & 0b11
-			if c.enabled {
-				v |= types.Bit2
-			}
 
-			return v
+			// if the timer was disabled, a sp
+		}, func() uint8 {
+			return c.tac | 0b11111000
 		},
 	)
 
@@ -160,7 +170,7 @@ func (c *Controller) reloadTIMA() {
 
 	// set reloading flag & schedule finish reload
 	c.reloading = true
-	c.s.ScheduleEvent(scheduler.TimerTIMAFinishReload, 4)
+	c.s.ScheduleEvent(scheduler.TimerTIMAFinishReload, 1)
 }
 
 func (c *Controller) timaIncrement(delay bool) {
@@ -169,14 +179,22 @@ func (c *Controller) timaIncrement(delay bool) {
 
 		// if the timer overflows, reload it
 		if c.tima == 0 {
+
 			// set reload pending
 			c.reloadPending = true
 
-			// schedule overflow IRQ
+			// schedule TIMA reload
 			if delay {
-				c.s.ScheduleEvent(scheduler.TimerTIMAReload, 4) // TODO handle double speed
+				c.s.ScheduleEvent(scheduler.TimerTIMAReload, 4)
 			} else {
+				c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+				c.s.DescheduleEvent(scheduler.TimerTIMAReload)
+				c.s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
+				c.s.DescheduleEvent(scheduler.TimerInterrupt)
+				c.tima = c.tma
 				c.s.ScheduleEvent(scheduler.TimerTIMAReload, 0)
+				//c.irq.Request(interrupts.TimerFlag)
+				c.s.ScheduleEvent(scheduler.TimerInterrupt, 0)
 			}
 		}
 	}
@@ -186,32 +204,41 @@ func (c *Controller) timaIncrement(delay bool) {
 // should increment.
 func (c *Controller) scheduledTIMAIncrement() {
 	c.timaIncrement(true)
-	c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(timaCycles[c.currentBit]))
+	c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
 }
 
 func (c *Controller) changeSpeed(newBit uint8) {
-	internal := (c.s.Cycle() - c.lastCycle) & 0xFFFF
-	if newBit != c.currentBit {
-		if (internal&timerBits[c.currentBit] == 1 && internal&timerBits[newBit] == 0) && c.enabled {
-			c.timaIncrement(false)
-		}
+	internal := uint16((c.s.Cycle() - c.lastCycle) & 0xFFFF)
 
-		ticksUntilIncrement := (rescheduleMasks[newBit] + 1) - (internal & rescheduleMasks[newBit])
-		c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
-		c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(ticksUntilIncrement))
+	if internal&timerBits[c.currentBit] != 0 && internal&timerBits[newBit] == 0 {
+		c.timaIncrement(false)
 	}
+
+	ticksUntilIncrement := (rescheduleMasks[newBit] + 1) - (internal & rescheduleMasks[newBit])
+	c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+	c.s.DescheduleEvent(scheduler.TimerTIMAReload)
+	c.s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
+	c.s.DescheduleEvent(scheduler.TimerInterrupt)
+	c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(ticksUntilIncrement))
 
 	c.currentBit = newBit
 }
 
-var rescheduleMasks = [4]uint64{
+var rescheduleMasks = [4]uint16{
 	0b1111111111,
 	0b1111,
 	0b111111,
 	0b11111111,
 }
-var timerBits = [4]uint64{
-	9, 3, 5, 7,
+var timerBits = [4]uint16{
+	// bit 9
+	0b1000000000,
+	// bit 3
+	0b1000,
+	// bit 5
+	0b100000,
+	// bit 7
+	0b10000000,
 }
 
 var _ types.Stater = (*Controller)(nil)

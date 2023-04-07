@@ -1,6 +1,7 @@
 package interrupts
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
@@ -79,6 +80,10 @@ func (s *Service) HasInterrupts() bool {
 // Request requests the specified interrupt, by setting
 // the corresponding bit in the Flag register.
 func (s *Service) Request(flag uint8) {
+	if flag == TimerFlag {
+
+		fmt.Printf("interrupt requested: %x\n", flag)
+	}
 	s.Flag |= flag
 }
 

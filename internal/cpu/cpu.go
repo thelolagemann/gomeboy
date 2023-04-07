@@ -91,9 +91,11 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler) *
 
 	sched.RegisterEvent(scheduler.EIPending, func() {
 		c.ime = true
+
 	})
 	sched.RegisterEvent(scheduler.EIHaltDelay, func() {
 		c.ime = true
+
 		c.PC--
 	})
 
@@ -114,7 +116,7 @@ func (c *CPU) skipHALT() {
 // and then return to the HALT instruction.
 func (c *CPU) doHALTBug() {
 	// read the next instruction
-	instr := c.readInstruction()
+	instr := c.readOpcode()
 
 	// decrement the PC to execute the instruction again
 	c.PC--
@@ -138,49 +140,34 @@ func (c *CPU) registerPointer(index uint8) *Register {
 	return c.registerSlice[index]
 }
 
+// Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
 	for !c.hasFrame && !c.DebugBreakpoint {
-		if c.isGBC && c.mmu.HDMA.Copying {
-			c.hdmaTick4()
-			continue
-		}
 
 		// get the next instruction
-		instr := c.readInstruction()
+		instr := c.readOpcode()
 
 		// execute the instruction
 		c.instructions[instr](c)
 
 		// did we get an interrupt?
-		if c.ime && c.irq.Flag&c.irq.Enable != 0 {
+		if c.ime && c.irq.Enable&c.irq.Flag != 0 {
 			c.executeInterrupt()
 		}
+
 	}
 	c.hasFrame = false
 }
 
-func (c *CPU) hdmaTick4() {
-	if c.doubleSpeed {
-		c.s.Tick(4)
-
-		c.mmu.HDMA.Tick() // HDMA takes twice as long in double speed mode
-	} else {
-		c.s.Tick(4)
-
-		c.mmu.HDMA.Tick()
-		c.mmu.HDMA.Tick()
-	}
-}
-
-// readInstruction reads the next instruction from memory.
-func (c *CPU) readInstruction() uint8 {
+// readOpcode reads the next instruction from memory.
+func (c *CPU) readOpcode() uint8 {
 	value := c.readByte(c.PC)
 	c.PC++
 	return value
 }
 
 // readOperand reads the next operand from memory. The same as
-// readInstruction, but will allow future optimizations.
+// readOpcode, but will allow future optimizations.
 func (c *CPU) readOperand() uint8 {
 	value := c.readByte(c.PC)
 	c.PC++
