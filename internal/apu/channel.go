@@ -12,17 +12,14 @@ type channel struct {
 	lengthCounter uint
 
 	// NRx4
-	frequencyTimer       uint16
+	frequencyTimer       uint64
 	lengthCounterEnabled bool
-
-	reloadFrequencyTimer func()
-	stepWaveGeneration   func()
 }
 
-func (c *channel) step() {
-	c.stepWaveGeneration()
-	c.reloadFrequencyTimer()
-
+func registerSetter(f func(v interface{})) types.HardwareOpt {
+	return types.WithSet(func(v interface{}) {
+		f(v)
+	})
 }
 
 type volumeChannel struct {

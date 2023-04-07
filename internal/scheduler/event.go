@@ -21,6 +21,7 @@ const (
 	PPUVRAMTransfer
 	PPULYReset
 	PPUGlitchedLine0
+	PPULateMode2
 
 	DMAStartTransfer
 	DMAEndTransfer
@@ -34,6 +35,8 @@ const (
 	EIPending
 	HaltDI
 	EIHaltDelay
+
+	SerialBitTransfer
 )
 
 const (

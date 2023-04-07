@@ -6,6 +6,7 @@ import (
 )
 
 type channel1 struct {
+	*volumeChannel
 	// NR10
 	sweepPeriod       uint8
 	negate            bool
@@ -14,8 +15,6 @@ type channel1 struct {
 	frequencyShadow   uint16
 	sweepEnabled      bool
 	negateHasHappened bool
-
-	*volumeChannel
 }
 
 func writeEnabled(a *APU, f func(v uint8)) func(v uint8) {
@@ -30,14 +29,12 @@ func newChannel1(a *APU) *channel1 {
 	// create the higher level channel
 	c := &channel1{}
 	c2 := newChannel()
-	c2.stepWaveGeneration = func() {
-		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
-	}
-	c2.reloadFrequencyTimer = func() {
-		a.s.ScheduleEvent(scheduler.APUChannel1, uint64((2048-c.frequency)*4))
-	}
+
 	c.volumeChannel = newVolumeChannel(c2)
-	a.s.RegisterEvent(scheduler.APUChannel1, c.step)
+	a.s.RegisterEvent(scheduler.APUChannel1, func() {
+		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
+		a.s.ScheduleEvent(scheduler.APUChannel1, uint64((2048-c.frequency)*4))
+	})
 
 	types.RegisterHardware(types.NR10, writeEnabled(a, func(v uint8) {
 		c.sweepPeriod = (v & 0x70) >> 4
@@ -66,8 +63,14 @@ func newChannel1(a *APU) *channel1 {
 		case types.DMGABC, types.DMG0:
 			c.setLength(v)
 		}
-	}, c.getNRx1)
-	types.RegisterHardware(types.NR12, writeEnabled(a, c.setNRx2), c.getNRx2)
+	}, c.getNRx1, registerSetter(func(v interface{}) {
+		c.setDuty(v.(uint8))
+		c.setLength(v.(uint8))
+	}))
+	types.RegisterHardware(types.NR12, writeEnabled(a, c.setNRx2), c.getNRx2, registerSetter(func(v interface{}) {
+		c.setNRx2(v.(uint8))
+	}))
+
 	types.RegisterHardware(types.NR13, writeEnabled(a, func(v uint8) {
 		c.frequency = (c.frequency & 0x700) | uint16(v)
 	}), func() uint8 {
@@ -95,7 +98,7 @@ func newChannel1(a *APU) *channel1 {
 			// deschedule the current event
 			a.s.DescheduleEvent(scheduler.APUChannel1)
 			// schedule the next event
-			c.reloadFrequencyTimer()
+			a.s.ScheduleEvent(scheduler.APUChannel1, uint64((2048-c.frequency)*4))
 
 			c.initVolumeEnvelope()
 			c.frequencyShadow = c.frequency

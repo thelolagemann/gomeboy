@@ -1,7 +1,3 @@
-// Package timer provides an implementation of the Game Boy
-// timer. It is used to generate interrupts at a specific
-// frequency. The frequency can be configured using the
-// TimerControlRegister.
 package timer
 
 import (
@@ -14,17 +10,15 @@ import (
 // interrupts at a specific frequency. The frequency can be
 // configured using the types.TAC register.
 type Controller struct {
-	currentBit  uint8
-	internalDiv uint16
+	currentBit uint8 // the current bit of the DIV register that is used to increment the TIMA register
 
-	tima uint8
-	tma  uint8
-	tac  uint8
+	tima uint8 // timer counter
+	tma  uint8 // timer modulo
+	tac  uint8 // timer control
 
 	irq *interrupts.Service
 	s   *scheduler.Scheduler
 
-	externalDiv   uint8
 	reloading     bool
 	reloadPending bool
 	reloadCancel  bool
@@ -35,8 +29,9 @@ type Controller struct {
 // NewController returns a new timer controller.
 func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
 	c := &Controller{
-		irq: irq,
-		s:   s,
+		irq:       irq,
+		s:         s,
+		lastCycle: 0x5433,
 	}
 
 	s.RegisterEvent(scheduler.TimerInterrupt, func() {
@@ -52,20 +47,15 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 		func(v uint8) {
 			// writing to DIV resets the counter to 0, so the TIMA
 			// could also be affected by a falling edge, if the selected bit
-			// of DIV would go from 1 to 0 and the timer is enabled
+			// of DIV is 1, as a falling edge would be detected as DIV gets
+			// reset to 0
 
 			// calculate internal div TODO make this a function
 			internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
 
-			// check for a spurious increment caused by the div reset
+			// check for an abrupt increment caused by the div reset
 			if internal&timerBits[c.currentBit] != 0 && c.enabled { // we don't need to check the new value, because it's always 0
-				c.tima++
-
-				// if the timer overflows, reload it
-				if c.tima == 0 {
-					c.tima = c.tma
-					c.irq.Request(interrupts.TimerFlag)
-				}
+				c.abruptlyIncrementTIMA()
 			}
 
 			// update the last cycle
@@ -197,6 +187,19 @@ func (c *Controller) timaIncrement(delay bool) {
 				c.s.ScheduleEvent(scheduler.TimerInterrupt, 0)
 			}
 		}
+	}
+}
+
+// abruptlyIncrementTIMA is called when conditions are met
+// that would cause an abrupt increment of the timer.
+func (c *Controller) abruptlyIncrementTIMA() {
+	c.tima++
+
+	// an abrupt increment that causes a reload is performed
+	// instantly, rather than in 1-M-cycle
+	if c.tima == 0 {
+		c.tima = c.tma
+		c.irq.Request(interrupts.TimerFlag)
 	}
 }
 

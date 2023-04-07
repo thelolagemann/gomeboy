@@ -39,6 +39,8 @@ type Controller struct {
 	resultFallingEdge bool                // the result of the last falling edge. (Bit 8 of DIV: 8.192 kHz)
 
 	s *scheduler.Scheduler // the scheduler.
+
+	lastDiv uint16 // the last value of DIV
 }
 
 // Attach attaches a Device to the Controller.
@@ -59,20 +61,32 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 		AttachedDevice: nullDevice{},
 	}
 	types.RegisterHardware(types.SB, func(v uint8) {
+		//fmt.Printf("SB: %x\n", v)
 		c.data = v
 	}, func() uint8 {
+		//fmt.Printf("SB: %x\n", c.data)
 		return c.data
 	})
 	types.RegisterHardware(types.SC, func(v uint8) {
+		//fmt.Printf("SC: %x\n", v)
 		if c.control == v|0x7E {
 			return
 		}
 		c.control = v | 0x7E // bits 1-6 are always set
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
+
+		// calculate the new value of div TODO: fix
+		// c.lastDiv = uint16(s.Cycle() - uint64(c.lastDiv)) & 0xFFFF
+
+		// a bit is sent every 1024 cycles, an interrupt is triggered every 8 bits.
+		// so we need to schedule a bit transfer every 1024 cycles, with the last
+		// one executing a serial interrupt.
+		//s.ScheduleEvent(scheduler.SerialBitTransfer, 4096)
 	}, func() uint8 {
 		return c.control | 0x7E
 	})
+
 	return c
 }
 
@@ -133,7 +147,7 @@ func (c *Controller) Receive(bit bool) {
 		if bit {
 			c.data |= 1
 		}
-		c.checkTransfer()
+
 	}
 }
 

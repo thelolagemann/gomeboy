@@ -187,8 +187,7 @@ func generateLoadRegisterToRegisterInstructions() {
 						fmt.Sprintf("LD %s, %s", registerNameMap[toRegister], registerNameMap[fromRegister]),
 						func(c *CPU) {
 							// LD B, B is often used as a debug breakpoint
-							if c.Debug && toRegister == 0 && fromRegister == 0 {
-								fmt.Println("Debug Breakpoint")
+							if c.Debug {
 								c.DebugBreakpoint = true
 							}
 						})

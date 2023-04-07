@@ -80,7 +80,7 @@ func (s *Service) HasInterrupts() bool {
 // Request requests the specified interrupt, by setting
 // the corresponding bit in the Flag register.
 func (s *Service) Request(flag uint8) {
-	if flag == TimerFlag {
+	if flag == SerialFlag {
 
 		fmt.Printf("interrupt requested: %x\n", flag)
 	}

@@ -348,6 +348,7 @@ func SerialDebugger(output *string) GameBoyOpt {
 			*output += string(v)
 			fmt.Println(*output)
 			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
+				fmt.Println("BREAKPOINT")
 				gb.CPU.DebugBreakpoint = true
 			}
 		}, func() uint8 {

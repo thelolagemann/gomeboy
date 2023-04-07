@@ -25,6 +25,10 @@ func NewHDMA(bus mmu.IOBus, vRAM func(uint16, uint8), s *scheduler.Scheduler) *H
 		vRAM: vRAM,
 		s:    s,
 		bus:  bus,
+
+		source:      0xFFFF,
+		destination: 0xFFFF,
+		length:      0x01,
 	}
 
 	types.RegisterHardware(types.HDMA1, func(v uint8) {
@@ -44,6 +48,7 @@ func NewHDMA(bus mmu.IOBus, vRAM func(uint16, uint8), s *scheduler.Scheduler) *H
 		h.destination |= uint16(v) & 0x00F0
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA5, func(v uint8) {
+		fmt.Printf("HDMA5: %08b\n", v)
 		// GDMA if bit 7 isn't set
 		if v&types.Bit7 == 0 {
 			// is there a pending HDMA transfer?
@@ -74,11 +79,11 @@ func NewHDMA(bus mmu.IOBus, vRAM func(uint16, uint8), s *scheduler.Scheduler) *H
 
 // doHDMA is called during the HBlank period to perform the HDMA transfer
 func (h *HDMA) doHDMA() {
-	fmt.Println("HDMA")
 	// if the HDMA is disabled, return
 	if h.hdma5&types.Bit7 != 0 {
 		return
 	}
+	//fmt.Printf("HDMA: %d\n", h.hdma5)
 
 	// perform the transfer
 	for i := uint8(0); i < 16; i++ {

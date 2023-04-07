@@ -21,11 +21,14 @@ type channel3 struct {
 	// NR33/34
 	frequency uint16
 
-	ticksSinceRead      uint8
+	waveRAMLastRead     uint64
 	waveRAMLastPosition uint8
+	waveRAMWriteCorrupt bool
 
 	// embed APU to access from wave RAM Read/Write
 	apu *APU
+
+	s *scheduler.Scheduler
 }
 
 func newChannel3(a *APU) *channel3 {
@@ -33,11 +36,12 @@ func newChannel3(a *APU) *channel3 {
 		channel:         newChannel(),
 		waveRAMPosition: 4,
 		apu:             a,
+		s:               a.s,
 	}
 
-	c.channel.reloadFrequencyTimer = func() {
+	a.s.RegisterEvent(scheduler.APUChannel3, func() {
 		if c.enabled && c.dacEnabled {
-			c.ticksSinceRead = 0
+			c.waveRAMLastRead = a.s.Cycle()
 			c.waveRAMLastPosition = c.waveRAMPosition >> 1
 			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
 
@@ -46,10 +50,18 @@ func newChannel3(a *APU) *channel3 {
 			c.waveRAMSampleBuffer = 0
 		}
 
-		a.s.ScheduleEvent(scheduler.APUChannel3, uint64((2048-c.frequency)*2))
-	}
+		inCycles := uint64((2048 - c.frequency) * 2)
+		a.s.ScheduleEvent(scheduler.APUChannel3, inCycles)
+		//a.s.ScheduleEvent(scheduler.APUChannel3WaveRAMWriteCorruption, inCycles-2)
+		// a.s.ScheduleEvent(scheduler.APUChannel3WaveRAMWriteCorruptionEnd, inCycles-1)
+	})
 
-	a.s.RegisterEvent(scheduler.APUChannel3, c.reloadFrequencyTimer)
+	a.s.RegisterEvent(scheduler.APUChannel3WaveRAMWriteCorruption, func() {
+		c.waveRAMWriteCorrupt = true
+	})
+	a.s.RegisterEvent(scheduler.APUChannel3WaveRAMWriteCorruptionEnd, func() {
+		c.waveRAMWriteCorrupt = false
+	})
 
 	types.RegisterHardware(types.NR30, writeEnabled(a, func(v uint8) {
 		c.dacEnabled = v&types.Bit7 != 0
@@ -110,7 +122,7 @@ func newChannel3(a *APU) *channel3 {
 		c.lengthCounterEnabled = lengthCounterEnabled
 		if v&types.Bit7 != 0 {
 			// handle blarrgs 10-wave trigger while on test
-			if c.isEnabled() && c.frequencyTimer == 2 && (a.model != types.CGBABC && a.model != types.CGB0) {
+			if c.isEnabled() && c.waveRAMWriteCorrupt && (a.model != types.CGBABC && a.model != types.CGB0) {
 				pos := c.waveRAMPosition >> 1
 
 				if pos < 4 {
@@ -138,6 +150,7 @@ func newChannel3(a *APU) *channel3 {
 
 			a.s.DescheduleEvent(scheduler.APUChannel3)
 			a.s.ScheduleEvent(scheduler.APUChannel3, uint64((2048-c.frequency)*2)+6)
+
 			// c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
 		}
 
@@ -183,7 +196,7 @@ func (c *channel3) getAmplitude() uint8 {
 
 func (c *channel3) readWaveRAM(address uint16) uint8 {
 	if c.isEnabled() {
-		if c.ticksSinceRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
+		if c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
 			return c.waveRAM[c.waveRAMLastPosition]
 		} else {
 			return 0xFF
@@ -195,7 +208,7 @@ func (c *channel3) readWaveRAM(address uint16) uint8 {
 
 func (c *channel3) writeWaveRAM(address uint16, value uint8) {
 	if c.isEnabled() {
-		if c.ticksSinceRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
+		if c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
 			c.waveRAM[c.waveRAMLastPosition] = value
 		}
 	} else {

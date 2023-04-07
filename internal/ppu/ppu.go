@@ -507,7 +507,6 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 }
 
 func (p *PPU) endHBlank() {
-
 	// increment scanline
 	p.CurrentScanline++
 
@@ -547,11 +546,10 @@ func (p *PPU) endHBlank() {
 		p.s.ScheduleEvent(scheduler.PPUVBlank, 456)
 	} else {
 		p.checkLYC()
-		// OAM
 		p.mode = lcd.OAM
 		p.checkStatInterrupts(false)
 
-		// schedule end of OAM search for (84 cycles later)
+		// schedule end of OAM search for (80 cycles later)
 		p.s.ScheduleEvent(scheduler.PPUOAMSearch, 84)
 	}
 }
@@ -608,9 +606,11 @@ func (p *PPU) endGlitchedFirstLine() {
 // - encoded filename as hash of palette
 
 func (p *PPU) LoadCompatibilityPalette() {
+	fmt.Println("loading compatibility palette")
 	if p.bus.BootROM != nil {
 		return // don't load compatibility palette if boot ROM is Enabled (as the boot ROM will setup the palette)
 	}
+
 	hash := p.bus.Cart.Header().TitleChecksum()
 	entryWord := uint16(hash) << 8
 	if p.bus.Cart.Header().Title != "" {
@@ -618,7 +618,7 @@ func (p *PPU) LoadCompatibilityPalette() {
 	}
 	paletteEntry, ok := palette.GetCompatibilityPaletteEntry(entryWord)
 	if !ok {
-		//p.bus.Log.Debugf("no compatibility palette entry found for %s, hash %02x", p.bus.Cart.Header().Title, hash)
+		p.bus.Log.Debugf("no compatibility palette entry found for %s, hash %02x", p.bus.Cart.Header().Title, hash)
 		// load default palette
 		paletteEntry = palette.CompatibilityPalettes[0x1C][0x03]
 	}
@@ -626,9 +626,12 @@ func (p *PPU) LoadCompatibilityPalette() {
 	// set the palette
 	for i := 0; i < 4; i++ {
 		p.ColourPalette.Palettes[0][i] = paletteEntry.BG[i]
+		p.compatibilityPalette[i] = paletteEntry.BG[i]
 		p.ColourSpritePalette.Palettes[0][i] = paletteEntry.OBJ0[i]
 		p.ColourSpritePalette.Palettes[1][i] = paletteEntry.OBJ1[i]
 	}
+
+	p.bus.Log.Debugf("loaded compatibility palette for %s, hash %02x", p.bus.Cart.Header().Title, hash)
 }
 
 func (p *PPU) Read(address uint16) uint8 {

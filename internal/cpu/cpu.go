@@ -182,8 +182,8 @@ func (c *CPU) skipOperand() {
 // readByte reads a byte from memory.
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.s.Tick(4)
-	/* TODO reimplement this
-		if c.mmu.BootROM != nil && !c.mmu.IsBootROMDone() {
+	/* TODO reimplement this*/
+	/*if c.mmu.BootROM != nil && !c.mmu.IsBootROMDone() {
 		if addr < 0x100 {
 			return c.mmu.BootROM.Read(addr)
 		}

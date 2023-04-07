@@ -11,12 +11,10 @@ import (
 
 const (
 	bufferSize           = 2048
-	emulatedSampleRate   = 4194304 / 64
+	emulatedSampleRate   = 4194304 / 16
 	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
-
-	targetSampleRate = 96000
 )
 
 var (
@@ -114,7 +112,13 @@ func (a *APU) init() {
 			b |= types.Bit7
 		}
 		return b
-	})
+	}, registerSetter(func(v interface{}) {
+		a.volumeRight = v.(uint8) & 0x7
+		a.volumeLeft = (v.(uint8) >> 4) & 0x7
+
+		a.vinRight = v.(uint8)&types.Bit3 != 0
+		a.vinLeft = v.(uint8)&types.Bit7 != 0
+	}))
 	types.RegisterHardware(types.NR51, func(v uint8) {
 		if !a.enabled {
 			return
@@ -143,7 +147,17 @@ func (a *APU) init() {
 			}
 		}
 		return b
-	})
+	}, registerSetter(func(v interface{}) {
+		a.rightEnable[0] = v.(uint8)&types.Bit0 != 0
+		a.rightEnable[1] = v.(uint8)&types.Bit1 != 0
+		a.rightEnable[2] = v.(uint8)&types.Bit2 != 0
+		a.rightEnable[3] = v.(uint8)&types.Bit3 != 0
+
+		a.leftEnable[0] = v.(uint8)&types.Bit4 != 0
+		a.leftEnable[1] = v.(uint8)&types.Bit5 != 0
+		a.leftEnable[2] = v.(uint8)&types.Bit6 != 0
+		a.leftEnable[3] = v.(uint8)&types.Bit7 != 0
+	}))
 	types.RegisterHardware(types.NR52, func(v uint8) {
 		if v&types.Bit7 == 0 && a.enabled {
 			for i := types.NR10; i <= types.NR51; i++ {
@@ -176,17 +190,36 @@ func (a *APU) init() {
 		}
 
 		return b | 0x70
-	})
+	}, registerSetter(func(v interface{}) {
+		// if you are reading this, you may be wondering why this setter
+		// forces the channels on despite writes to NR52 just setting
+		// the enabled flag. this is because writes to NR52 do not actually
+		// control the channel enable flag, but rather the power state of the
+		// APU. the setter here provides a way for the APU to be automatically
+		// configured with a provided state, which is useful for both boot ROM
+		// and state loading.
+		a.enabled = v.(uint8)&types.Bit7 != 0
+		a.chan1.enabled = v.(uint8)&types.Bit0 != 0
+		a.chan2.enabled = v.(uint8)&types.Bit1 != 0
+		a.chan3.enabled = v.(uint8)&types.Bit2 != 0
+		a.chan4.enabled = v.(uint8)&types.Bit3 != 0
+	}))
 
 	types.RegisterHardware(types.PCM12, func(v uint8) {
 		// PCM12 is a read-only register that returns the current PCM12 value
 	}, func() uint8 {
-		return a.pcm12
+		if a.model == types.CGBABC || a.model == types.CGB0 {
+			return a.pcm12
+		}
+		return 0xFF
 	})
 	types.RegisterHardware(types.PCM34, func(v uint8) {
 		// PCM34 is a read-only register that returns the current PCM34 value
 	}, func() uint8 {
-		return a.pcm34
+		if a.model == types.CGBABC || a.model == types.CGB0 {
+			return a.pcm34
+		}
+		return 0xFF
 	})
 }
 

@@ -87,6 +87,7 @@ func init() {
 	})
 	DefineInstruction(0x76, "HALT", func(c *CPU) {
 		if c.ime {
+			//panic("halt with interrupts enabled")
 			c.skipHALT()
 		} else {
 			if c.irq.HasInterrupts() {

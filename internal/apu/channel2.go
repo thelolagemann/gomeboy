@@ -12,14 +12,12 @@ type channel2 struct {
 func newChannel2(a *APU) *channel2 {
 	c := &channel2{}
 	c2 := newChannel()
-	c2.stepWaveGeneration = func() {
-		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
-	}
-	c2.reloadFrequencyTimer = func() {
-		a.s.ScheduleEvent(scheduler.APUChannel2, uint64((2048-c.frequency)*4))
-	}
+
 	c.volumeChannel = newVolumeChannel(c2)
-	a.s.RegisterEvent(scheduler.APUChannel2, c.step)
+	a.s.RegisterEvent(scheduler.APUChannel2, func() {
+		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
+		a.s.ScheduleEvent(scheduler.APUChannel2, uint64((2048-c.frequency)*4))
+	})
 
 	types.RegisterHardware(0xff15, types.NoWrite, types.NoRead)
 	types.RegisterHardware(types.NR21, func(v uint8) {
@@ -66,7 +64,7 @@ func newChannel2(a *APU) *channel2 {
 
 			// init frequency timer
 			a.s.DescheduleEvent(scheduler.APUChannel2)
-			c.reloadFrequencyTimer()
+			a.s.ScheduleEvent(scheduler.APUChannel2, uint64((2048-c.frequency)*4))
 
 			c.initVolumeEnvelope()
 		}

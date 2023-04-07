@@ -15,7 +15,7 @@ type channel4 struct {
 
 	// NR43
 	clockShift  uint8
-	widthMode   uint8
+	widthMode   bool
 	divisorCode uint8
 
 	isScheduled bool
@@ -26,28 +26,21 @@ func newChannel4(a *APU) *channel4 {
 		lfsr: 0x7FFF,
 	}
 	c2 := newChannel()
-	c2.stepWaveGeneration = func() {
+
+	c.volumeChannel = newVolumeChannel(c2)
+	c.frequencyTimer = 8 // TODO figure out correct starting value (good enough for now)
+	a.s.RegisterEvent(scheduler.APUChannel4, func() {
+		// step the LFSR
 		newBit := (c.lfsr & 0b01) ^ ((c.lfsr & 0b10) >> 1)
 		c.lfsr >>= 1
 		c.lfsr |= newBit << 14
-		if c.widthMode != 0 {
+		if c.widthMode {
 			c.lfsr &^= 1 << 6
 			c.lfsr |= newBit << 6
 		}
-	}
-	c2.reloadFrequencyTimer = func() {
-		inCycles := uint64(0)
-		if c.divisorCode == 0 {
-			inCycles = 8 << c.clockShift
-		} else {
-			inCycles = uint64(c.divisorCode<<4) << c.clockShift
-		}
 
-		a.s.ScheduleEvent(scheduler.APUChannel4, inCycles)
-
-	}
-	c.volumeChannel = newVolumeChannel(c2)
-	a.s.RegisterEvent(scheduler.APUChannel4, c.step)
+		a.s.ScheduleEvent(scheduler.APUChannel4, c.frequencyTimer)
+	})
 
 	types.RegisterHardware(0xFF1F, types.NoWrite, types.NoRead)
 	types.RegisterHardware(types.NR41, func(v uint8) {
@@ -67,10 +60,21 @@ func newChannel4(a *APU) *channel4 {
 	types.RegisterHardware(types.NR42, writeEnabled(a, c.setNRx2), c.getNRx2)
 	types.RegisterHardware(types.NR43, writeEnabled(a, func(v uint8) {
 		c.clockShift = v >> 4
-		c.widthMode = (v & types.Bit3) >> 3
+		c.widthMode = v&types.Bit3 != 0
 		c.divisorCode = v & 0x7
+
+		if c.divisorCode == 0 {
+			c.frequencyTimer = 8 << c.clockShift
+		} else {
+			c.frequencyTimer = uint64(c.divisorCode<<4) << c.clockShift
+		}
 	}), func() uint8 {
-		return c.clockShift<<4 | c.widthMode<<3 | c.divisorCode
+		v := uint8(0)
+		v |= c.clockShift<<4 | c.divisorCode
+		if c.widthMode {
+			v |= types.Bit3
+		}
+		return v
 	})
 	types.RegisterHardware(types.NR44, writeEnabled(a, func(v uint8) {
 		lengthCounterEnabled := v&types.Bit6 != 0
@@ -91,7 +95,7 @@ func newChannel4(a *APU) *channel4 {
 
 			// reload frequency timer
 			a.s.DescheduleEvent(scheduler.APUChannel4)
-			c.reloadFrequencyTimer()
+			a.s.ScheduleEvent(scheduler.APUChannel4, c.frequencyTimer)
 
 			c.initVolumeEnvelope()
 			// reset LFSR
