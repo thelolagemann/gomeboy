@@ -29,16 +29,20 @@ func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HD
 	}
 
 	types.RegisterHardware(types.HDMA1, func(v uint8) {
-		h.source = (h.source & 0x00F0) | (uint16(v) << 8)
+		h.source &= 0x00F0
+		h.source |= (uint16(v) << 8) & 0xFF00
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA2, func(v uint8) {
-		h.source = (h.source & 0xFF00) | uint16(v&0xF0)
+		h.source &= 0xFF00
+		h.source |= uint16(v) & 0x00F0
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA3, func(v uint8) {
-		h.destination = (h.destination & 0x00F0) | (uint16(v) << 8)
+		h.destination &= 0x00F0
+		h.destination |= (uint16(v) << 8) & 0xFF00
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA4, func(v uint8) {
-		h.destination = (h.destination & 0x0F00) | uint16(v&0xF0)
+		h.destination &= 0xFF00
+		h.destination |= uint16(v) & 0x00F0
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA5, func(v uint8) {
 		// GDMA if bit 7 isn't set
@@ -63,11 +67,9 @@ func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HD
 			h.hdma5 = v & 0x7F
 		}
 	}, func() uint8 {
-		if bus.IsGBC() {
-			return h.hdma5
-		} else {
-			return 0xFF
-		}
+
+		return 0xFF
+
 	})
 
 	return h
