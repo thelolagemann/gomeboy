@@ -6,6 +6,10 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
 
+const (
+	ticksPerBit = 512
+)
+
 // Controller is the serial controller. It is responsible for sending and
 // receiving data to and from devices.
 // Before a transfer, data holds the next byte to be sent. AKA types.SB
@@ -59,16 +63,14 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 	c := &Controller{
 		irq:            irq,
 		AttachedDevice: nullDevice{},
+		s:              s,
 	}
 	types.RegisterHardware(types.SB, func(v uint8) {
-		//fmt.Printf("SB: %x\n", v)
 		c.data = v
 	}, func() uint8 {
-		//fmt.Printf("SB: %x\n", c.data)
 		return c.data
 	})
 	types.RegisterHardware(types.SC, func(v uint8) {
-		//fmt.Printf("SC: %x\n", v)
 		if c.control == v|0x7E {
 			return
 		}
@@ -76,42 +78,41 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
 
-		// calculate the new value of div TODO: fix
-		// c.lastDiv = uint16(s.Cycle() - uint64(c.lastDiv)) & 0xFFFF
+		// was the transfer request bit set?
+		if c.TransferRequest {
+			// calculate the new value of div TODO: fix
+			ticksToGo := s.SysClock() & (ticksPerBit - 1)
 
-		// a bit is sent every 1024 cycles, an interrupt is triggered every 8 bits.
-		// so we need to schedule a bit transfer every 1024 cycles, with the last
-		// one executing a serial interrupt.
-		//s.ScheduleEvent(scheduler.SerialBitTransfer, 4096)
+			// a bit is sent every 128 M-cycles (8.192 kHz)
+			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
+		}
 	}, func() uint8 {
 		return c.control | 0x7E
 	})
 
-	return c
-}
-
-// TickM ticks the serial controller by 1 M-cycle. This should be called
-// every M-cycle, when the serial controller is enabled.
-func (c *Controller) TickM(div uint16) {
-	for i := 0; i < 4; i++ {
-		div++
-		newEdge := c.getFallingEdge(div)
-		if c.resultFallingEdge && !newEdge {
-			var bit bool
-			if c.AttachedDevice != nil {
-				bit = c.AttachedDevice.Send()
-				c.AttachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
-			}
-
-			c.data = c.data << 1
-			if bit {
-				c.data |= 1
-			}
-
-			c.checkTransfer()
+	s.RegisterEvent(scheduler.SerialBitTransfer, func() {
+		var bit bool
+		if c.AttachedDevice != nil {
+			bit = c.AttachedDevice.Send()
+			c.AttachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
 		}
-		c.resultFallingEdge = newEdge
-	}
+
+		c.data = c.data << 1
+		if bit {
+			c.data |= 1
+		}
+
+		c.count++
+		if c.count == 8 {
+			c.count = 0
+			c.TransferRequest = false
+			c.control &^= types.Bit7
+			c.irq.Request(interrupts.SerialFlag)
+		} else {
+			s.ScheduleEvent(scheduler.SerialBitTransfer, ticksPerBit)
+		}
+	})
+	return c
 }
 
 // checkTransfer checks if a transfer has been completed, and if so,
@@ -147,13 +148,8 @@ func (c *Controller) Receive(bit bool) {
 		if bit {
 			c.data |= 1
 		}
-
+		c.checkTransfer()
 	}
-}
-
-// getFallingEdge returns true if the falling edge of the clock is reached.
-func (c *Controller) getFallingEdge(div uint16) bool {
-	return ((div & (1 << 8)) != 0) && c.InternalClock && c.TransferRequest
 }
 
 var _ types.Stater = (*Controller)(nil)

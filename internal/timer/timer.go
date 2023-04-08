@@ -23,15 +23,14 @@ type Controller struct {
 	reloadPending bool
 	reloadCancel  bool
 	enabled       bool
-	lastCycle     uint64
 }
 
 // NewController returns a new timer controller.
 func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
 	c := &Controller{
-		irq:       irq,
-		s:         s,
-		lastCycle: 0x5433,
+		irq: irq,
+		s:   s,
+		// lastCycle: 0x5433,
 	}
 
 	// set up events
@@ -54,7 +53,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			// reset to 0
 
 			// calculate internal div TODO make this a function
-			internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
+			internal := s.SysClock()
 
 			// check for an abrupt increment caused by the div reset
 			if internal&timerBits[c.currentBit] != 0 && c.enabled { // we don't need to check the new value, because it's always 0
@@ -62,7 +61,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			}
 
 			// update the last cycle
-			c.lastCycle = s.Cycle()
+			c.s.SysClockReset()
 			// TODO APU frame sequencer is tied to the DIV register
 
 			// deschedule and reschedule tima increment
@@ -73,7 +72,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 
 			s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
 		}, func() uint8 {
-			return uint8(uint16(((s.Cycle() - c.lastCycle) & 0xFFFF) >> 8))
+			return uint8(c.s.SysClock() >> 8)
 		},
 		types.WithSet(func(v interface{}) {
 
@@ -121,8 +120,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			// will disconnect the DIV register from the timer, thus
 			// causing a falling edge to be detected
 			if c.enabled && v&types.Bit2 == 0 {
-				internal := uint16((s.Cycle() - c.lastCycle) & 0xFFFF)
-				if internal&timerBits[oldBit] != 0 {
+				if c.s.SysClock()&timerBits[oldBit] != 0 {
 					c.abruptlyIncrementTIMA()
 				}
 			}
@@ -197,7 +195,7 @@ func (c *Controller) scheduledTIMAIncrement() {
 // changeSpeed changes the speed of the timer, rescheduling
 // any events that are affected by the change.
 func (c *Controller) changeSpeed(newBit uint8) {
-	internal := uint16((c.s.Cycle() - c.lastCycle) & 0xFFFF)
+	internal := c.s.SysClock()
 
 	// changing the speed could cause an abrupt increment if the
 	// currently selected bit of DIV is 1, and the new bit is 0

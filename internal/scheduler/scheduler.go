@@ -15,17 +15,21 @@ import (
 // next event is executed and removed from the list, if the event is scheduled
 // for the current cycle.
 type Scheduler struct {
-	cycles uint64
-	root   *Event
+	cycles   uint64
+	divTimer uint64 // the cycle at which the DIV register was last reset
+	root     *Event
 
-	events      []*Event // only one event of each type can be scheduled at a time
-	nextEventAt uint64
+	events      [256]*Event // only one event of each type can be scheduled at a time
+	nextEventAt uint64      // the cycle at which the next event should be executed
+
+	doubleSpeed bool // whether the scheduler is running at double speed (TODO: implement)
 }
 
 func NewScheduler() *Scheduler {
 	s := &Scheduler{
-		cycles: 0,
-		events: make([]*Event, eventTypes),
+		divTimer: 0x5433, // TODO make configurable
+		cycles:   0,
+		events:   [256]*Event{},
 		root: &Event{
 			cycle: math.MaxUint64,
 			handler: func() {
@@ -80,6 +84,14 @@ func (s *Scheduler) Tick(c uint64) {
 	s.nextEventAt = s.doEvents(s.nextEventAt)
 }
 
+func (s *Scheduler) SysClock() uint16 {
+	return uint16((s.cycles - s.divTimer) & 0xFFFF)
+}
+
+func (s *Scheduler) SysClockReset() {
+	s.divTimer = s.cycles
+}
+
 // doEvents executes all events scheduled in the list up to the given
 // cycle. It returns the cycle at which the next event should be executed.
 func (s *Scheduler) doEvents(nextEvent uint64) uint64 {
@@ -112,7 +124,7 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 	this := s.events[eventType]
 	this.cycle = atCycle
 
-	if atCycle < s.root.cycle {
+	if atCycle < s.nextEventAt {
 		// the event should be executed before the current event
 		// so we can just prepend it
 		this.next = s.root
@@ -144,8 +156,8 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 			}
 		}
 
+		// the event should be executed after the current event
 		if event.next == nil && event.cycle <= atCycle {
-			// the event should be executed after the current event
 			event.next = this
 			break
 		}
@@ -198,7 +210,6 @@ func (s *Scheduler) Skip() {
 	s.cycles = s.nextEventAt
 	s.nextEventAt = s.DoEvent()
 }
-
 func (s *Scheduler) String() string {
 	result := ""
 	event := s.root
