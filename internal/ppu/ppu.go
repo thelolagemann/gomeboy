@@ -453,10 +453,6 @@ func (p *PPU) init() {
 func (p *PPU) StartRendering() {
 	p.isGBC = p.bus.IsGBC()
 	p.isGBCCompat = p.bus.IsGBCCompat()
-
-	if p.isGBCCompat {
-		p.hdma = NewHDMA(p.bus, p.writeVRAM, p.s)
-	}
 }
 
 func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
@@ -474,6 +470,7 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 		DMA: NewDMA(mmu, oam, s),
 		s:   s,
 	}
+	p.hdma = NewHDMA(mmu, p.writeVRAM, s)
 
 	p.init()
 
@@ -606,7 +603,6 @@ func (p *PPU) endGlitchedFirstLine() {
 // - encoded filename as hash of palette
 
 func (p *PPU) LoadCompatibilityPalette() {
-	fmt.Println("loading compatibility palette")
 	if p.bus.BootROM != nil {
 		return // don't load compatibility palette if boot ROM is Enabled (as the boot ROM will setup the palette)
 	}
@@ -618,7 +614,6 @@ func (p *PPU) LoadCompatibilityPalette() {
 	}
 	paletteEntry, ok := palette.GetCompatibilityPaletteEntry(entryWord)
 	if !ok {
-		p.bus.Log.Debugf("no compatibility palette entry found for %s, hash %02x", p.bus.Cart.Header().Title, hash)
 		// load default palette
 		paletteEntry = palette.CompatibilityPalettes[0x1C][0x03]
 	}
@@ -631,7 +626,6 @@ func (p *PPU) LoadCompatibilityPalette() {
 		p.ColourSpritePalette.Palettes[1][i] = paletteEntry.OBJ1[i]
 	}
 
-	p.bus.Log.Debugf("loaded compatibility palette for %s, hash %02x", p.bus.Cart.Header().Title, hash)
 }
 
 func (p *PPU) Read(address uint16) uint8 {

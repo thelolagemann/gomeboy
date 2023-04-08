@@ -1,7 +1,6 @@
 package ppu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
@@ -10,8 +9,10 @@ import (
 type HDMA struct {
 	length uint8
 
-	hdma5       uint8
-	source      uint16
+	hdma5 uint8
+	// bits 16 - 4 respected only for source
+	source uint16
+	// bits 12 - 4 respected only for destination
 	destination uint16
 	complete    bool
 
@@ -20,35 +21,26 @@ type HDMA struct {
 	bus  mmu.IOBus
 }
 
-func NewHDMA(bus mmu.IOBus, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HDMA {
+func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HDMA {
 	h := &HDMA{
 		vRAM: vRAM,
 		s:    s,
 		bus:  bus,
-
-		source:      0xFFFF,
-		destination: 0xFFFF,
-		length:      0x01,
 	}
 
 	types.RegisterHardware(types.HDMA1, func(v uint8) {
-		h.source &= 0x00F0
-		h.source |= (uint16(v) << 8) & 0xFF00
+		h.source = (h.source & 0x00F0) | (uint16(v) << 8)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA2, func(v uint8) {
-		h.source &= 0xFF00
-		h.source |= uint16(v) & 0x00F0
+		h.source = (h.source & 0xFF00) | uint16(v&0xF0)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA3, func(v uint8) {
-		h.destination &= 0x00F0
-		h.destination |= (uint16(v) << 8) & 0xFF00
+		h.destination = (h.destination & 0x00F0) | (uint16(v) << 8)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA4, func(v uint8) {
-		h.destination &= 0xFF00
-		h.destination |= uint16(v) & 0x00F0
+		h.destination = (h.destination & 0x0F00) | uint16(v&0xF0)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA5, func(v uint8) {
-		fmt.Printf("HDMA5: %08b\n", v)
 		// GDMA if bit 7 isn't set
 		if v&types.Bit7 == 0 {
 			// is there a pending HDMA transfer?
@@ -71,7 +63,11 @@ func NewHDMA(bus mmu.IOBus, vRAM func(uint16, uint8), s *scheduler.Scheduler) *H
 			h.hdma5 = v & 0x7F
 		}
 	}, func() uint8 {
-		return h.hdma5
+		if bus.IsGBC() {
+			return h.hdma5
+		} else {
+			return 0xFF
+		}
 	})
 
 	return h
@@ -83,7 +79,6 @@ func (h *HDMA) doHDMA() {
 	if h.hdma5&types.Bit7 != 0 {
 		return
 	}
-	//fmt.Printf("HDMA: %d\n", h.hdma5)
 
 	// perform the transfer
 	for i := uint8(0); i < 16; i++ {
