@@ -30,13 +30,9 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 	c := &Controller{
 		irq: irq,
 		s:   s,
-		// lastCycle: 0x5433,
 	}
 
 	// set up events
-	s.RegisterEvent(scheduler.TimerInterrupt, func() {
-		c.irq.Request(interrupts.TimerFlag)
-	})
 	s.RegisterEvent(scheduler.TimerTIMAIncrement, c.scheduledTIMAIncrement)
 	s.RegisterEvent(scheduler.TimerTIMAReload, c.reloadTIMA)
 	s.RegisterEvent(scheduler.TimerTIMAFinishReload, func() {
@@ -52,7 +48,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			// of DIV is 1, as a falling edge would be detected as DIV gets
 			// reset to 0
 
-			// calculate internal div TODO make this a function
+			// calculate internal div
 			internal := s.SysClock()
 
 			// check for an abrupt increment caused by the div reset
@@ -63,12 +59,24 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			// update the last cycle
 			c.s.SysClockReset()
 			// TODO APU frame sequencer is tied to the DIV register
+			// in double speed, if bit 5 of DIV is 1, the APU frame sequencer
+			// will advance, in normal speed if bit 4 of DIV is 1 the APU frame
+			// sequencer will advance. again, we don't need to check the new value
+			// because it's always 0 so a falling edge will always be detected
+			// the frame sequencer should then be scheduled to advance again
+			// after 8192 cycles
+			if internal&0b1_0000 != 0 {
+				// TODO schedule APU frame sequencer
+			}
 
-			// deschedule and reschedule tima increment
+			// the internal timer uses the same clock as the DIV register
+			// so a write to DIV will also reset the internal timer, which
+			// means we to need to reschedule the timer increment event
+			// to prevent the timer from incrementing too fast
+			// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/timer/div_write.s
 			s.DescheduleEvent(scheduler.TimerTIMAIncrement)
 			s.DescheduleEvent(scheduler.TimerTIMAReload)
 			s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
-			s.DescheduleEvent(scheduler.TimerInterrupt)
 
 			s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
 		}, func() uint8 {
@@ -203,21 +211,13 @@ func (c *Controller) changeSpeed(newBit uint8) {
 		c.abruptlyIncrementTIMA()
 	}
 
-	ticksUntilIncrement := (rescheduleMasks[newBit] + 1) - (internal & rescheduleMasks[newBit])
-	c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+	ticksUntilIncrement := uint16(timaCycles[newBit]) - (internal & uint16(timaCycles[newBit]-1))
 	c.s.DescheduleEvent(scheduler.TimerTIMAReload)
 	c.s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
-	c.s.DescheduleEvent(scheduler.TimerInterrupt)
+	c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
 	c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(ticksUntilIncrement))
 
 	c.currentBit = newBit
-}
-
-var rescheduleMasks = [4]uint16{
-	0b1111111111,
-	0b1111,
-	0b111111,
-	0b11111111,
 }
 
 // timerBits is a lookup table for the bits of the DIV register
@@ -228,40 +228,40 @@ var rescheduleMasks = [4]uint16{
 //
 // Bit 9: (1024 cycles)
 //
-//	Cycle 1023 (0b11_1111_1111) -> 1024 (0b100_0000_0000)
-//	               ^ ----------------------- ^ = falling edge
-//	Cycle 2047 (0b111_1111_1111) -> 2048 (0b1000_0000_0000)
+//	Cycle 1023 (0b0011_1111_1111) -> 1024 (0b0100_0000_0000)
+//	                ^ ------------------------ ^ = falling edge
+//	Cycle 2047 (0b0111_1111_1111) -> 2048 (0b1000_0000_0000)
 //	                ^ ------------------------ ^ = falling edge
 //
 // Bit 3: (16 cycles)
 //
-//	Cycle 15 (0b1111) -> 16 (0b1_0000)
-//	           ^ ------------- ^ = falling edge
-//	Cycle 31 (0b1_1111) -> 32 (0b10_0000)
-//	              ^ --------------- ^ = falling edge
+//	Cycle 15 (0b0000_1111) -> 16 (0b0001_0000)
+//	                 ^ ----------------- ^ = falling edge
+//	Cycle 31 (0b0001_1111) -> 32 (0b0010_0000)
+//	                 ^ ----------------- ^ = falling edge
 //
 // Bit 5: (64 cycles)
 //
-//	Cycle 63 (0b11_1111) -> 64 (0b100_0000)
-//	             ^ ---------------- ^ = falling edge
-//	Cycle 127 (0b111_1111) -> 128 (0b1000_0000)
+//	Cycle  63 (0b0011_1111) ->  64 (0b0100_0000)
+//	               ^ ------------------ ^ = falling edge
+//	Cycle 127 (0b0111_1111) -> 128 (0b1000_0000)
 //	               ^ ------------------ ^ = falling edge
 //
 // Bit 7: (256 cycles)
 //
-//	Cycle 255 (0b1111_1111) -> 256 (0b1_0000_0000)
-//	              ^ -------------------- ^ = falling edge
-//	Cycle 511 (0b1_1111_1111) -> 512 (0b10_0000_0000)
-//	                ^ --------------------- ^ = falling edge
+//	Cycle 255 (0b0000_1111_1111) -> 256 (0b0001_0000_0000)
+//	                  ^ ----------------------- ^ = falling edge
+//	Cycle 511 (0b0001_1111_1111) -> 512 (0b0010_0000_0000)
+//	                  ^ ----------------------- ^ = falling edge
 var timerBits = [4]uint16{
 	// bit 9
-	0b1000000000,
+	0b10_0000_0000,
 	// bit 3
-	0b1000,
+	0b0000_1000,
 	// bit 5
-	0b100000,
+	0b0010_0000,
 	// bit 7
-	0b10000000,
+	0b1000_0000,
 }
 
 var _ types.Stater = (*Controller)(nil)
