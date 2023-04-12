@@ -97,8 +97,13 @@ type PPU struct {
 	CurrentCycle uint64
 	lastLine     bool
 
-	hdma *HDMA
-	s    *scheduler.Scheduler
+	hdma                              *HDMA
+	s                                 *scheduler.Scheduler
+	oamReadBlocked, oamWriteBlocked   bool
+	vramReadBlocked, vramWriteBlocked bool
+	lyForComparison                   uint8
+	lycInterruptLine                  bool
+	statInterruptLine                 bool
 }
 
 func (p *PPU) init() {
@@ -483,6 +488,12 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 		p.checkStatInterrupts(false)
 		p.mode = lcd.VRAM
 	})
+	s.RegisterEvent(scheduler.PPUOAMInterrupt, func() {
+		p.mode = lcd.OAM
+		p.checkStatInterrupts(false)
+		p.checkLYC()
+
+	})
 	s.RegisterEvent(scheduler.PPUVBlankLast, func() {
 		p.mode = lcd.OAM
 		p.windowInternal = 0
@@ -504,6 +515,10 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 }
 
 func (p *PPU) endHBlank() {
+	var firstLine bool
+	if p.CurrentScanline == 0 {
+		firstLine = true
+	}
 	// increment scanline
 	p.CurrentScanline++
 
@@ -542,9 +557,15 @@ func (p *PPU) endHBlank() {
 		// schedule end of VBlank period for (456 cycles later)
 		p.s.ScheduleEvent(scheduler.PPUVBlank, 456)
 	} else {
-		p.checkLYC()
 		p.mode = lcd.OAM
 		p.checkStatInterrupts(false)
+		p.mode = lcd.HBlank
+		p.s.ScheduleEvent(scheduler.PPUOAMInterrupt, 4)
+		if firstLine {
+			p.status &^= types.Bit2 // clear coincidence flag
+		} else {
+			p.checkLYC()
+		}
 
 		// schedule end of OAM search for (80 cycles later)
 		p.s.ScheduleEvent(scheduler.PPUOAMSearch, 84)
@@ -553,7 +574,8 @@ func (p *PPU) endHBlank() {
 
 func (p *PPU) endOAMSearch() {
 	p.mode = lcd.VRAM
-	// no STAT interrupt for OAM search, so we don't need to check for it
+	// no STAT interrupt for OAM search, so we just need to clear the STAT interrupt flag
+	p.checkStatInterrupts(false)
 
 	// HBlank interrupt is raised 1-M cycle before entering HBlank, so we need to schedule
 	// that before scheduling the end of VRAM search
@@ -593,8 +615,27 @@ func (p *PPU) endVBlank() {
 func (p *PPU) endGlitchedFirstLine() {
 	p.checkLYC()
 	p.checkStatInterrupts(false)
-	// schedule end of VRAM search for (84 cycles later)
-	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 84)
+
+	p.mode = lcd.VRAM
+	// schedule end of VRAM search
+	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 172)
+}
+
+// startGlitchedFirstLine is called 1 cycle after the PPU is enabled,
+// performing the first line of the screen in a glitched manner, accurate
+// to the real hardware.
+func (p *PPU) startGlitchedFirstLine() {
+	p.lyForComparison = 0
+	// clear coincidence flag
+	p.status &^= types.Bit2
+	p.modeToInt = -1
+	p.oamReadBlocked = false
+	p.vramReadBlocked = false
+	p.oamWriteBlocked = false
+	p.vramWriteBlocked = false
+
+	p.checkStatInterrupts(false)
+
 }
 
 // TODO save compatibility palette
@@ -641,7 +682,6 @@ func (p *PPU) Read(address uint16) uint8 {
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
 		if p.oamUnlocked() && !p.DMA.IsTransferring() {
-			fmt.Printf("PPU: Reading from OAM: %X (%x)\n", address, p.oam.Read(address-0xFE00))
 			return p.oam.Read(address - 0xFE00)
 		}
 		return 0xff
@@ -863,6 +903,48 @@ func (p *PPU) checkStatInterrupts(vblankTrigger bool) {
 	}
 }
 
+func (p *PPU) statUpdate() {
+	// do nothing if the LCD is disabled
+	if !p.Enabled {
+		return
+	}
+
+	// TODO handle DMA active here
+
+	// get previous interrupt state
+	prevInterruptLine := p.statInterruptLine
+
+	// handle LY=LYC
+	if p.lyForComparison != 255 {
+		if p.lyForComparison == p.CurrentScanline {
+			p.lycInterruptLine = true
+			p.status |= 0x04
+		} else {
+			if p.lyForComparison != 255 {
+				p.lycInterruptLine = false
+			}
+			p.status &^= 0x04
+		}
+	}
+
+	// handle mode to interrupt
+	switch p.modeToInterrupt {
+	case lcd.HBlank:
+		p.statInterruptLine = p.mode == lcd.HBlank
+	case lcd.VBlank:
+		p.statInterruptLine = p.mode == lcd.VBlank
+	case lcd.OAM:
+		p.statInterruptLine = p.mode == lcd.OAM
+	default:
+		p.statInterruptLine = false
+	}
+
+	// LY=LYC interrupt
+	if p.status&0x40 != 0 && p.lycInterruptLine {
+		p.statInterruptLine = true
+	}
+}
+
 var (
 	scrollXHblank = [8]uint16{200, 196, 196, 196, 196, 192, 192, 192}
 	scrollXvRAM   = [8]uint16{172, 176, 176, 176, 176, 180, 180, 180}
@@ -1070,6 +1152,8 @@ func (p *PPU) renderBackgroundScanline() {
 	scanline := &p.PreparedFrame[p.CurrentScanline]
 
 	for i := uint8(0); i < ScreenWidth; i++ {
+		// set scanline using unsafe to copy 4 bytes at a time
+		//*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 		scanline[i] = pal[colourLUT[xPixelPos]]
 		bgPriorityLine[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]
