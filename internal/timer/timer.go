@@ -53,6 +53,12 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 
 			// check for an abrupt increment caused by the div reset
 			if internal&timerBits[c.currentBit] != 0 && c.enabled { // we don't need to check the new value, because it's always 0
+				// visualization just in case you're still confused:
+				//
+				// Current Bit: 3 (0b1000) 16 cycles
+				//
+				// DIV 0b0000_1100 => 0b0000_0000
+				//            ^ ------------ ^ = falling edge
 				c.abruptlyIncrementTIMA()
 			}
 
