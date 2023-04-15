@@ -6,15 +6,20 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/veandco/go-sdl2/sdl"
+	"math"
 	"unsafe"
 )
 
 const (
 	bufferSize           = 2048
-	emulatedSampleRate   = 4194304 / 16
+	emulatedSampleRate   = 4194304 / 64
 	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
+)
+
+var (
+	chargeFactor = math.Pow(0.998943, 4194304/emulatedSampleRate)
 )
 
 var (
@@ -50,27 +55,21 @@ func init() {
 type APU struct {
 	playing, enabled bool
 
-	memory      [52]byte
-	audioData   []byte
-	chan1       *channel1
-	chan2       *channel2
-	chan3       *channel3
-	chan4       *channel4
-	TickCounter int32
+	audioData []byte
+	chan1     *channel1
+	chan2     *channel2
+	chan3     *channel3
+	chan4     *channel4
 
-	frameSequencerCounter   uint32
 	frameSequencerStep      uint8
-	frequencyCounter        uint32
 	firstHalfOfLengthPeriod bool
 
 	vinLeft, vinRight       bool
 	volumeLeft, volumeRight uint8
 	leftEnable, rightEnable [4]bool
-
-	currentIndex uint32
+	capacitors              [4]float64
 
 	pcm12, pcm34 uint8
-	waveRAM      [16]byte
 
 	bus mmu.IOBus
 
@@ -82,9 +81,24 @@ type APU struct {
 	bufferPos int
 	buffer    []byte
 
-	HeldTicks uint32
+	lastUpdate uint64
+	s          *scheduler.Scheduler
+}
 
-	s *scheduler.Scheduler
+func (a *APU) highPass(channel int, in uint8, dacEnabled bool) uint8 {
+	var out uint8
+	if dacEnabled {
+		out = uint8(float64(in) - a.capacitors[channel])
+		a.capacitors[channel] = float64(in-out) * chargeFactor
+	}
+
+	return out
+}
+
+// sync the APU with the currently passed ticks
+func (a *APU) sync() {
+	// get the cycles passed since the last update
+	//lastUpdate := a.s.Cycle() - a.lastUpdate
 }
 
 func (a *APU) AttachBus(bus mmu.IOBus) {
@@ -230,12 +244,10 @@ func (a *APU) SetModel(model types.Model) {
 // NewAPU returns a new APU.
 func NewAPU(s *scheduler.Scheduler) *APU {
 	a := &APU{
-		playing:               false,
-		frequencyCounter:      16,
-		frameSequencerCounter: 8192,
-		frameSequencerStep:    0,
-		buffer:                make([]byte, bufferSize),
-		s:                     s,
+		playing:            false,
+		frameSequencerStep: 0,
+		buffer:             make([]byte, bufferSize),
+		s:                  s,
 	}
 	a.init()
 
@@ -257,6 +269,7 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 }
 
 func (a *APU) stepFrameSequencer() {
+
 	a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 
 	switch a.frameSequencerStep {
@@ -299,6 +312,12 @@ func (a *APU) sample() {
 	channel2Amplitude := a.chan2.getAmplitude()
 	channel3Amplitude := a.chan3.getAmplitude()
 	channel4Amplitude := a.chan4.getAmplitude()
+
+	// apply high-pass filter
+	channel1Amplitude = a.highPass(0, channel1Amplitude, a.chan1.channel.dacEnabled)
+	channel2Amplitude = a.highPass(1, channel2Amplitude, a.chan2.channel.dacEnabled)
+	channel3Amplitude = a.highPass(2, channel3Amplitude, a.chan3.channel.dacEnabled)
+	channel4Amplitude = a.highPass(3, channel4Amplitude, a.chan4.channel.dacEnabled)
 
 	left := uint16(0)
 	right := uint16(0)
