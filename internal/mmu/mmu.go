@@ -386,9 +386,6 @@ func (m *MMU) PrintLoggedReads() {
 }
 
 func (m *MMU) Write(address uint16, value uint8) {
-	if address >= 0xFF00 && address < 0xFF80 && address != 0xFF44 {
-		//fmt.Printf("write to 0x%04X\n", address)
-	}
 	switch {
 	case address >= 0xC000 && address < 0xD000:
 		m.wRAM[address-0xC000] = value

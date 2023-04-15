@@ -67,9 +67,15 @@ func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HD
 			h.hdma5 = v & 0x7F
 		}
 	}, func() uint8 {
-
 		return 0xFF
-
+		// TODO verify what happens when reading HDMA5
+		// other implementations appear to return the
+		// value of the HDMA5 register, however this
+		// causes several games to perform corrupt
+		// HDMA transfers, so more research is needed.
+		// that being said, the HDMA/GDMA implementation
+		// here is still incomplete, so it's possible
+		// that other issues are causing the corruption
 	})
 
 	return h

@@ -1,6 +1,5 @@
 package scheduler
 
-import "C"
 import (
 	"fmt"
 	"math"
@@ -23,17 +22,28 @@ type Scheduler struct {
 	nextEventAt uint64      // the cycle at which the next event should be executed
 
 	doubleSpeed bool // whether the scheduler is running at double speed (TODO: implement)
+
+	debugLogging bool
+}
+
+func (s *Scheduler) EnableDebugLogging() {
+	s.debugLogging = true
+}
+
+func (s *Scheduler) DisableDebugLogging() {
+	s.debugLogging = false
 }
 
 func NewScheduler() *Scheduler {
 	s := &Scheduler{
-		divTimer: 0x5433, // TODO make configurable
+		divTimer: 0x5437, // TODO make configurable
 		cycles:   0,
 		events:   [256]*Event{},
 		root: &Event{
+			next:  nil,
 			cycle: math.MaxUint64,
 			handler: func() {
-				fmt.Println("scheduler: no event handler found")
+
 			},
 		},
 	}
@@ -62,6 +72,10 @@ func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 	s.events[eventType].eventType = eventType
 }
 
+func (s *Scheduler) Start() {
+	// s.root = s.events[APUSample]
+}
+
 // Tick advances the scheduler by the given number of cycles. This will
 // execute all scheduled events up to the current cycle. If an event is
 // scheduled for the current cycle, it will be executed and removed from
@@ -81,10 +95,12 @@ func (s *Scheduler) Tick(c uint64) {
 	//fmt.Println(s.String())
 
 	// update the next event to be executed
-	s.nextEventAt = s.doEvents(s.nextEventAt)
+	s.nextEventAt = s.doEvents()
 }
 
 func (s *Scheduler) SysClock() uint16 {
+	fmt.Printf("0x%04X\n", uint16((s.cycles-s.divTimer)&0xFFFF))
+	fmt.Printf("0x%0X - 0x%0X = 0x%0X\n", s.cycles, s.divTimer, s.cycles-s.divTimer)
 	return uint16((s.cycles - s.divTimer) & 0xFFFF)
 }
 
@@ -94,8 +110,11 @@ func (s *Scheduler) SysClockReset() {
 
 // doEvents executes all events scheduled in the list up to the given
 // cycle. It returns the cycle at which the next event should be executed.
-func (s *Scheduler) doEvents(nextEvent uint64) uint64 {
-	for nextEvent <= s.cycles {
+func (s *Scheduler) doEvents() uint64 {
+	until := s.cycles // avoid the cost of accessing the field in each iteration
+	nextEvent := s.nextEventAt
+
+	for {
 		// we need to copy the event to a local variable
 		// as the handler may schedule a new event, which
 		// could modify the event in the list
@@ -104,14 +123,25 @@ func (s *Scheduler) doEvents(nextEvent uint64) uint64 {
 		// set the next event to be executed
 		s.root = event.next
 
+		if event.eventType >= PPUHBlank && event.eventType <= PPUOAMInterrupt && s.debugLogging {
+			// fmt.Printf("executing event %s at cycle %d\n", eventTypeNames[event.eventType], s.cycles)
+		}
 		// execute the event
 		event.handler()
 
-		// set the cycle to the next event to be executed
 		nextEvent = s.root.cycle
+
+		// check if there are events to execute
+		if nextEvent > until {
+			break
+		}
 	}
 
 	return nextEvent
+}
+
+func (s *Scheduler) DoEventNow(event EventType) {
+	s.events[event].handler()
 }
 
 // ScheduleEvent schedules an event to be executed at the given cycle.
@@ -120,50 +150,54 @@ func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
 	// at which it should be executed
 	atCycle := s.cycles + cycle
 
-	var prev *Event
-	this := s.events[eventType]
-	this.cycle = atCycle
+	// get the event to insert from the event pool and set the cycle
+	// this is to avoid the cost of allocating a new event for each
+	// scheduled event
+	eventToInsert := s.events[eventType]
+	eventToInsert.cycle = atCycle
 
-	if atCycle < s.nextEventAt {
-		// the event should be executed before the current event
-		// so we can just prepend it
-		this.next = s.root
-		s.root = this
+	// if the event is scheduled for a cycle before the next scheduled
+	// event, then we can just prepend it to the list by setting it as
+	// the root and updating the next event to be the current root
+	if atCycle <= s.nextEventAt {
+		eventToInsert.next = s.root
+		s.root = eventToInsert
 		s.nextEventAt = atCycle
+
+		// early return to avoid iterating over the list
 		return
 	}
 
-	event := s.root
-	for {
-		if atCycle < event.cycle {
-			// the event should be executed before the current event
-			// so we need to insert it before the current event
+	// iterate over the list of events to find the correct position
+	// to insert the event
+	var currentRoot = s.root // start at the root
+	var nextCycle = currentRoot.cycle
+	var didLoop = currentRoot.cycle <= atCycle
+	var prev *Event
+eventLoop:
+	// typically you would use a for loop here, but in this case,
+	// the performance critical nature of the scheduler means
+	// that we need to avoid as much overhead as possible
+	if nextCycle <= atCycle {
+		// when the event is scheduled for a cycle after the current
+		// root, then we need to insert the event after the current
+		// root, so we need to continue iterating over the list
+		// until we find the correct position
+		prev = currentRoot
+		currentRoot = currentRoot.next
+		nextCycle = currentRoot.cycle
+		goto eventLoop
+	}
 
-			if prev == nil {
-				// the event should be executed before the current event
-				// and there is no previous event, so we can just prepend it
-				this.next = event
-				s.root = this
-				s.nextEventAt = atCycle
-				break
-			} else if prev.cycle <= atCycle {
-				// the event should be executed between the previous event
-				// and the current event, so we can just insert it
-				this.next = event
-				prev.next = this
+	// TODO use positions instead of nil checks
 
-				break
-			}
-		}
-
-		// the event should be executed after the current event
-		if event.next == nil && event.cycle <= atCycle {
-			event.next = this
-			break
-		}
-
-		prev = event
-		event = event.next
+	if !didLoop {
+		eventToInsert.next = currentRoot
+		s.root = eventToInsert
+		s.nextEventAt = atCycle
+	} else {
+		prev.next = eventToInsert
+		prev.next.next = currentRoot
 	}
 
 }
@@ -214,6 +248,7 @@ func (s *Scheduler) String() string {
 	result := ""
 	event := s.root
 	for event != nil {
+		//fmt.Println(event)
 		result += fmt.Sprintf("%d:%d->", event.eventType, event.cycle)
 		event = event.next
 	}

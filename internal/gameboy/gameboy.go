@@ -517,6 +517,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		}
 	}
 
+	sched.Start()
+
 	return g
 }
 
