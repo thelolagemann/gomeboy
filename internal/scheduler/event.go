@@ -7,6 +7,7 @@ const (
 	APUChannel1
 	APUChannel2
 	APUChannel3
+	APUChannel3WaveRAMReadCorruption
 	APUChannel3WaveRAMWriteCorruption
 	APUChannel3WaveRAMWriteCorruptionEnd
 	APUChannel4

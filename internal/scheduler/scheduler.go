@@ -34,9 +34,13 @@ func (s *Scheduler) DisableDebugLogging() {
 	s.debugLogging = false
 }
 
+func (s *Scheduler) OverrideDiv(div uint16) {
+	s.divTimer = s.cycles - uint64(div)
+}
+
 func NewScheduler() *Scheduler {
-	s := &Scheduler{
-		divTimer: 0x5437, // TODO make configurable
+	s := &Scheduler{ // 0x = DMG magic value,
+		divTimer: 0x620f, // TODO make configurable
 		cycles:   0,
 		events:   [256]*Event{},
 		root: &Event{
@@ -83,24 +87,22 @@ func (s *Scheduler) Start() {
 // be executed when the scheduler is ticked with the cycle at which it
 // should be executed.
 func (s *Scheduler) Tick(c uint64) {
-	// increment the cycle counter
-	s.cycles += c
+	for i := uint64(0); i < c; i++ {
+		s.tick()
+	}
+}
 
-	// if the next event is scheduled for a cycle in the future,
-	// then we can return early and avoid iterating over the list
-	// of events
+func (s *Scheduler) tick() {
+	s.cycles++
+
 	if s.nextEventAt > s.cycles {
 		return
 	}
-	//fmt.Println(s.String())
 
-	// update the next event to be executed
 	s.nextEventAt = s.doEvents()
 }
 
 func (s *Scheduler) SysClock() uint16 {
-	fmt.Printf("0x%04X\n", uint16((s.cycles-s.divTimer)&0xFFFF))
-	fmt.Printf("0x%0X - 0x%0X = 0x%0X\n", s.cycles, s.divTimer, s.cycles-s.divTimer)
 	return uint16((s.cycles - s.divTimer) & 0xFFFF)
 }
 
@@ -123,10 +125,13 @@ func (s *Scheduler) doEvents() uint64 {
 		// set the next event to be executed
 		s.root = event.next
 
-		if event.eventType >= PPUHBlank && event.eventType <= PPUOAMInterrupt && s.debugLogging {
+		if event.eventType <= PPUOAMInterrupt {
 			// fmt.Printf("executing event %s at cycle %d\n", eventTypeNames[event.eventType], s.cycles)
 		}
 		// execute the event
+		if event.handler == nil {
+			panic(fmt.Sprintf("no handler for event %s", eventTypeNames[event.eventType]))
+		}
 		event.handler()
 
 		nextEvent = s.root.cycle
@@ -146,6 +151,9 @@ func (s *Scheduler) DoEventNow(event EventType) {
 
 // ScheduleEvent schedules an event to be executed at the given cycle.
 func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
+	if s.doubleSpeed && eventType <= PPUOAMInterrupt {
+		cycle = cycle * 2
+	}
 	// when the event is scheduled, it is scheduled for the current cycle + the cycle
 	// at which it should be executed
 	atCycle := s.cycles + cycle
@@ -232,8 +240,88 @@ func (s *Scheduler) DoEvent() uint64 {
 
 	s.root = event.next
 	event.handler()
-
 	return s.root.cycle
+}
+
+// ChangeSpeed informs the scheduler that the speed of the CPU has either gone
+// from normal speed to double speed, or from double speed to normal speed.
+// This is useful for the scheduler to know when to schedule events for the
+// CPU, as events are scheduled for the CPU at a different rate when the
+// CPU is running at double speed.
+func (s *Scheduler) ChangeSpeed(speed bool) {
+	if !s.doubleSpeed && speed {
+		eventsProcessed := [eventTypes]bool{} // filthy hack to avoid processing the same event twice
+		// we are going from normal speed to double speed
+		// so we need to halve the event cycles for events
+		// affected by the speed change
+
+		// we need to iterate over the linked list of events
+		// and halve the cycle for each event if the event
+		// is affected by the speed change (APU, PPU, Serial)
+		event := s.root
+		for event != nil {
+			if event.eventType >= APUFrameSequencer && event.eventType <= PPUOAMInterrupt {
+				if eventsProcessed[event.eventType] {
+					event = event.next
+					continue
+				}
+				eventsProcessed[event.eventType] = true
+				// first we need to get the cycle at which the event
+				// would be executed at normal speed
+				cycleToExecute := event.cycle
+
+				// then we need to calculate in how many cycles that
+				// is from the current cycle
+				cyclesFromNow := cycleToExecute - s.cycles
+
+				// then we need to halve the cycles from now
+				cyclesFromNow = cyclesFromNow / 2
+
+				// then we need to add the cycles from now to the
+				// current cycle to get the cycle at which the event
+				// will be executed at double speed
+
+				// we need to reschedule the event at the new cycle (not just change the cycle, as that would mess up the linked list)
+				s.DescheduleEvent(event.eventType)
+				s.ScheduleEvent(event.eventType, cyclesFromNow)
+			}
+			event = event.next
+		}
+	} else if s.doubleSpeed && !speed {
+		// we are going from double speed to normal speed
+		// so we need to double the event cycles for events
+		// affected by the speed change
+
+		// we need to iterate over the linked list of events
+		// and double the cycle for each event if the event
+		// is affected by the speed change (APU, PPU, Serial)
+		event := s.root
+		for event != nil {
+			if event.eventType >= APUFrameSequencer && event.eventType <= PPUOAMInterrupt {
+				// first we need to get the cycle at which the event
+				// would be executed at double speed
+				cycleToExecute := event.cycle
+
+				// then we need to calculate in how many cycles that
+				// is from the current cycle
+				cyclesFromNow := cycleToExecute - s.cycles
+
+				// then we need to double the cycles from now
+				cyclesFromNow = cyclesFromNow * 2
+
+				// then we need to add the cycles from now to the
+				// current cycle to get the cycle at which the event
+				// will be executed at normal speed
+
+				// we need to change the cycle of the event (not just reschedule it, as that would mess up the linked list)
+				s.DescheduleEvent(event.eventType)
+				s.ScheduleEvent(event.eventType, cyclesFromNow)
+			}
+			event = event.next
+		}
+	}
+
+	s.doubleSpeed = speed
 }
 
 // Skip invokes the scheduler to execute the next event, by setting the
@@ -264,4 +352,8 @@ func (s *Scheduler) Until(increment EventType) uint64 {
 		event = event.next
 	}
 	return 0
+}
+
+func (s *Scheduler) DoubleSpeed() bool {
+	return s.doubleSpeed
 }

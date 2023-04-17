@@ -23,7 +23,6 @@ type channel3 struct {
 
 	waveRAMLastRead     uint64
 	waveRAMLastPosition uint8
-	waveRAMWriteCorrupt bool
 
 	// embed APU to access from wave RAM Read/Write
 	apu *APU
@@ -33,34 +32,26 @@ type channel3 struct {
 
 func newChannel3(a *APU) *channel3 {
 	c := &channel3{
-		channel:         newChannel(),
-		waveRAMPosition: 4,
-		apu:             a,
-		s:               a.s,
+		channel: newChannel(),
+		//waveRAMPosition:     4,
+		//waveRAMLastPosition: 2,
+		apu: a,
+		s:   a.s,
 	}
 
 	a.s.RegisterEvent(scheduler.APUChannel3, func() {
 		if c.enabled && c.dacEnabled {
+			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
+
 			c.waveRAMLastRead = a.s.Cycle()
 			c.waveRAMLastPosition = c.waveRAMPosition >> 1
 			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
-
-			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
 		} else {
 			c.waveRAMSampleBuffer = 0
 		}
 
 		inCycles := uint64((2048 - c.frequency) * 2)
 		a.s.ScheduleEvent(scheduler.APUChannel3, inCycles)
-		//a.s.ScheduleEvent(scheduler.APUChannel3WaveRAMWriteCorruption, inCycles-2)
-		// a.s.ScheduleEvent(scheduler.APUChannel3WaveRAMWriteCorruptionEnd, inCycles-1)
-	})
-
-	a.s.RegisterEvent(scheduler.APUChannel3WaveRAMWriteCorruption, func() {
-		c.waveRAMWriteCorrupt = true
-	})
-	a.s.RegisterEvent(scheduler.APUChannel3WaveRAMWriteCorruptionEnd, func() {
-		c.waveRAMWriteCorrupt = false
 	})
 
 	types.RegisterHardware(types.NR30, writeEnabled(a, func(v uint8) {
@@ -122,7 +113,7 @@ func newChannel3(a *APU) *channel3 {
 		c.lengthCounterEnabled = lengthCounterEnabled
 		if v&types.Bit7 != 0 {
 			// handle blarrgs 10-wave trigger while on test
-			if c.isEnabled() && c.waveRAMWriteCorrupt && (a.model != types.CGBABC && a.model != types.CGB0) {
+			if c.isEnabled() && a.s.Until(scheduler.APUChannel3) == 2 && (a.model != types.CGBABC && a.model != types.CGB0) {
 				pos := c.waveRAMPosition >> 1
 
 				if pos < 4 {
@@ -196,7 +187,8 @@ func (c *channel3) getAmplitude() uint8 {
 
 func (c *channel3) readWaveRAM(address uint16) uint8 {
 	if c.isEnabled() {
-		if c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
+
+		if c.apu.s.Cycle()-c.waveRAMLastRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
 			return c.waveRAM[c.waveRAMLastPosition]
 		} else {
 			return 0xFF
@@ -208,7 +200,7 @@ func (c *channel3) readWaveRAM(address uint16) uint8 {
 
 func (c *channel3) writeWaveRAM(address uint16, value uint8) {
 	if c.isEnabled() {
-		if c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
+		if c.apu.s.Cycle()-c.waveRAMLastRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
 			c.waveRAM[c.waveRAMLastPosition] = value
 		}
 	} else {

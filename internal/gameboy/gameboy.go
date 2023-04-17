@@ -71,6 +71,7 @@ type GameBoy struct {
 	speed           float64
 	Printer         *accessories.Printer
 	save            *emu.Save
+	Scheduler       *scheduler.Scheduler
 }
 
 func (g *GameBoy) StartLinked(
@@ -222,6 +223,23 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	// Get a pointer to the first element of the frameBuffer array
 	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
 
+	// update window title
+	events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy (%s)", g.MMU.Cart.Header().Title)}
+
+	// create a goroutine to handle the input
+	go func() {
+		for {
+			select {
+			case <-g.Close:
+				return
+			case p := <-pressed:
+				g.Joypad.Press(p)
+			case r := <-released:
+				g.Joypad.Release(r)
+			}
+		}
+	}()
+
 emuLoop:
 	for {
 		select {
@@ -243,10 +261,6 @@ emuLoop:
 			g.MMU.PrintLoggedReads()
 			g.CPU.LogUsedInstructions()
 			break emuLoop
-		case p := <-pressed:
-			g.Joypad.Press(p)
-		case r := <-released:
-			g.Joypad.Release(r)
 		case <-ticker.C:
 			// lock the gameboy
 			g.Lock()
@@ -274,9 +288,9 @@ emuLoop:
 				// append to avg render times
 				avgRenderTimes = append(avgRenderTimes, avgRenderTime)
 
-				totalAvgRenderTime := avgTime(avgRenderTimes)
+				//totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
+				//events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
 				g.frames = 0
 				start = time.Now()
 
@@ -434,8 +448,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	interrupt := interrupts.NewService()
 	pad := joypad.New(interrupt)
 	serialCtl := serial.NewController(interrupt, sched)
-	timerCtl := timer.NewController(interrupt, sched)
 	sound := apu.NewAPU(sched)
+	timerCtl := timer.NewController(interrupt, sched, sound)
 	memBus := mmu.NewMMU(cart, sound)
 	sound.AttachBus(memBus)
 	video := ppu.New(memBus, interrupt, sched)
@@ -457,7 +471,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Serial:     serialCtl,
 		model:      types.Unset, // default to DMGABC
 		speed:      1.0,
-		Close:      make(chan struct{}),
+		Close:      make(chan struct{}, 2),
+		Scheduler:  sched,
 	}
 
 	// apply options
@@ -516,8 +531,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 			ram.LoadRAM(g.save.Bytes())
 		}
 	}
-
-	sched.Start()
 
 	return g
 }

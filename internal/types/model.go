@@ -101,7 +101,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 	switch m {
 	case DMG0:
 		return map[HardwareAddress]interface{}{
-			DIV:  uint16(0x1899),
+			DIV:  uint16(0x182F),
 			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
 			NR12: uint8(0xF3),
@@ -129,7 +129,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 	case DMGABC:
 		return map[HardwareAddress]interface{}{
 			P1:   uint8(0xCF),
-			DIV:  uint16(0xABCC),
+			DIV:  uint16(0xABC9),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
@@ -157,7 +157,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 	case CGBABC:
 		return map[HardwareAddress]interface{}{
 			P1:   uint8(0xFF),
-			DIV:  uint16(0xABCC),
+			DIV:  uint16(0x2675),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
@@ -186,9 +186,26 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			BDIS: uint8(0x01),
 			IF:   uint8(0xE1),
 		}
+	case CGB0:
+		return map[HardwareAddress]interface{}{
+			DIV: uint16(0x2881),
+		}
+	case SGB:
+		return map[HardwareAddress]interface{}{
+			P1:  uint8(0xFF),
+			DIV: uint16(0xD85F),
+		}
+	case SGB2:
+		return map[HardwareAddress]interface{}{
+			DIV: uint16(0xD84F),
+		}
+	case AGB:
+		return map[HardwareAddress]interface{}{
+			DIV: uint16(0x267B),
+		}
 	default:
 		return map[HardwareAddress]interface{}{
-			DIV:  uint16(0xABCC),
+			DIV:  uint16(0xABC9),
 			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
 			NR12: uint8(0xF3),

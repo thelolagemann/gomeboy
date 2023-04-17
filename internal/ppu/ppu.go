@@ -577,6 +577,16 @@ func (p *PPU) endVRAMTransfer() {
 	p.vramWriteBlocked = false
 	p.renderScanline()
 
+	if p.isGBCCompat || p.isGBC {
+		if p.hdma.hdmaRemaining > 0 && !p.hdma.hdmaPaused {
+			p.hdma.newDMA(1)
+			p.hdma.hdmaRemaining--
+		} else {
+			p.hdma.hdmaRemaining = 0
+			p.hdma.hdmaComplete = true
+		}
+	}
+
 	// schedule end of HBlank
 	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.scrollX&0x7]))
 
@@ -773,6 +783,7 @@ func (p *PPU) endFrame() {
 
 func (p *PPU) LoadCompatibilityPalette() {
 	if p.bus.BootROM != nil {
+		panic("boot ROM is enabled, cannot load compatibility palette")
 		return // don't load compatibility palette if boot ROM is Enabled (as the boot ROM will setup the palette)
 	}
 
@@ -886,7 +897,6 @@ func (p *PPU) colorPaletteUnlocked() bool {
 }
 
 func (p *PPU) writeVRAM(address uint16, value uint8) {
-
 	if address <= 0x2000 {
 		// write to the current VRAM bank
 		p.vRAM[p.vRAMBank].Write(address, value)

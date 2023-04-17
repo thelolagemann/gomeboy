@@ -259,16 +259,17 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 
 	// initialize audio
 
-	s.RegisterEvent(scheduler.APUFrameSequencer, a.stepFrameSequencer)
+	s.RegisterEvent(scheduler.APUFrameSequencer, a.StepFrameSequencer)
 	s.RegisterEvent(scheduler.APUSample, a.sample)
 
-	a.stepFrameSequencer()
+	a.StepFrameSequencer()
 	a.sample()
+	s.ScheduleEvent(scheduler.APUChannel3, 0)
 	sdl.PauseAudioDevice(audioDeviceID, false)
 	return a
 }
 
-func (a *APU) stepFrameSequencer() {
+func (a *APU) StepFrameSequencer() {
 
 	a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 

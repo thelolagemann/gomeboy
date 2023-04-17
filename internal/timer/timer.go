@@ -1,6 +1,7 @@
 package timer
 
 import (
+	"github.com/thelolagemann/go-gameboy/internal/apu"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
@@ -26,7 +27,7 @@ type Controller struct {
 }
 
 // NewController returns a new timer controller.
-func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
+func NewController(irq *interrupts.Service, s *scheduler.Scheduler, a *apu.APU) *Controller {
 	c := &Controller{
 		irq: irq,
 		s:   s,
@@ -89,7 +90,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			return uint8(c.s.SysClock() >> 8)
 		},
 		types.WithSet(func(v interface{}) {
-
+			s.OverrideDiv(v.(uint16))
 		}))
 
 	types.RegisterHardware(

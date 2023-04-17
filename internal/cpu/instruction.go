@@ -38,6 +38,7 @@ func init() {
 			if c.mmu.Key()&0b0000_0001 == 1 {
 				c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
 				c.doubleSpeed = !c.doubleSpeed
+				c.s.ChangeSpeed(c.doubleSpeed)
 
 				if c.mmu.Key()&0b1000_0000 == 1 {
 					c.mmu.SetKey(0)
