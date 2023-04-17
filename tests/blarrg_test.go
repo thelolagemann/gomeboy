@@ -1,12 +1,15 @@
 package tests
 
 import (
+	"context"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -14,11 +17,38 @@ const (
 )
 
 var (
+	dmgSoundTests = []ROMTest{
+		newImageTest("dmg_sound/01-registers", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/02-len ctr", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/03-trigger", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/04-sweep", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/05-sweep details", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/06-overflow on trigger", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/07-len sweep period sync", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/08-len ctr during power", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/09-wave read while on", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/10-wave trigger while on", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/11-regs after power", withEmulatedSeconds(20)),
+		newImageTest("dmg_sound/12-wave write while on", withEmulatedSeconds(20)),
+	}
+	cgbSoundTests = []ROMTest{
+		newImageTest("cgb_sound/01-registers", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/02-len ctr", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/03-trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/04-sweep", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/05-sweep details", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/06-overflow on trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/07-len sweep period sync", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/08-len ctr during power", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/09-wave read while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/10-wave trigger while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/11-regs after power", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		newImageTest("cgb_sound/12-wave", asModel(types.CGBABC), withEmulatedSeconds(20)),
+	}
+
 	// blarggImageTests holds all the tests that are image based,
 	// as they don't output any data to the 0xFF01 register
 	blarggImageTests = []ROMTest{
-		newImageTest("cgb_sound", asModel(types.CGBABC), withEmulatedSeconds(40)),
-		newImageTest("dmg_sound", withEmulatedSeconds(40)),
 		newImageTest("halt_bug", withEmulatedSeconds(20)),
 		newImageTest("halt_bug", asModel(types.CGBABC), withEmulatedSeconds(20)),
 		newImageTest("instr_timing", withEmulatedSeconds(20)),
@@ -27,8 +57,86 @@ var (
 	}
 )
 
+// discoverROMTests discovers all of the image tests within a directory
+// by looking for all files with the .gb extension and matching with
+// an expected image in the same directory.
+func discoverROMTests(dir string) []ROMTest {
+	var tests []ROMTest
+
+	// read the directory for all .gb/.gbc files
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if filepath.Ext(path) != ".gb" && filepath.Ext(path) != ".gbc" {
+			return nil
+		}
+
+		// we've found a rom, so create a test for it
+		romTest := imageTest{
+			romPath: path,
+			model:   types.DMGABC, // default to DMG
+			name:    filepath.Base(path),
+		}
+
+		// now we need to find the image the image should be in the same
+		// directory as the rom and have the same name as the rom, but
+		// with a .png extension, and some variation of the model name
+		// appended to it e.g. 01-registers.gb -> 01-registers_dmg.png
+		// or 01-registers_cgb.png
+		if err := filepath.Walk(filepath.Dir(path), func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			if filepath.Ext(path) != ".png" {
+				return nil
+			}
+
+			// we've found a png, is it the one we're looking for?
+			// the png should have the same name as the rom, but with a .png extension
+			// and some variation of the model name appended to it
+
+			// we've found a png with the same name as the rom, now we need to find the model
+			// to run the test with
+
+			if strings.Contains(filepath.Base(path), "cgb") {
+				romTest.model = types.CGBABC
+			}
+			if strings.Contains(filepath.Base(path), "dmg") {
+				romTest.model = types.DMGABC
+			}
+
+			romTest.expectedImage = path
+
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		tests = append(tests, &romTest)
+
+		return nil
+	}); err != nil {
+		panic(err)
+	}
+
+	return tests
+}
+
 func Test_Blargg(t *testing.T) {
 	testROMs(t, blarggImageTests...)
+	testROMs(t, dmgSoundTests...)
+	testROMs(t, cgbSoundTests...)
 }
 
 type blarrgTest struct {
@@ -85,18 +193,18 @@ func testBlarrg(table *TestTable) {
 	tS := table.NewTestSuite("blarrg")
 
 	// cgb_sound
-	tS.NewTestCollection("cgb_sound").Add(blarggImageTests[0])
+	tS.NewTestCollection("cgb_sound").AddTests(cgbSoundTests...)
 
 	// cpu_instrs
 	newBlargTestCollectionFromDir(tS, "cpu_instrs")
 	// dmg_sound
-	tS.NewTestCollection("dmg_sound").Add(blarggImageTests[1])
+	tS.NewTestCollection("dmg_sound").AddTests(dmgSoundTests...)
 	// halt_bug
-	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests[2], blarggImageTests[3])
+	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests[0], blarggImageTests[1])
 	// instr_timing
-	tS.NewTestCollection("instr_timing").Add(blarggImageTests[4])
+	tS.NewTestCollection("instr_timing").Add(blarggImageTests[2])
 	// interrupt_time (DMG)
-	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests[5], blarggImageTests[6])
+	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests[3], blarggImageTests[4])
 	// mem_timing
 	newBlargTestCollectionFromDir(tS, "mem_timing")
 }
@@ -114,8 +222,15 @@ func testBlarggROM(t *testing.T, romFile string) bool {
 		}
 		output := ""
 		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.SerialDebugger(&output))
+		g := gameboy.NewGameBoy(b, gameboy.SerialDebugger(&output), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
+		// run for 10 seconds max (realtime)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		go func() {
+			<-ctx.Done()
+			g.CPU.DebugBreakpoint = true
+		}()
 		// run the gameboy
 		for {
 			g.Frame()

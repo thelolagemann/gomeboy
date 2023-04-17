@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"image"
 	"image/color"
 	"image/draw"
@@ -40,19 +41,29 @@ func asModel(model types.Model) imageTestOption {
 }
 
 func findImage(name string, model types.Model) string {
+	// strip dirs from name
+	name = filepath.Base(name)
 	// search for .png file in roms/name
 	dir := "roms/" + name
+	// are we handling the special case of blargg's dmg_sound and cgb_sound roms?
+	if strings.Contains(name, "dmg_sound") {
+		dir = "roms/blargg/dmg_sound/rom_singles"
+	}
+	if strings.Contains(name, "cgb_sound") {
+		dir = "roms/blargg/cgb_sound/rom_singles"
+	}
 
 	// does the directory exist?
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		// nope, search for roms/*
 		dir = "roms/"
 	}
+
 	imagePath := ""
 	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if !d.IsDir() && filepath.Ext(d.Name()) == ".png" {
 			// does the image name contain the rom name?
-			if !strings.Contains(d.Name(), name) {
+			if !strings.Contains(d.Name(), filepath.Base(name)) {
 				return nil
 			}
 			// check if file name contains model (last 3 chars before .png)
@@ -93,7 +104,13 @@ func findImage(name string, model types.Model) string {
 func findROM(name string) string {
 	// search for .gb/.gbc file in roms/name
 	dir := "roms/" + name
-
+	// are we handling the special case of blargg's dmg_sound and cgb_sound roms?
+	if strings.Contains(name, "dmg_sound") {
+		dir = "roms/blargg/dmg_sound/rom_singles"
+	}
+	if strings.Contains(name, "cgb_sound") {
+		dir = "roms/blargg/cgb_sound/rom_singles"
+	}
 	// does the directory exist?
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		// nope, search roms/* for rom
@@ -112,6 +129,11 @@ func findROM(name string) string {
 				if strings.Split(name, "/")[0] != d.Name()[:len(d.Name())-3] {
 					return nil
 				}
+			}
+
+			// does the rom name contain the rom name?
+			if !strings.Contains(d.Name(), filepath.Base(name)) {
+				return nil
 			}
 			romPath = path
 		}
@@ -139,7 +161,7 @@ func newImageTest(name string, opts ...imageTestOption) *imageTest {
 	for _, opt := range opts {
 		opt(t)
 	}
-	if t.model == types.CGBABC {
+	if t.model == types.CGBABC && !strings.Contains(t.name, "cgb") { // add cgb suffix to name if needed
 		t.name = t.name + "-cgb"
 	}
 
@@ -150,10 +172,12 @@ func newImageTest(name string, opts ...imageTestOption) *imageTest {
 	if _, err := os.Stat(t.expectedImage); os.IsNotExist(err) {
 		panic("expected image does not exist: " + t.expectedImage)
 	}
+
 	return t
 }
 
 func (t *imageTest) Run(tester *testing.T) {
+
 	t.passed = testROMWithExpectedImage(tester, t.romPath, t.expectedImage, t.model, t.emulatedSeconds, t.name)
 }
 
@@ -219,13 +243,11 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 		}
 
 		// create the emulator
-		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel))
+		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
 		// custom test loop
 		for frame := 0; frame < 60*emulatedSeconds; frame++ {
 			g.CPU.Frame()
-
-			g.PPU.ClearRefresh()
 		}
 
 		img := g.PPU.PreparedFrame

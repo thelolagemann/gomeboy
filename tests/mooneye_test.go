@@ -1,11 +1,14 @@
 package tests
 
 import (
+	"context"
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const (
@@ -17,6 +20,48 @@ type mooneyeTest struct {
 	name    string
 	passed  bool
 	model   types.Model
+}
+
+func assertModel(file os.DirEntry) types.Model {
+	model := types.DMGABC
+	if len(file.Name()) < 8 {
+		return model
+	}
+	// try to determine the model
+	// ends with -dmg0.gb
+	if file.Name()[len(file.Name())-8:] == "-dmg0.gb" {
+		model = types.DMG0
+	}
+	// ends with -mgb.gb
+	if file.Name()[len(file.Name())-7:] == "-mgb.gb" {
+		model = types.MGB
+	}
+	// ends with -sgb.gb
+	if file.Name()[len(file.Name())-7:] == "-sgb.gb" {
+		model = types.SGB
+	}
+	// ends with -sgb2.gb
+	if file.Name()[len(file.Name())-8:] == "-sgb2.gb" {
+		model = types.SGB2
+	}
+	// ends with -cgb0.gb
+	if file.Name()[len(file.Name())-8:] == "-cgb0.gb" {
+		model = types.CGB0
+	}
+	// ends with -cgb.gb
+	if file.Name()[len(file.Name())-7:] == "-cgb.gb" {
+		model = types.CGBABC
+	}
+	// ends with -C.gb
+	if file.Name()[len(file.Name())-5:] == "-C.gb" {
+		model = types.CGBABC
+	}
+	// ends with -A.gb
+	if file.Name()[len(file.Name())-5:] == "-A.gb" {
+		model = types.AGB
+	}
+
+	return model
 }
 
 func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
@@ -34,41 +79,10 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 			continue
 		}
 
-		// try to determine the model
-		model := types.DMGABC
-		// ends with -dmg0.gb
-		if file.Name()[len(file.Name())-8:] == "-dmg0.gb" {
-			model = types.DMG0
-		}
-		// ends with -mgb.gb
-		if file.Name()[len(file.Name())-7:] == "-mgb.gb" {
-			model = types.MGB
-		}
-		// ends with -sgb.gb
-		if file.Name()[len(file.Name())-7:] == "-sgb.gb" {
-			model = types.SGB
-		}
-		// ends with -sgb2.gb
-		if file.Name()[len(file.Name())-8:] == "-sgb2.gb" {
-			model = types.SGB2
-		}
-		// ends with -cgb0.gb
-		if file.Name()[len(file.Name())-8:] == "-cgb0.gb" {
-			model = types.CGB0
-		}
-		// ends with -cgb.gb
-		if file.Name()[len(file.Name())-7:] == "-cgb.gb" {
-			model = types.CGBABC
-		}
-		// ends with -A.gb
-		if file.Name()[len(file.Name())-5:] == "-A.gb" {
-			model = types.AGB
-		}
-
 		tc.Add(&mooneyeTest{
 			romPath: filepath.Join(romDir, file.Name()),
 			name:    file.Name(),
-			model:   model,
+			model:   assertModel(file),
 		})
 	}
 
@@ -123,7 +137,14 @@ func testMooneye(t *testing.T, roms *TestTable) {
 	newMooneyeTestCollectionFromCollection(emulatorOnly, "mbc5")
 
 	// madness
-	newMooneyeTestCollectionFromDir(tS, "madness")
+	madness := tS.NewTestCollection("madness")
+	madness.Add(&imageTest{
+		romPath:         filepath.Join(mooneyeROMPath, "madness", "mgb_oam_dma_halt_sprites.gb"),
+		expectedImage:   findImage("mgb_oam_dma_halt_sprites", types.MGB),
+		name:            "mgb_oam_dma_halt_sprites",
+		emulatedSeconds: 5,
+		model:           types.MGB,
+	})
 
 	// misc
 	misc := newMooneyeTestCollectionFromDir(tS, "misc")
@@ -166,6 +187,7 @@ func newMooneyeTestCollectionFromCollection(collection *TestCollection, s string
 		tc.Add(&mooneyeTest{
 			romPath: filepath.Join(romDir, file.Name()),
 			name:    file.Name(),
+			model:   assertModel(file),
 		})
 	}
 
@@ -187,8 +209,14 @@ func testMooneyeROM(t *testing.T, romFile string, model types.Model) bool {
 		}
 
 		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(model))
+		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(model), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		go func() {
+			<-ctx.Done()
+			g.CPU.DebugBreakpoint = true
+		}()
 		frame := 0
 		// run until breakpoint
 		for {
