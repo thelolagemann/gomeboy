@@ -114,7 +114,8 @@ func newChannel3(a *APU) *channel3 {
 		if v&types.Bit7 != 0 {
 			// handle blarrgs 10-wave trigger while on test
 			if c.isEnabled() && a.s.Until(scheduler.APUChannel3) == 2 && (a.model != types.CGBABC && a.model != types.CGB0) {
-				pos := c.waveRAMPosition >> 1
+				newPos := (c.waveRAMPosition + 1) & 31
+				pos := newPos >> 1
 
 				if pos < 4 {
 					c.waveRAM[0] = c.waveRAM[pos]
