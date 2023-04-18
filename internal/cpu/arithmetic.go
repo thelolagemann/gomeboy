@@ -1,5 +1,9 @@
 package cpu
 
+import (
+	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
+)
+
 // increment the given value and set the flags accordingly.
 //
 //	INC n
@@ -29,7 +33,18 @@ func (c *CPU) increment(value uint8) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) incrementNN(register *RegisterPair) {
+	// handle OAM bug
+	if register.Uint16() >= 0xFE00 && register.Uint16() <= 0xFEFF && c.ppu.Mode == lcd.OAM {
+		// TODO
+		// get the current cycle of mode 2 that the PPU is in
+		// the oam is split into 20 rows of 8 bytes each, with
+		// each row taking 1 M-cycle to read
+		// so we need to figure out which row we're in
+		// and then perform the oam corruption
+		c.ppu.WriteCorruptionOAM()
+	}
 	register.SetUint16(register.Uint16() + 1)
+
 	c.s.Tick(4)
 }
 
@@ -62,6 +77,15 @@ func (c *CPU) decrement(value uint8) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) decrementNN(register *RegisterPair) {
+	if register.Uint16() >= 0xFE00 && register.Uint16() <= 0xFEFF && c.ppu.Mode == lcd.OAM {
+		// TODO
+		// get the current cycle of mode 2 that the PPU is in
+		// the oam is split into 20 rows of 8 bytes each, with
+		// each row taking 1 M-cycle to read
+		// so we need to figure out which row we're in
+		// and then perform the oam corruption
+		c.ppu.WriteCorruptionOAM()
+	}
 	register.SetUint16(register.Uint16() - 1)
 	c.s.Tick(4)
 }
@@ -182,8 +206,14 @@ func (c *CPU) pushNN(h, l Register) {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) popNN(h, l *Register) {
+
 	*l = c.readByte(c.SP)
 	c.SP++
+
+	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.ppu.Mode == lcd.OAM {
+		c.ppu.WriteCorruptionOAM()
+	}
+
 	*h = c.readByte(c.SP)
 	c.SP++
 }
@@ -222,7 +252,13 @@ func init() {
 	DefineInstruction(0x2B, "DEC HL", func(c *CPU) { c.decrementNN(c.HL) })
 	DefineInstruction(0x2C, "INC L", func(c *CPU) { c.L = c.increment(c.L) })
 	DefineInstruction(0x2D, "DEC L", func(c *CPU) { c.L = c.decrement(c.L) })
-	DefineInstruction(0x33, "INC SP", func(c *CPU) { c.SP++; c.s.Tick(4) })
+	DefineInstruction(0x33, "INC SP", func(c *CPU) {
+		if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.ppu.Mode == lcd.OAM {
+			c.ppu.WriteCorruptionOAM()
+		}
+		c.SP++
+		c.s.Tick(4)
+	})
 	DefineInstruction(0x34, "INC (HL)", func(c *CPU) {
 		c.writeByte(c.HL.Uint16(), c.increment(c.readByte(c.HL.Uint16())))
 	})

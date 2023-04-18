@@ -3,6 +3,8 @@ package cpu
 import (
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/ppu"
+	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"sort"
@@ -48,6 +50,7 @@ type CPU struct {
 	hasFrame      bool
 	s             *scheduler.Scheduler
 	model         types.Model
+	ppu           *ppu.PPU
 }
 
 func (c *CPU) SetModel(model types.Model) {
@@ -56,7 +59,7 @@ func (c *CPU) SetModel(model types.Model) {
 
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler) *CPU {
+func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c := &CPU{
 		Registers:    Registers{},
 		mmu:          mmu,
@@ -66,6 +69,7 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler) *
 		isMBC1: mmu.IsMBC1,
 		isGBC:  mmu.IsGBC(),
 		s:      sched,
+		ppu:    ppu,
 	}
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
@@ -140,9 +144,15 @@ func (c *CPU) registerPointer(index uint8) *Register {
 	return c.registerSlice[index]
 }
 
+func (c *CPU) handleOAMCorruption(pos uint16) {
+	if pos >= 0xFE00 && pos < 0xFEFF && c.ppu.Mode == lcd.OAM {
+		c.ppu.WriteCorruptionOAM()
+	}
+}
+
 // Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
-	for !c.hasFrame && !c.DebugBreakpoint {
+	for !c.hasFrame {
 
 		// get the next instruction
 		instr := c.readOpcode()

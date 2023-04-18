@@ -91,6 +91,7 @@ func init() {
 	})
 	DefineInstruction(0x26, "LD H, d8", func(c *CPU) { c.loadRegister8(&c.H) })
 	DefineInstruction(0x2A, "LD A, (HL+)", func(c *CPU) {
+		c.handleOAMCorruption(c.HL.Uint16())
 		c.loadMemoryToRegister(&c.A, c.HL.Uint16())
 		c.HL.SetUint16(c.HL.Uint16() + 1)
 	})
@@ -109,6 +110,7 @@ func init() {
 		c.writeByte(c.HL.Uint16(), c.readOperand())
 	})
 	DefineInstruction(0x3A, "LD A, (HL-)", func(c *CPU) {
+		c.handleOAMCorruption(c.HL.Uint16())
 		c.loadMemoryToRegister(&c.A, c.HL.Uint16())
 		c.HL.SetUint16(c.HL.Uint16() - 1)
 	})

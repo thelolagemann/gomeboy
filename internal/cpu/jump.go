@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 )
 
 // pushStack pushes a 16 bit value onto the stack.
@@ -12,6 +13,9 @@ func (c *CPU) pushStack(high, low uint8) {
 }
 
 func (c *CPU) push(high, low uint8) {
+	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.ppu.Mode == lcd.OAM {
+		c.ppu.WriteCorruptionOAM()
+	}
 	c.SP--
 	c.writeByte(c.SP, high)
 	c.SP--
