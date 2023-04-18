@@ -29,7 +29,7 @@ type PPU struct {
 
 	// LCD
 	status uint8
-	mode   lcd.Mode
+	Mode   lcd.Mode
 
 	// Background
 	// It is made up of a 256x256 pixel map
@@ -109,6 +109,8 @@ type PPU struct {
 	vblankCounts                      uint8
 	cyclesPassed                      uint64
 	cyclesStart                       uint64
+	cgbPalettesBlocked                bool
+	lastOAMWrite                      uint8
 }
 
 func (p *PPU) init() {
@@ -127,7 +129,7 @@ func (p *PPU) init() {
 		// if the screen was turned off, clear the screen
 		if wasOn && !p.Enabled {
 			// the screen should not be turned off unless in vblank
-			if p.mode != lcd.VBlank {
+			if p.Mode != lcd.VBlank {
 				panic("PPU: Screen was turned off while not in VBlank")
 			}
 
@@ -142,13 +144,14 @@ func (p *PPU) init() {
 			// when the LCD is off, LY is 0, and STAT mode is 0
 			p.CurrentScanline = 0
 			p.currentLine = 0
-			p.mode = lcd.HBlank
+			p.Mode = lcd.HBlank
 
 			// unblock OAM and VRAM reads/writes
 			p.oamReadBlocked = false
 			p.vramReadBlocked = false
 			p.oamWriteBlocked = false
 			p.vramWriteBlocked = false
+			p.cgbPalettesBlocked = false
 		} else if !wasOn && p.Enabled {
 
 			// reset LYC to compare against and clear coincidence flag
@@ -178,11 +181,11 @@ func (p *PPU) init() {
 			p.statUpdate()
 		},
 		func() uint8 {
-			return p.status | p.mode
+			return p.status | p.Mode
 		},
 		types.WithSet(func(v interface{}) {
 			p.status = v.(uint8)&0b0111_1000 | types.Bit7
-			p.mode = v.(uint8) & 0b11
+			p.Mode = v.(uint8) & 0b11
 		}))
 	types.RegisterHardware(
 		types.SCY,
@@ -346,10 +349,8 @@ func (p *PPU) init() {
 		types.BCPS,
 		func(v uint8) {
 			if p.isGBCCompat {
-				if p.colorPaletteUnlocked() {
-					p.ColourPalette.SetIndex(v)
-					p.dirtyBackground(bcps)
-				}
+				p.ColourPalette.SetIndex(v)
+				p.dirtyBackground(bcps)
 			}
 		},
 		func() uint8 {
@@ -370,13 +371,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.BCPD,
 		func(v uint8) {
-			if p.isGBCCompat && p.colorPaletteUnlocked() {
+			if p.isGBCCompat {
 				p.ColourPalette.Write(v)
 				p.dirtyBackground(bcpd)
 			}
 		},
 		func() uint8 {
-			if p.isGBC && p.colorPaletteUnlocked() {
+			if p.isGBC && !p.cgbPalettesBlocked {
 				return p.ColourPalette.Read()
 			}
 			return 0xFF
@@ -403,13 +404,13 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.OCPD,
 		func(v uint8) {
-			if p.isGBCCompat && p.colorPaletteUnlocked() {
+			if p.isGBCCompat {
 				p.ColourSpritePalette.Write(v)
 				p.dirtyBackground(ocpd)
 			}
 		},
 		func() uint8 {
-			if p.isGBC && p.colorPaletteUnlocked() {
+			if p.isGBC {
 				return p.ColourSpritePalette.Read()
 			}
 			return 0xFF
@@ -448,6 +449,8 @@ func (p *PPU) init() {
 func (p *PPU) StartRendering() {
 	p.isGBC = p.bus.IsGBC()
 	p.isGBCCompat = p.bus.IsGBCCompat()
+
+	p.Mode = 0
 }
 
 func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
@@ -462,10 +465,10 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 			ram.NewRAM(8192),
 			ram.NewRAM(8192),
 		},
-		DMA: NewDMA(mmu, oam, s),
-		s:   s,
+		s: s,
 	}
-	p.hdma = NewHDMA(mmu, p.writeVRAM, s)
+	p.DMA = NewDMA(mmu, oam, s, p)
+	p.hdma = NewHDMA(mmu, p, s)
 
 	p.init()
 
@@ -526,8 +529,9 @@ func (p *PPU) continueGlitchedFirstLine() {
 	p.vramReadBlocked = true
 	p.oamWriteBlocked = true
 	p.vramWriteBlocked = true
+	p.cgbPalettesBlocked = true
 
-	p.mode = lcd.VRAM
+	p.Mode = lcd.VRAM
 
 	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 172)
 }
@@ -567,7 +571,7 @@ func (p *PPU) endHBlank() {
 }
 
 func (p *PPU) endVRAMTransfer() {
-	p.mode = lcd.HBlank
+	p.Mode = lcd.HBlank
 	p.modeToInterrupt = lcd.HBlank
 	p.statUpdate()
 
@@ -575,6 +579,7 @@ func (p *PPU) endVRAMTransfer() {
 	p.vramReadBlocked = false
 	p.oamWriteBlocked = false
 	p.vramWriteBlocked = false
+	p.cgbPalettesBlocked = false
 	p.renderScanline()
 
 	if p.isGBCCompat || p.isGBC {
@@ -595,7 +600,7 @@ func (p *PPU) endVRAMTransfer() {
 
 // startOAM is performed on the first cycle of lines 0 to 143, and performs
 // the OAM search for the current line. The OAM search lasts until cycle 88,
-// when mode 3 (VRAM) is entered.
+// when Mode 3 (VRAM) is entered.
 //
 // Lines 0 - 144:
 //
@@ -603,7 +608,7 @@ func (p *PPU) endVRAMTransfer() {
 func (p *PPU) startOAM() {
 	p.CurrentScanline = p.currentLine // update LY
 
-	p.mode = lcd.HBlank
+	p.Mode = lcd.HBlank
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
 	if p.currentLine != 0 {
 		p.modeToInterrupt = 2
@@ -630,7 +635,7 @@ func (p *PPU) startOAM() {
 // continueOAM is performed 4 cycles after startOAM, and performs the
 // rest of the OAM search.
 func (p *PPU) continueOAM() {
-	p.mode = lcd.OAM
+	p.Mode = lcd.OAM
 	p.lyForComparison = p.currentLine
 	p.modeToInterrupt = lcd.OAM
 	p.statUpdate()
@@ -652,7 +657,7 @@ func (p *PPU) continueOAM() {
 // endOAM is performed 80 cycles after startOAM, and performs the
 // rest of the OAM search.
 func (p *PPU) endOAM() {
-	p.mode = lcd.VRAM
+	p.Mode = lcd.VRAM
 	p.modeToInterrupt = lcd.VRAM
 	p.statUpdate()
 
@@ -660,12 +665,61 @@ func (p *PPU) endOAM() {
 	p.vramReadBlocked = true
 	p.oamWriteBlocked = true
 	p.vramWriteBlocked = true
+	p.cgbPalettesBlocked = true
 
 	// schedule end of VRAM search
 	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.scrollX&0x7])-4)
 	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, uint64(scrollXvRAM[p.scrollX&0x7]))
 
 	p.printStage("End OAM")
+}
+
+func (p *PPU) WriteCorruptionOAM() {
+	// determine which row of the OAM we are on
+	// by getting the cycles we have until the end of OAM search
+	cyclesUntilEndOAM := 80 - p.s.Until(scheduler.PPUEndOAMSearch)
+
+	// each row is 4 ticks long and made up of 8 bytes (4 words)
+	row := cyclesUntilEndOAM / 4
+
+	if row < 2 { // the first 2 rows are not affected by the corruption
+		return
+	}
+
+	// we need to get the 3 words that make up the corruption
+	// the first word is the first word of the current row
+	// the second word is the first word in the preceding row
+	// the third word is the 3rd word in the preceding row
+	// these 3 words then get corrupted by the bitwise glitch
+	// and overwrite the first word of the current row
+	// the last three words of the current row are then overwritten
+	// with the preceding row's last three words
+	a := uint16(p.oam.data[row*8]) | uint16(p.oam.data[row*8+1])<<8
+	b := uint16(p.oam.data[row*8-8]) | uint16(p.oam.data[row*8-7])<<8
+	c := uint16(p.oam.data[row*8-6]) | uint16(p.oam.data[row*8-5])<<8
+
+	// perform the bitwise glitch
+	newValue := bitwiseGlitch(a, b, c)
+
+	// replace the first word of the current row with the new value
+	p.oam.data[row*8] = byte(newValue)
+	p.oam.data[row*8+1] = byte(newValue >> 8)
+
+	// replace the last 3 words of the row from the preceding row
+	p.oam.data[row*8-6] = p.oam.data[row*8-2]
+	p.oam.data[row*8-5] = p.oam.data[row*8-1]
+	p.oam.data[row*8-4] = p.oam.data[row*8]
+	p.oam.data[row*8-3] = p.oam.data[row*8+1]
+	p.oam.data[row*8-2] = p.oam.data[row*8+2]
+	p.oam.data[row*8-1] = p.oam.data[row*8+3]
+
+	fmt.Printf("OAM corruption: row %d %d cycles until end of OAM search \n", row, cyclesUntilEndOAM)
+
+	//panic(fmt.Sprintf("OAM corruption: row %d %d cycles until end of OAM search %s", row, cyclesUntilEndOAM, p.s.String()))
+}
+
+func bitwiseGlitch(a, b, c uint16) uint16 {
+	return ((a ^ c) & (b ^ c)) ^ c
 }
 
 func (p *PPU) printStage(str string) {
@@ -675,7 +729,7 @@ func (p *PPU) printStage(str string) {
 
 // startVBlank is performed on the first cycle of each line 144 to 152, and
 // performs the VBlank period for the current line. The VBlank period lasts
-// until for 456 * 10 cycles, when the PPU enters mode 2 (OAM search) on
+// until for 456 * 10 cycles, when the PPU enters Mode 2 (OAM search) on
 // line 153 (PPU be like line 0, no line 153. you know, line 0, not the line 153 it's the next line :)).
 func (p *PPU) startVBlank() {
 	// should we start line 153?
@@ -715,7 +769,7 @@ func (p *PPU) continueVBlank() {
 	p.lyForComparison = p.currentLine
 	p.statUpdate()
 	if p.currentLine == 144 {
-		p.mode = lcd.VBlank // entering vblank
+		p.Mode = lcd.VBlank // entering vblank
 
 		// trigger vblank interrupt
 		if p.isGBCCompat {
@@ -831,7 +885,7 @@ func (p *PPU) Read(address uint16) uint8 {
 }
 
 func (p *PPU) vramUnlocked() bool {
-	return p.mode != lcd.VRAM
+	return p.Mode != lcd.VRAM
 }
 
 func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA) {
@@ -893,7 +947,7 @@ func (p *PPU) DumpTiledata() image.Image {
 }
 
 func (p *PPU) colorPaletteUnlocked() bool {
-	return p.mode != lcd.VRAM
+	return p.Mode != lcd.VRAM
 }
 
 func (p *PPU) writeVRAM(address uint16, value uint8) {
@@ -940,7 +994,7 @@ func (p *PPU) Write(address uint16, value uint8) {
 	// VRAM (0x8000 - 0x9FFF)
 	if address >= 0x8000 && address <= 0x9FFF {
 		// is the VRAM currently locked?
-		if !p.vramUnlocked() {
+		if p.vramWriteBlocked {
 			return
 		}
 		p.writeVRAM(address-0x8000, value)
@@ -1227,7 +1281,7 @@ func (p *PPU) renderBackgroundScanline() {
 	// get the first lot of tile data
 	tileData := p.TileData[tileEntry.attributes.vRAMBank][tileID]
 	if tileEntry.attributes.yFlip {
-		yPixelPos = 7 - yPixelPos
+		yPixelPos = 7 - yPos
 	}
 	yPixelPos %= 8
 

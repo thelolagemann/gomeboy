@@ -2,6 +2,7 @@ package ppu
 
 import (
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
+	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 )
@@ -9,26 +10,25 @@ import (
 type HDMA struct {
 	length uint8
 
-	hdma5 uint8
 	// bits 16 - 4 respected only for source
 	source uint16
 	// bits 12 - 4 respected only for destination
 	destination uint16
 	complete    bool
 
-	s    *scheduler.Scheduler
-	vRAM func(uint16, uint8)
-	bus  *mmu.MMU
+	s   *scheduler.Scheduler
+	ppu *PPU
+	bus *mmu.MMU
 
 	hdmaPaused, hdmaComplete, gdmaComplete bool
 	hdmaRemaining                          uint8
 }
 
-func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HDMA {
+func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 	h := &HDMA{
-		vRAM: vRAM,
-		s:    s,
-		bus:  bus,
+		ppu: ppu,
+		s:   s,
+		bus: bus,
 	}
 
 	types.RegisterHardware(types.HDMA1, func(v uint8) {
@@ -51,26 +51,49 @@ func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HD
 		h.destination |= uint16(v & 0xF0)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA5, func(v uint8) {
-		// set the new DMA length
-		h.length = (v & 0x7F) + 1 // 0x7F = 127 (0x80 = 128)
+		// update the length
+		h.length = (v & 0x7F) + 1
 
-		// are we starting a HDMA transfer?
+		// if bit 7 is set, we are starting a new HDMA transfer
 		if v&types.Bit7 != 0 {
-			h.hdmaRemaining = h.length
+			h.hdmaRemaining = h.length // set the remaining length
+
+			// reset the HDMA flags
 			h.hdmaComplete = false
 			h.hdmaPaused = false
 			h.gdmaComplete = false
+
+			// if the LCD is disabled, one HDMA transfer is performed immediately
+			// and the rest are performed during the HBlank period
+			if !h.ppu.Enabled && h.hdmaRemaining > 0 {
+				h.newDMA(1)
+				h.hdmaRemaining--
+			}
+
+			// if the PPU is already in the HBlank period, then the HDMA would not be
+			// performed by the scheduler until the next HBlank period, so we perform
+			// the transfer immediately here and decrement the remaining length
+			if h.ppu.Enabled && h.ppu.Mode == lcd.HBlank && h.hdmaRemaining > 0 {
+				h.newDMA(1)
+				h.hdmaRemaining--
+			}
 		} else {
+			// if bit 7 is not set, we are starting a new GDMA transfer
 			if h.hdmaRemaining > 0 {
 				// if we're in the middle of a HDMA transfer, pause it
 				h.hdmaPaused = true
 				h.gdmaComplete = false
+
+				h.hdmaRemaining = h.length
+
 			} else {
-				// if we're not in the middle of a HDMA transfer, pause the GDMA
+				// if we're not in the middle of a HDMA transfer, perform a GDMA transfer
 				h.newDMA(h.length)
 				h.gdmaComplete = true
 			}
+
 		}
+
 	}, func() uint8 {
 		if !h.bus.IsGBC() {
 			return 0xFF
@@ -78,16 +101,12 @@ func NewHDMA(bus *mmu.MMU, vRAM func(uint16, uint8), s *scheduler.Scheduler) *HD
 		if h.hdmaComplete || h.gdmaComplete {
 			return 0xFF
 		} else {
-			return h.hdmaRemaining - 1
+			v := uint8(0)
+			if h.hdmaPaused {
+				v |= types.Bit7
+			}
+			return v | (h.hdmaRemaining-1)&0x7F
 		}
-		// TODO verify what happens when reading HDMA5
-		// other implementations appear to return the
-		// value of the HDMA5 register, however this
-		// causes several games to perform corrupt
-		// HDMA transfers, so more research is needed.
-		// that being said, the HDMA/GDMA implementation
-		// here is still incomplete, so it's possible
-		// that other issues are causing the corruption
 	})
 
 	return h
@@ -104,7 +123,7 @@ func (h *HDMA) newDMA(length uint8) {
 			}
 
 			// perform the transfer
-			h.vRAM(h.destination&0x1FFF, h.bus.Read(h.source))
+			h.ppu.writeVRAM(h.destination&0x1FFF, h.bus.Read(h.source))
 
 			// increment the source and destination
 			h.source++
@@ -115,23 +134,4 @@ func (h *HDMA) newDMA(length uint8) {
 			h.destination &= 0xFFFF
 		}
 	}
-}
-
-// doHDMA is called during the HBlank period to perform the HDMA transfer
-func (h *HDMA) doHDMA() {
-	// if the HDMA is disabled, return
-	if h.hdma5&types.Bit7 != 0 {
-		return
-	}
-
-	// perform the transfer
-	for i := uint8(0); i < 16; i++ {
-		h.vRAM(h.destination&0x1FFF, h.bus.Read(h.source))
-
-		h.source++
-		h.destination++
-	}
-
-	// decrement the length
-	h.hdma5--
 }
