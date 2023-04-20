@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/boot"
 	"github.com/thelolagemann/go-gameboy/internal/cartridge"
+	"github.com/thelolagemann/go-gameboy/internal/cheats"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"math/rand"
@@ -68,6 +69,8 @@ type MMU struct {
 	wRAMBank    uint8
 	// undocumented registers
 	ff72, ff73, ff74, ff75 uint8
+	GameGenie              *cheats.GameGenie
+	GameShark              *cheats.GameShark
 }
 
 func (m *MMU) init() {
@@ -256,7 +259,20 @@ func (m *MMU) Map() {
 	// setup raw memory
 	addresses := []types.Address{
 		{Read: m.readCart, Write: m.Cart.Write},
-		{Read: m.Cart.Read, Write: m.Cart.Write},
+		{Read: func(address uint16) uint8 {
+			// handle the cheat codes
+			if m.GameGenie != nil {
+				if m.GameGenie.Cheat(address) {
+					// read the cart first to get the original value
+					// then apply the cheat code if the original value matches
+					v := m.readCart(address)
+
+					return m.GameGenie.Read(address, v)
+				}
+			}
+
+			return m.readCart(address)
+		}, Write: m.Cart.Write},
 		{Read: nil, Write: m.Cart.Write},
 	}
 
@@ -401,6 +417,14 @@ func (m *MMU) readCart(address uint16) uint8 {
 		}
 	}
 
+	// handle the cheat codes
+	if m.GameGenie != nil {
+		if m.GameGenie.Cheat(address) {
+			v := m.Cart.Read(address)
+			return m.GameGenie.Read(address, v)
+		}
+	}
+
 	return m.Cart.Read(address)
 }
 
@@ -412,7 +436,7 @@ func (m *MMU) Read(address uint16) uint8 {
 	}
 	// m.loggedReads[address]++
 	switch {
-	case address < 0x4000:
+	case address < 0x8000:
 		return m.readCart(address)
 	case address >= 0xC000 && address < 0xD000:
 		return m.wRAM[address-0xC000]

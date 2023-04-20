@@ -152,7 +152,8 @@ func (c *CPU) handleOAMCorruption(pos uint16) {
 
 // Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
-	for !c.hasFrame {
+
+	for !c.hasFrame && !c.DebugBreakpoint {
 
 		// get the next instruction
 		instr := c.readOpcode()
@@ -167,6 +168,7 @@ func (c *CPU) Frame() {
 
 	}
 	c.hasFrame = false
+
 }
 
 // readOpcode reads the next instruction from memory.
@@ -263,6 +265,18 @@ func (c *CPU) executeInterrupt() {
 		c.writeByte(c.SP, uint8(c.PC>>8))
 
 		vector := c.irq.Vector()
+
+		// gameshark is applied on vblank interrupt
+		if vector == 0x40 {
+			// handle game shark TODO (emulate CPU time stolen by GameShark)
+			if c.mmu.GameShark != nil {
+				for _, code := range c.mmu.GameShark.Codes {
+					if code.Enabled {
+						c.mmu.Write(code.Address, code.NewData)
+					}
+				}
+			}
+		}
 
 		// save the low byte of the PC
 		c.SP--
