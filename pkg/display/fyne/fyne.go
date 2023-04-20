@@ -34,6 +34,15 @@ var keyMap = map[fyne.KeyName]joypad.Button{
 }
 
 var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
+	fyne.Key1: func(gb *gameboy.GameBoy) {
+		gb.PPU.Debug.BackgroundDisabled = !gb.PPU.Debug.BackgroundDisabled
+	},
+	fyne.Key2: func(gb *gameboy.GameBoy) {
+		gb.PPU.Debug.WindowDisabled = !gb.PPU.Debug.WindowDisabled
+	},
+	fyne.Key3: func(gb *gameboy.GameBoy) {
+		gb.PPU.Debug.SpritesDisabled = !gb.PPU.Debug.SpritesDisabled
+	},
 	fyne.KeyF: func(gb *gameboy.GameBoy) {
 		img := gb.PPU.DumpTiledata()
 
@@ -160,7 +169,7 @@ func (a *Application) Run() error {
 	mainWindow1 := a.app.NewWindow("GomeBoy")
 	mainWindow1.SetMaster()
 
-	mainWindow1.Resize(fyne.NewSize(160*4, 144*4))
+	mainWindow1.Resize(fyne.NewSize(160*2, 144*2))
 	mainWindow1.SetPadded(false)
 
 	// create the gameboy2 window (for multiplayer) if it exists
@@ -250,6 +259,7 @@ func (a *Application) Run() error {
 	if a.gb1.IsRunning() {
 		a.gb1.Lock()
 		// close the current gameboy
+		a.gb1.Close <- struct{}{}
 		a.gb1.Close <- struct{}{}
 		a.gb1.Unlock()
 	}
