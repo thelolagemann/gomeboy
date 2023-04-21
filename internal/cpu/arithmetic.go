@@ -33,16 +33,7 @@ func (c *CPU) increment(value uint8) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) incrementNN(register *RegisterPair) {
-	// handle OAM bug
-	if register.Uint16() >= 0xFE00 && register.Uint16() <= 0xFEFF && c.ppu.Mode == lcd.OAM {
-		// TODO
-		// get the current cycle of mode 2 that the PPU is in
-		// the oam is split into 20 rows of 8 bytes each, with
-		// each row taking 1 M-cycle to read
-		// so we need to figure out which row we're in
-		// and then perform the oam corruption
-		c.ppu.WriteCorruptionOAM()
-	}
+	c.handleOAMCorruption(register.Uint16())
 	register.SetUint16(register.Uint16() + 1)
 
 	c.s.Tick(4)

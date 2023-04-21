@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
@@ -145,8 +146,23 @@ func (c *CPU) registerPointer(index uint8) *Register {
 }
 
 func (c *CPU) handleOAMCorruption(pos uint16) {
-	if pos >= 0xFE00 && pos < 0xFEFF && c.ppu.Mode == lcd.OAM {
-		c.ppu.WriteCorruptionOAM()
+	if pos >= 0xFE00 && pos < 0xFEFF {
+		// we're writing to the OAM
+		val := c.s.Until(scheduler.PPUVRAMTransfer)
+		if val != 0 {
+			fmt.Println("OAM CORRUPTION", val, c.s.String())
+		}
+		if (c.ppu.Mode == lcd.OAM ||
+			c.s.Until(scheduler.PPUContinueOAMSearch) == 4) &&
+			c.s.Until(scheduler.PPUEndOAMSearch) != 8 {
+			// TODO
+			// get the current cycle of mode 2 that the PPU is in
+			// the oam is split into 20 rows of 8 bytes each, with
+			// each row taking 1 M-cycle to read
+			// so we need to figure out which row we're in
+			// and then perform the oam corruption
+			c.ppu.WriteCorruptionOAM()
+		}
 	}
 }
 
