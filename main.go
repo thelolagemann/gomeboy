@@ -32,7 +32,7 @@ func main() {
 	state := flag.String("state", "", "The state file to load") // TODO determine state file from ROM file
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	debugViews := flag.Bool("debug", false, "Show debug views")
-	activeDebugViews := flag.String("active-debug", "mmu,render", "Comma separated list of debug views to show")
+	activeDebugViews := flag.String("active-debug", "vram", "Comma separated list of debug views to show")
 	dualView := flag.Bool("dual", false, "Show dual view")
 	printer := flag.Bool("printer", false, "enable printer")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
@@ -81,6 +81,8 @@ func main() {
 		opts = append(opts, gameboy.AsModel(types.DMGABC))
 	case "dmg0":
 		opts = append(opts, gameboy.AsModel(types.DMG0))
+	case "mgb":
+		opts = append(opts, gameboy.AsModel(types.MGB))
 	case "cgb":
 		opts = append(opts, gameboy.AsModel(types.CGBABC))
 	case "cgb0":
@@ -95,11 +97,11 @@ func main() {
 	// opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	opts = append(opts, gameboy.Speed(*speed))
 	// create a new gameboy
-	opts = append(opts, gameboy.WithLogger(logger))
+	opts = append(opts, gameboy.WithLogger(log.NewNullLogger()))
 	opts = append(opts, gameboy.Debug())
 	gb := gameboy.NewGameBoy(rom, opts...)
 
-	a := fyne.NewApplication(app.NewWithID("com.github.thelolagemann.gomeboy"), gb)
+	a := fyne.NewApplication(app.NewWithID("com.thelolagemann.gomeboy"), gb)
 
 	if *debugViews {
 		for _, view := range strings.Split(*activeDebugViews, ",") {
@@ -111,7 +113,7 @@ func main() {
 			case "mmu":
 				a.NewWindow("MMU", views.NewMMU(gb.MMU))
 			case "vram":
-				a.NewWindow("VRAM", &views.VRAM{PPU: gb.PPU})
+				a.NewWindow("Tiles", &views.Tiles{PPU: gb.PPU})
 			case "logger":
 				l := &views.Log{}
 				gb.Logger = logger
@@ -125,7 +127,7 @@ func main() {
 	}
 
 	if *printer {
-		a.NewWindow("Printer", &views.Printer{Printer: gb.Printer})
+		a.NewWindow("Printer", &views.Printer{Printer: gb.Printer, DrawMode: 1})
 	}
 
 	logger.Infof("Loaded rom %s", *romFile)
