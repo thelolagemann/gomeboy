@@ -74,7 +74,12 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler, a *apu.APU) 
 			// after 8192 cycles
 			if internal&0b1_0000 != 0 {
 				// TODO schedule APU frame sequencer
+				a.StepFrameSequencer()
 			}
+
+			// reschedule APU frame sequencer
+			s.DescheduleEvent(scheduler.APUFrameSequencer)
+			s.ScheduleEvent(scheduler.APUFrameSequencer, 8192)
 
 			// the internal timer uses the same clock as the DIV register
 			// so a write to DIV will also reset the internal timer, which

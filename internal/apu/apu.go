@@ -26,6 +26,12 @@ var (
 	audioDeviceID sdl.AudioDeviceID
 )
 
+type Sample struct {
+	Channel1, Channel2, Channel3, Channel4 uint8
+}
+
+type Samples []Sample
+
 func init() {
 	// initialize SDL audio
 	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
@@ -54,6 +60,7 @@ func init() {
 // can be used to play white noise.
 type APU struct {
 	playing, enabled bool
+	Samples          Samples
 
 	audioData []byte
 	chan1     *channel1
@@ -81,8 +88,9 @@ type APU struct {
 	bufferPos int
 	buffer    []byte
 
-	lastUpdate uint64
-	s          *scheduler.Scheduler
+	lastUpdate            uint64
+	s                     *scheduler.Scheduler
+	currentSamplePosition int
 }
 
 func (a *APU) highPass(channel int, in uint8, dacEnabled bool) uint8 {
@@ -248,6 +256,7 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 		frameSequencerStep: 0,
 		buffer:             make([]byte, bufferSize),
 		s:                  s,
+		Samples:            make(Samples, emulatedSampleRate/64),
 	}
 	a.init()
 
@@ -259,10 +268,10 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 
 	// initialize audio
 
-	s.RegisterEvent(scheduler.APUFrameSequencer, a.StepFrameSequencer)
+	s.RegisterEvent(scheduler.APUFrameSequencer, a.scheduledFrameSequencer)
 	s.RegisterEvent(scheduler.APUSample, a.sample)
 
-	a.StepFrameSequencer()
+	s.ScheduleEvent(scheduler.APUFrameSequencer, 0)
 	a.sample()
 	s.ScheduleEvent(scheduler.APUChannel3, 0)
 	sdl.PauseAudioDevice(audioDeviceID, false)
@@ -270,7 +279,6 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 }
 
 func (a *APU) StepFrameSequencer() {
-
 	a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 
 	switch a.frameSequencerStep {
@@ -303,6 +311,10 @@ func (a *APU) StepFrameSequencer() {
 	}
 
 	a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
+}
+
+func (a *APU) scheduledFrameSequencer() {
+	a.StepFrameSequencer()
 
 	// schedule next frame sequencer step in 8192 cycles
 	a.s.ScheduleEvent(scheduler.APUFrameSequencer, frameSequencerPeriod)
@@ -313,6 +325,11 @@ func (a *APU) sample() {
 	channel2Amplitude := a.chan2.getAmplitude()
 	channel3Amplitude := a.chan3.getAmplitude()
 	channel4Amplitude := a.chan4.getAmplitude()
+
+	// copy to samples debug
+	if a.currentSamplePosition%64 == 0 {
+		a.Samples[a.currentSamplePosition/64].Channel1 = channel1Amplitude
+	}
 
 	// apply high-pass filter
 	channel1Amplitude = a.highPass(0, channel1Amplitude, a.chan1.channel.dacEnabled)
@@ -348,6 +365,7 @@ func (a *APU) sample() {
 		}
 		a.bufferPos = 0
 	}
+	a.currentSamplePosition = (a.currentSamplePosition + 1) % len(a.Samples)
 
 	// schedule next sample in samplePeriod cycles
 	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)
