@@ -1,7 +1,6 @@
 package cpu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/interrupts"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu"
@@ -146,12 +145,10 @@ func (c *CPU) registerPointer(index uint8) *Register {
 }
 
 func (c *CPU) handleOAMCorruption(pos uint16) {
+	if c.model == types.CGBABC || c.model == types.CGB0 {
+		return // no corruption on CGB
+	}
 	if pos >= 0xFE00 && pos < 0xFEFF {
-		// we're writing to the OAM
-		val := c.s.Until(scheduler.PPUVRAMTransfer)
-		if val != 0 {
-			fmt.Println("OAM CORRUPTION", val, c.s.String())
-		}
 		if (c.ppu.Mode == lcd.OAM ||
 			c.s.Until(scheduler.PPUContinueOAMSearch) == 4) &&
 			c.s.Until(scheduler.PPUEndOAMSearch) != 8 {
