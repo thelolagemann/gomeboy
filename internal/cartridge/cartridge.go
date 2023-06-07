@@ -70,7 +70,7 @@ func NewCartridge(rom []byte) *Cartridge {
 // NewEmptyCartridge returns an empty cartridge.
 func NewEmptyCartridge() *Cartridge {
 	return &Cartridge{
-		MemoryBankController: NewROMCartridge([]byte{}),
+		MemoryBankController: NewROMCartridge(make([]byte, 65536)), // default to blank 64KB ROM
 		header:               &Header{},
 	}
 }
