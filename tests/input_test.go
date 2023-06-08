@@ -5,11 +5,13 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"golang.org/x/image/draw"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
+	"sort"
 	"testing"
 )
 
@@ -38,7 +40,7 @@ type testInput struct {
 	// the button to press
 	button joypad.Button
 	// the frame to press the button
-	atEmulatedFrame int
+	atEmulatedCycle uint64
 }
 
 func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, asModel types.Model, name string, inputs ...testInput) bool {
@@ -51,7 +53,7 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		}
 
 		// create a new gameboy
-		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(5))
+		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(5), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)
@@ -64,22 +66,38 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 			gb.Start(frames, events, pressed, released)
 		}()
 
-		// custom test loop (emulate for 10 seconds TODO: make this configurable)
-		for frame := 0; frame < 60*10; frame++ {
+		go func() {
+			// sort the inputs by cycle (so we can press them in order)
+			sort.Slice(inputs, func(i, j int) bool {
+				return inputs[i].atEmulatedCycle < inputs[j].atEmulatedCycle
+			})
+			// check if we should press a button
+			for i, input := range inputs {
+				if i > 0 {
+					// wait for the cycle to release the previous button
+					for gb.Scheduler.Cycle() < input.atEmulatedCycle-70224 { //
+					}
+					// release the previous button
+					if i > 0 {
+						released <- inputs[i-1].button
+					}
+				}
+				// wait for the cycle
+				for gb.Scheduler.Cycle() < input.atEmulatedCycle {
+				}
+				// press the button
+				pressed <- input.button
+			}
+		}()
+
+		// custom test loop (emulate for 6 seconds TODO: make this configurable)
+		for frame := 0; frame < 60*20; frame++ {
 			// get the next frame
 			<-frames
 
 			// empty the event channel
 			<-events
 
-			// check if we should press a button
-			for _, input := range inputs {
-				if input.atEmulatedFrame == frame {
-					pressed <- input.button
-				} else {
-					released <- input.button
-				}
-			}
 		}
 
 		// create the actual image

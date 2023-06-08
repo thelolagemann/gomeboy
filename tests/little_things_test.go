@@ -6,19 +6,12 @@ import (
 	"testing"
 )
 
-var (
-	tellingLysInputSequence = []testInput{
-		{button: joypad.ButtonA, atEmulatedFrame: 60 * 0.5},
-		{button: joypad.ButtonB, atEmulatedFrame: 60 * 1},
-		{button: joypad.ButtonStart, atEmulatedFrame: 60 * 1.5},
-		{button: joypad.ButtonSelect, atEmulatedFrame: 60 * 2},
-		{button: joypad.ButtonRight, atEmulatedFrame: 60 * 2.5},
-		{button: joypad.ButtonLeft, atEmulatedFrame: 60 * 3},
-		{button: joypad.ButtonUp, atEmulatedFrame: 60 * 3.5},
-		{button: joypad.ButtonDown, atEmulatedFrame: 60 * 4},
-	}
-	littleThingsTests = []ROMTest{
+const perCycle = 70224 * 30 // 70224 cycles per frame, 60 frames per second
+
+func littleThings() []ROMTest {
+	return []ROMTest{
 		newImageTest("firstwhite", asModel(types.DMGABC)),
+		newImageTest("firstwhite", asModel(types.CGBABC)),
 		&inputTest{
 			name:              "tellinglys",
 			romPath:           "roms/little-things-gb/tellinglys.gb",
@@ -34,10 +27,23 @@ var (
 			inputs:            tellingLysInputSequence,
 		},
 	}
+}
+
+var (
+	tellingLysInputSequence = []testInput{
+		{button: joypad.ButtonA, atEmulatedCycle: perCycle * 1},
+		{button: joypad.ButtonB, atEmulatedCycle: perCycle * 1.5},
+		{button: joypad.ButtonSelect, atEmulatedCycle: perCycle * 2},
+		{button: joypad.ButtonStart, atEmulatedCycle: perCycle * 2.5},
+		{button: joypad.ButtonRight, atEmulatedCycle: perCycle * 3},
+		{button: joypad.ButtonLeft, atEmulatedCycle: perCycle * 3.5},
+		{button: joypad.ButtonUp, atEmulatedCycle: perCycle * 4},
+		{button: joypad.ButtonDown, atEmulatedCycle: perCycle * 4.5},
+	}
 )
 
 func Test_LittleThings(t *testing.T) {
-	testROMs(t, littleThingsTests...)
+	testROMs(t, littleThings()...)
 }
 
 func testLittleThings(t *TestTable) {
@@ -45,7 +51,7 @@ func testLittleThings(t *TestTable) {
 	tS := t.NewTestSuite("little-things-gb")
 
 	// firstwhite
-	tS.NewTestCollection("firstwhite").Add(littleThingsTests[0])
+	tS.NewTestCollection("firstwhite").AddTests(littleThings()[:2]...)
 	// tellinglys
-	tS.NewTestCollection("tellinglys").AddTests(littleThingsTests[1:]...)
+	tS.NewTestCollection("tellinglys").AddTests(littleThings()[2:]...)
 }

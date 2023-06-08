@@ -40,6 +40,7 @@ func Test_All(t *testing.T) {
 		testSuites: make([]*TestSuite, 0),
 	}
 	testAcid2(testTable)
+	// testAge(testTable)
 	testBully(testTable)
 	testBlarrg(testTable)
 	testLittleThings(testTable)

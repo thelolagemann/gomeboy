@@ -17,43 +17,49 @@ const (
 )
 
 var (
-	dmgSoundTests = []ROMTest{
-		newImageTest("dmg_sound/01-registers", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/02-len ctr", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/03-trigger", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/04-sweep", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/05-sweep details", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/06-overflow on trigger", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/07-len sweep period sync", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/08-len ctr during power", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/09-wave read while on", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/10-wave trigger while on", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/11-regs after power", withEmulatedSeconds(20)),
-		newImageTest("dmg_sound/12-wave write while on", withEmulatedSeconds(20)),
+	dmgSoundTests = func() []ROMTest {
+		return []ROMTest{
+			newImageTest("dmg_sound/01-registers", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/02-len ctr", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/03-trigger", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/04-sweep", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/05-sweep details", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/06-overflow on trigger", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/07-len sweep period sync", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/08-len ctr during power", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/09-wave read while on", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/10-wave trigger while on", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/11-regs after power", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/12-wave write while on", withEmulatedSeconds(20)),
+		}
 	}
-	cgbSoundTests = []ROMTest{
-		newImageTest("cgb_sound/01-registers", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/02-len ctr", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/03-trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/04-sweep", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/05-sweep details", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/06-overflow on trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/07-len sweep period sync", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/08-len ctr during power", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/09-wave read while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/10-wave trigger while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/11-regs after power", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("cgb_sound/12-wave", asModel(types.CGBABC), withEmulatedSeconds(20)),
+	cgbSoundTests = func() []ROMTest {
+		return []ROMTest{
+			newImageTest("cgb_sound/01-registers", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/02-len ctr", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/03-trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/04-sweep", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/05-sweep details", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/06-overflow on trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/07-len sweep period sync", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/08-len ctr during power", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/09-wave read while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/10-wave trigger while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/11-regs after power", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/12-wave", asModel(types.CGBABC), withEmulatedSeconds(20)),
+		}
 	}
 
 	// blarggImageTests holds all the tests that are image based,
 	// as they don't output any data to the 0xFF01 register
-	blarggImageTests = []ROMTest{
-		newImageTest("halt_bug", withEmulatedSeconds(20)),
-		newImageTest("halt_bug", asModel(types.CGBABC), withEmulatedSeconds(20)),
-		newImageTest("instr_timing", withEmulatedSeconds(20)),
-		newImageTest("interrupt_time", withEmulatedSeconds(2)),
-		newImageTest("interrupt_time", asModel(types.CGBABC), withEmulatedSeconds(2)),
+	blarggImageTests = func() []ROMTest {
+		return []ROMTest{
+			newImageTest("halt_bug", withEmulatedSeconds(20)),
+			newImageTest("halt_bug", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("instr_timing", withEmulatedSeconds(20)),
+			newImageTest("interrupt_time", withEmulatedSeconds(2)),
+			newImageTest("interrupt_time", asModel(types.CGBABC), withEmulatedSeconds(2)),
+		}
 	}
 )
 
@@ -134,9 +140,9 @@ func discoverROMTests(dir string) []ROMTest {
 }
 
 func Test_Blargg(t *testing.T) {
-	testROMs(t, blarggImageTests...)
-	testROMs(t, dmgSoundTests...)
-	testROMs(t, cgbSoundTests...)
+	testROMs(t, blarggImageTests()...)
+	testROMs(t, dmgSoundTests()...)
+	testROMs(t, cgbSoundTests()...)
 }
 
 type blarrgTest struct {
@@ -193,18 +199,18 @@ func testBlarrg(table *TestTable) {
 	tS := table.NewTestSuite("blarrg")
 
 	// cgb_sound
-	tS.NewTestCollection("cgb_sound").AddTests(cgbSoundTests...)
+	tS.NewTestCollection("cgb_sound").AddTests(cgbSoundTests()...)
 
 	// cpu_instrs
 	newBlargTestCollectionFromDir(tS, "cpu_instrs")
 	// dmg_sound
-	tS.NewTestCollection("dmg_sound").AddTests(dmgSoundTests...)
+	tS.NewTestCollection("dmg_sound").AddTests(dmgSoundTests()...)
 	// halt_bug
-	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests[0], blarggImageTests[1])
+	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests()[0], blarggImageTests()[1])
 	// instr_timing
-	tS.NewTestCollection("instr_timing").Add(blarggImageTests[2])
+	tS.NewTestCollection("instr_timing").Add(blarggImageTests()[2])
 	// interrupt_time (DMG)
-	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests[3], blarggImageTests[4])
+	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests()[3], blarggImageTests()[4])
 	// mem_timing
 	newBlargTestCollectionFromDir(tS, "mem_timing")
 }

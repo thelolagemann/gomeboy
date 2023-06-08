@@ -124,13 +124,11 @@ func findROM(name string) string {
 		if !d.IsDir() && (filepath.Ext(d.Name()) == ".gb" || filepath.Ext(d.Name()) == ".gbc") {
 			// were we searching roms/* or roms/name?
 			if dir == "roms/" {
-				// we were searching roms/*, so we need to check if the name of the rom
-				// matches the name of the directory
-				if strings.Split(name, "/")[0] != d.Name()[:len(d.Name())-3] {
+				// check that base of rom path matches rom name (With extension removed)
+				if filepath.Base(name) != strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())) {
 					return nil
 				}
 			}
-
 			// does the rom name contain the rom name?
 			if !strings.Contains(d.Name(), filepath.Base(name)) {
 				return nil
@@ -234,6 +232,9 @@ func sqDiffUInt32(x, y uint32) uint64 {
 }
 
 func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath string, asModel types.Model, emulatedSeconds int, name string) bool {
+	if emulatedSeconds == 0 {
+		panic("emulatedSeconds must be > 0")
+	}
 	passed := true
 	t.Run(name, func(t *testing.T) {
 		// load the rom

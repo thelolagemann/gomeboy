@@ -7,6 +7,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,8 +41,16 @@ func assertModel(file os.DirEntry) types.Model {
 	if file.Name()[len(file.Name())-7:] == "-sgb.gb" {
 		model = types.SGB
 	}
+	// ends with -S.gb
+	if file.Name()[len(file.Name())-5:] == "-S.gb" {
+		model = types.SGB
+	}
 	// ends with -sgb2.gb
 	if file.Name()[len(file.Name())-8:] == "-sgb2.gb" {
+		model = types.SGB2
+	}
+	// ends with 2-S.gb
+	if file.Name()[len(file.Name())-6:] == "2-S.gb" {
 		model = types.SGB2
 	}
 	// ends with -cgb0.gb
@@ -59,6 +68,10 @@ func assertModel(file os.DirEntry) types.Model {
 	// ends with -A.gb
 	if file.Name()[len(file.Name())-5:] == "-A.gb" {
 		model = types.AGB
+	}
+	// ends with -cgbABCDE.gb
+	if strings.Contains(file.Name(), "-cgbABCDE.gb") {
+		model = types.CGBABC
 	}
 
 	return model
