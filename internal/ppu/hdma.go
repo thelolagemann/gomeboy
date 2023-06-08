@@ -1,6 +1,7 @@
 package ppu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
@@ -51,6 +52,7 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		h.destination |= uint16(v & 0xF0)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA5, func(v uint8) {
+		fmt.Printf("HDMA5: %02X\n", v)
 		// update the length
 		h.length = (v & 0x7F) + 1
 
@@ -74,10 +76,12 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 			// performed by the scheduler until the next HBlank period, so we perform
 			// the transfer immediately here and decrement the remaining length
 			if h.ppu.Enabled && h.ppu.Mode == lcd.HBlank && h.hdmaRemaining > 0 {
+
 				h.newDMA(1)
 				h.hdmaRemaining--
 			}
 		} else {
+
 			// if bit 7 is not set, we are starting a new GDMA transfer
 			if h.hdmaRemaining > 0 {
 				// if we're in the middle of a HDMA transfer, pause it
@@ -113,6 +117,7 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 }
 
 func (h *HDMA) newDMA(length uint8) {
+
 	for i := uint8(0); i < length; i++ {
 		for j := uint8(0); j < 16; j++ {
 			// tick the scheduler

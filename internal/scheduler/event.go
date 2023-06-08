@@ -1,6 +1,10 @@
 package scheduler
 
-type EventType uint8
+type EventType uint
+
+func (e EventType) String() string {
+	return eventTypeNames[e]
+}
 
 const (
 	APUFrameSequencer EventType = iota
@@ -64,16 +68,19 @@ var eventTypeNames = []string{
 	"APUChannel1",
 	"APUChannel2",
 	"APUChannel3",
+	"APUChannel3WaveRAMReadCorruption",
 	"APUChannel3WaveRAMWriteCorruption",
 	"APUChannel3WaveRAMWriteCorruptionEnd",
 	"APUChannel4",
 	"APUSample",
+
 	"PPUHBlank",
 	"PPUHBlankInterrupt",
 	"PPUVBlank",
 	"PPUVBlankInterrupt",
 	"PPUVBlankLast",
 	"PPUStartOAMSearch",
+	"PPUEndFrame",
 	"PPUContinueOAMSearch",
 	"PPUEndOAMSearch",
 	"PPULine153Start",
@@ -81,23 +88,31 @@ var eventTypeNames = []string{
 	"PPULine153End",
 	"PPUStartVBlank",
 	"PPUContinueVBlank",
+	"PPUVRAMUnlocked",
+	"PPUVRAMLocked",
 	"PPUVRAMTransfer",
+	"PPUOAMLocked",
+	"PPUOAMUnlocked",
 	"PPULYReset",
 	"PPUGlitchedLine0",
 	"PPUStartGlitchedLine0",
 	"PPUContinueGlitchedLine0",
 	"PPUGlitchedLine0End",
 	"PPUOAMInterrupt",
+
 	"DMAStartTransfer",
 	"DMAEndTransfer",
 	"DMATransfer",
+
 	"TimerInterrupt",
 	"TimerTIMAReload",
 	"TimerTIMAFinishReload",
 	"TimerTIMAIncrement",
+
 	"EIPending",
 	"HaltDI",
 	"EIHaltDelay",
+
 	"SerialBitTransfer",
 }
 

@@ -80,10 +80,16 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 
 		// was the transfer request bit set?
 		if c.TransferRequest {
-			// calculate the new value of div TODO: fix
-			ticksToGo := s.SysClock() & (ticksPerBit - 1)
+			// we need to determine when to schedule the first bit transfer,
+			// when bit 8 of DIV produces a falling edge.
+			// e.g.
+			// DIV = 0b0000_0001_0000_0000 (512)
+			// DIV = 0b0000_0001_0000_0001 (513)
+			// ...
+			// DIV = 0b0000_0010_0000_0000 (1024)
 
 			// a bit is sent every 128 M-cycles (8.192 kHz)
+			ticksToGo := s.SysClock() & (ticksPerBit - 1) // TODO fix boot serial
 			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
 		}
 	}, func() uint8 {
@@ -109,7 +115,8 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			c.control &^= types.Bit7
 			c.irq.Request(interrupts.SerialFlag)
 		} else {
-			s.ScheduleEvent(scheduler.SerialBitTransfer, ticksPerBit)
+			ticksToGo := s.SysClock() & (ticksPerBit - 1)
+			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
 		}
 	})
 	return c

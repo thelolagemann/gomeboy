@@ -11,24 +11,24 @@ import (
 type Tile [16]uint8
 
 type TileAttributes struct {
-	// bgPriority is the BG priority bit. When set, the tile is displayed
+	// BGPriority is the BG priority bit. When set, the tile is displayed
 	// behind the background and window. Otherwise, it is displayed in front
 	// of the background and window.
-	bgPriority bool
-	// yFlip is the Y Flip bit. When set, the tile is flipped vertically.
-	yFlip bool
-	// xFlip is the X Flip bit. When set, the tile is flipped horizontally.
-	xFlip bool
-	// paletteNumber is the Palette Number bit. It specifies the palette
+	BGPriority bool
+	// YFlip is the Y Flip bit. When set, the tile is flipped vertically.
+	YFlip bool
+	// XFlip is the X Flip bit. When set, the tile is flipped horizontally.
+	XFlip bool
+	// CGBPaletteNumber is the Palette Number bit. It specifies the palette
 	// number (0-7) that is used to determine the tile's colors.
-	paletteNumber uint8
-	// vRAMBank is the VRAM Bank bit. It specifies the VRAM bank (0-1) that
+	CGBPaletteNumber uint8
+	// VRAMBank is the VRAM Bank bit. It specifies the VRAM bank (0-1) that
 	// is used to store the tile's data.
-	vRAMBank uint8
+	VRAMBank uint8
 }
 
 // Draw draws the tile to the given image at the given position.
-func (t Tile) Draw(img *image.RGBA, i int, i2 int) {
+func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal palette.Palette) {
 	for tileY := 0; tileY < 8; tileY++ {
 		for tileX := 0; tileX < 8; tileX++ {
 			var x = i + tileX
@@ -36,7 +36,7 @@ func (t Tile) Draw(img *image.RGBA, i int, i2 int) {
 			high, low := t[tileY], t[tileY+8]
 			var colourNum = int((high >> (7 - tileX)) & 1)
 			colourNum |= int((low>>(7-tileX))&1) << 1
-			rgb := palette.GetColour(uint8(colourNum))
+			rgb := pal.GetColour(uint8(colourNum))
 			img.Pix[(y*img.Stride)+(x*4)] = rgb[0]
 			img.Pix[(y*img.Stride)+(x*4)+1] = rgb[1]
 			img.Pix[(y*img.Stride)+(x*4)+2] = rgb[2]
@@ -69,7 +69,7 @@ func NewTileMap() TileMap {
 
 type TileMapEntry struct {
 	id         uint16
-	attributes TileAttributes
+	Attributes TileAttributes
 
 	Tile
 }

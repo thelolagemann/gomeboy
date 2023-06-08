@@ -1,6 +1,7 @@
 package ppu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
@@ -27,14 +28,16 @@ type DMA struct {
 	bus *mmu.MMU
 	oam *OAM
 
-	s *scheduler.Scheduler
+	s   *scheduler.Scheduler
+	ppu *PPU
 }
 
-func NewDMA(bus *mmu.MMU, oam *OAM, s *scheduler.Scheduler) *DMA {
+func NewDMA(bus *mmu.MMU, oam *OAM, s *scheduler.Scheduler, ppu *PPU) *DMA {
 	d := &DMA{
 		bus: bus,
 		oam: oam,
 		s:   s,
+		ppu: ppu,
 	}
 	s.RegisterEvent(scheduler.DMATransfer, d.doTransfer)
 	s.RegisterEvent(scheduler.DMAStartTransfer, d.startTransfer)
@@ -96,9 +99,12 @@ func (d *DMA) startTransfer() {
 }
 
 func (d *DMA) doTransfer() {
+	// check if dma in HWIO range
+	if d.source >= 0xFF00 && d.source <= 0xFF7F {
+		fmt.Println("DMA transfer attempted from HWIO range")
+	}
 	if d.restarting {
 		d.restarting = false
-
 	}
 	// where are we transferring from?
 	currentSource := d.source

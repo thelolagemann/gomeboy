@@ -8,7 +8,7 @@ type Sprite struct {
 	spriteAttributes
 }
 
-// spriteAttributes represents the attributes of a sprite.
+// spriteAttributes represents the Attributes of a sprite.
 type spriteAttributes struct {
 	// Bit 7 - OBJ-to-BG priority (0=OBJ Above BG, 1=OBJ Behind BG color 1-3)
 	// (Used for both BG and Window. BG color 0 is always behind OBJ)

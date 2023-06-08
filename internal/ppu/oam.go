@@ -9,7 +9,7 @@ var (
 )
 
 // OAM (Object Attribute Memory) is the memory used to store the
-// attributes of the sprites. It is 160 bytes long and is located at
+// Attributes of the sprites. It is 160 bytes long and is located at
 // 0xFE00-0xFE9F in the memory map. It is divided in 40 entries of 4 bytes
 // each, each entry representing a sprite.
 type OAM struct {
@@ -57,7 +57,7 @@ func (o *OAM) Write(address uint16, value uint8) {
 	oldY := s.Y
 	oldX := s.X
 
-	// update the sprite attributes
+	// update the sprite Attributes
 	byteIndex := address % 4
 	if byteIndex == 0 {
 		s.Y = value - 16

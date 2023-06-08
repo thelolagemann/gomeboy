@@ -40,9 +40,8 @@ func (s *Scheduler) OverrideDiv(div uint16) {
 
 func NewScheduler() *Scheduler {
 	s := &Scheduler{ // 0x = DMG magic value,
-		divTimer: 0x620f, // TODO make configurable
-		cycles:   0,
-		events:   [256]*Event{},
+		cycles: 0,
+		events: [256]*Event{},
 		root: &Event{
 			next:  nil,
 			cycle: math.MaxUint64,
@@ -337,7 +336,7 @@ func (s *Scheduler) String() string {
 	event := s.root
 	for event != nil {
 		//fmt.Println(event)
-		result += fmt.Sprintf("%d:%d->", event.eventType, event.cycle)
+		result += fmt.Sprintf("%s:%d->", event.eventType, event.cycle)
 		event = event.next
 	}
 	return result
