@@ -72,6 +72,8 @@ type GameBoy struct {
 	Printer         *accessories.Printer
 	save            *emu.Save
 	Scheduler       *scheduler.Scheduler
+
+	Options []GameBoyOpt
 }
 
 func (g *GameBoy) StartLinked(
@@ -275,40 +277,43 @@ emuLoop:
 				frame = g.Frame()
 				frameEnd := time.Now()
 				renderTimes = append(renderTimes, frameEnd.Sub(frameStart))
-			}
+				// copy the memory block from frame to frameBuffer
+				copy((*[maxArraySize]byte)(frameBufferPtr)[:frameSize:frameSize], (*[maxArraySize]byte)(framePtr)[:frameSize:frameSize])
 
-			// copy the memory block from frame to frameBuffer
-			copy((*[maxArraySize]byte)(frameBufferPtr)[:frameSize:frameSize], (*[maxArraySize]byte)(framePtr)[:frameSize:frameSize])
+				if time.Since(start) > time.Second {
+					// average frame time
+					avgRenderTime := avgTime(renderTimes)
+					renderTimes = renderTimes[:0]
 
-			if time.Since(start) > time.Second {
-				// average frame time
-				avgRenderTime := avgTime(renderTimes)
-				renderTimes = renderTimes[:0]
+					// append to avg render times
+					avgRenderTimes = append(avgRenderTimes, avgRenderTime)
 
-				// append to avg render times
-				avgRenderTimes = append(avgRenderTimes, avgRenderTime)
+					//totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				//totalAvgRenderTime := avgTime(avgRenderTimes)
+					//events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
+					events <- display.Event{Type: display.EventTypeFrameTime, Data: avgRenderTimes}
+					g.frames = 0
+					start = time.Now()
 
-				//events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
-				g.frames = 0
-				start = time.Now()
+					// make sure avg render times doesn't get too big
+					if len(avgRenderTimes) > 60 {
+						avgRenderTimes = avgRenderTimes[1:]
+					}
 
-				// make sure avg render times doesn't get too big
-				if len(avgRenderTimes) > 144 {
-					avgRenderTimes = avgRenderTimes[1:]
+					// send sample data
+					events <- display.Event{Type: display.EventTypeSample, Data: g.APU.Samples}
 				}
-			}
 
-			// send frame events
-			events <- display.Event{Type: display.EventTypeFrame}
+				// send frame events
+				events <- display.Event{Type: display.EventTypeFrame}
 
-			// send frame
-			frames <- frameBuffer
+				// send frame
+				frames <- frameBuffer
 
-			// check printer for queued data
-			if g.Printer != nil && g.Printer.HasPrintJob() {
-				events <- display.Event{Type: display.EventTypePrint, Data: g.Printer.GetPrintJob()}
+				// check printer for queued data
+				if g.Printer != nil && g.Printer.HasPrintJob() {
+					events <- display.Event{Type: display.EventTypePrint, Data: g.Printer.GetPrintJob()}
+				}
 			}
 
 			// unlock the gameboy
@@ -454,7 +459,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	sound.AttachBus(memBus)
 	video := ppu.New(memBus, interrupt, sched)
 	memBus.AttachVideo(video)
-	processor := cpu.NewCPU(memBus, interrupt, sched)
+	processor := cpu.NewCPU(memBus, interrupt, sched, video)
 	video.AttachNotifyFrame(func() {
 		processor.HasFrame()
 	})
@@ -531,6 +536,10 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 			ram.LoadRAM(g.save.Bytes())
 		}
 	}
+
+	// try to load cheats using filename of rom
+
+	g.Options = opts
 
 	return g
 }

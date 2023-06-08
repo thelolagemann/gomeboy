@@ -1,9 +1,7 @@
 package cheats
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"strconv"
 )
 
@@ -88,7 +86,7 @@ func (g *GameShark) Load(code string, name string) error {
 
 	c, err := parseGameSharkCode(code)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse GameShark code: %v", err)
 	}
 
 	if c.Address >= 0xA000 && c.Address <= 0xBFFF {
@@ -125,65 +123,4 @@ func (g *GameShark) Disable(name string) error {
 	}
 
 	return fmt.Errorf("code not found: %s", name)
-}
-
-// Save saves the GameShark codes to the given file.
-func (g *GameShark) Save(filename string) error {
-	// open the file
-	f, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// write the codes
-	for _, c := range g.Codes {
-		_, err := f.WriteString(fmt.Sprintf("%s %s\n", c.rawCode, c.Name))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// LoadFile loads the GameShark codes from the given file.
-func (g *GameShark) LoadFile(filepath string) error {
-	// open the file
-	f, err := os.Open(filepath)
-	if err != nil {
-		return err
-	}
-
-	// read the file
-	scanner := bufio.NewScanner(f)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) == 0 {
-			continue
-		}
-
-		// get the name and code, which are separated by a space
-		split := []rune(line)
-
-		// get the code up to the first space
-		code := ""
-		for i := range split {
-			if split[i] == ' ' {
-				break
-			}
-			code += string(split[i])
-		}
-
-		// the rest is the name
-		name := string(split[len(code)+1:])
-
-		// load the code
-		err := g.Load(code, name)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

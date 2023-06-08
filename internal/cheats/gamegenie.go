@@ -1,9 +1,7 @@
 package cheats
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -130,54 +128,6 @@ func (g *GameGenie) Read(address uint16, oldValue uint8) uint8 {
 	}
 
 	return oldValue
-}
-
-// Save saves the GameGenie codes to the given file.
-func (g *GameGenie) Save(file string) error {
-	// open the file
-	f, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// write the codes
-	for _, c := range g.Codes {
-		_, err := f.WriteString(fmt.Sprintf("%s %s\n", c.rawCode, c.Name))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// LoadFile loads the GameGenie codes from the given file.
-func (g *GameGenie) LoadFile(file string) error {
-	// open the file
-	f, err := os.Open(file)
-	if err != nil {
-		return err
-	}
-
-	// read the file
-	scanner := bufio.NewScanner(f)
-
-	for scanner.Scan() {
-		// get the line
-		line := scanner.Text()
-
-		// split the line
-		split := strings.Split(line, " ")
-
-		// parse the code
-		err := g.Load(split[0], strings.Join(split[1:], " "))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (g *GameGenie) Enable(name string) {

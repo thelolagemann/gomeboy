@@ -242,6 +242,8 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 		wRAM:        make([]uint8, 32768),
 		wRAMOffset:  0x4000,
 		wRAMBank:    1,
+		GameGenie:   cheats.NewGameGenie(),
+		GameShark:   cheats.NewGameShark(),
 	}
 
 	m.init()
