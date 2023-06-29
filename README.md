@@ -1,6 +1,6 @@
 # gomeboy
 
-![Go](https://img.shields.io/github/go-mod/go-version/thelolagemann/go-gameboy/main)
+![GitHub go.mod Go version (subdirectory of monorepo)](https://img.shields.io/github/go-mod/go-version/thelolagemann/gomeboy)
 
 GomeBoy is my attempt at creating a fairly accurate and reasonably performant Game Boy emulator written with golang. It 
 is still currently in the very early stages of development, but it is already capable of running quite a few games with
