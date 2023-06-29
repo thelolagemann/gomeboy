@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/71/?scale=100&title=passing%20113,%20failing%2045&width=500)
+![progress](https://progress-bar.dev/89/?scale=100&title=passing%20162,%20failing%2019&width=500)
 
-#### This document was automatically generated from commit 1967612c
+#### This document was automatically generated from commit 1911352b
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -32,12 +32,12 @@ is compared against a reference image from a known good emulator.
 # Test Results
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
-| acid2 | 50% | 2 | 2 | 4 |
+| acid2 | 75% | 3 | 1 | 4 |
 | bully | 0% | 0 | 1 | 1 |
-| blarrg | 85% | 18 | 3 | 21 |
-| little-things-gb | 66% | 2 | 1 | 3 |
-| mooneye | 79% | 91 | 23 | 114 |
-| samesuite | 0% | 0 | 13 | 13 |
+| blarrg | 100% | 43 | 0 | 43 |
+| little-things-gb | 100% | 4 | 0 | 4 |
+| mooneye | 92% | 106 | 8 | 114 |
+| samesuite | 46% | 6 | 7 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
 Explore the individual tests for each suite using the table of contents below.
@@ -87,7 +87,7 @@ Explore the individual tests for each suite using the table of contents below.
   * [strikethrough](#strikethrough)
 
 # acid2
-![progress](https://progress-bar.dev/50/?scale=100&title=passing%202,%20failing%202&width=500)
+![progress](https://progress-bar.dev/75/?scale=100&title=passing%203,%20failing%201&width=500)
 ## dmg-acid2
 | Test | Passing |
 | ---- | ------- |
@@ -96,8 +96,8 @@ Explore the individual tests for each suite using the table of contents below.
 ## cgb-acid2
 | Test | Passing |
 | ---- | ------- |
-| cgb-acid2-cgb | ❌ |
-| cgb-acid-hell-cgb | ❌ |
+| cgb-acid2 | ✅ |
+| cgb-acid-hell | ❌ |
 # bully
 ![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%201&width=500)
 
@@ -105,11 +105,22 @@ Explore the individual tests for each suite using the table of contents below.
 | ---- | ------- |
 | bully | ❌ |
 # blarrg
-![progress](https://progress-bar.dev/85/?scale=100&title=passing%2018,%20failing%203&width=500)
+![progress](https://progress-bar.dev/100/?scale=100&title=passing%2043,%20failing%200&width=500)
 ## cgb_sound
 | Test | Passing |
 | ---- | ------- |
-| cgb_sound-cgb | ❌ |
+| cgb_sound/01-registers | ✅ |
+| cgb_sound/02-len ctr | ✅ |
+| cgb_sound/03-trigger | ✅ |
+| cgb_sound/04-sweep | ✅ |
+| cgb_sound/05-sweep details | ✅ |
+| cgb_sound/06-overflow on trigger | ✅ |
+| cgb_sound/07-len sweep period sync | ✅ |
+| cgb_sound/08-len ctr during power | ✅ |
+| cgb_sound/09-wave read while on | ✅ |
+| cgb_sound/10-wave trigger while on | ✅ |
+| cgb_sound/11-regs after power | ✅ |
+| cgb_sound/12-wave | ✅ |
 ## cpu_instrs
 | Test | Passing |
 | ---- | ------- |
@@ -127,7 +138,18 @@ Explore the individual tests for each suite using the table of contents below.
 ## dmg_sound
 | Test | Passing |
 | ---- | ------- |
-| dmg_sound | ❌ |
+| dmg_sound/01-registers | ✅ |
+| dmg_sound/02-len ctr | ✅ |
+| dmg_sound/03-trigger | ✅ |
+| dmg_sound/04-sweep | ✅ |
+| dmg_sound/05-sweep details | ✅ |
+| dmg_sound/06-overflow on trigger | ✅ |
+| dmg_sound/07-len sweep period sync | ✅ |
+| dmg_sound/08-len ctr during power | ✅ |
+| dmg_sound/09-wave read while on | ✅ |
+| dmg_sound/10-wave trigger while on | ✅ |
+| dmg_sound/11-regs after power | ✅ |
+| dmg_sound/12-wave write while on | ✅ |
 ## halt_bug
 | Test | Passing |
 | ---- | ------- |
@@ -141,7 +163,7 @@ Explore the individual tests for each suite using the table of contents below.
 | Test | Passing |
 | ---- | ------- |
 | interrupt_time | ✅ |
-| interrupt_time-cgb | ❌ |
+| interrupt_time-cgb | ✅ |
 ## mem_timing
 | Test | Passing |
 | ---- | ------- |
@@ -149,26 +171,27 @@ Explore the individual tests for each suite using the table of contents below.
 | 02-write_timing.gb | ✅ |
 | 03-modify_timing.gb | ✅ |
 # little-things-gb
-![progress](https://progress-bar.dev/66/?scale=100&title=passing%202,%20failing%201&width=500)
+![progress](https://progress-bar.dev/100/?scale=100&title=passing%204,%20failing%200&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
 | firstwhite | ✅ |
+| firstwhite-cgb | ✅ |
 ## tellinglys
 | Test | Passing |
 | ---- | ------- |
-| tellinglys | ❌ |
+| tellinglys | ✅ |
 | tellinglys-cgb | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/79/?scale=100&title=passing%2091,%20failing%2023&width=500)
+![progress](https://progress-bar.dev/92/?scale=100&title=passing%20106,%20failing%208&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
 | add_sp_e_timing.gb | ✅ |
-| boot_div-S.gb | ❌ |
-| boot_div-dmg0.gb | ❌ |
-| boot_div-dmgABCmgb.gb | ❌ |
-| boot_div2-S.gb | ❌ |
+| boot_div-S.gb | ✅ |
+| boot_div-dmg0.gb | ✅ |
+| boot_div-dmgABCmgb.gb | ✅ |
+| boot_div2-S.gb | ✅ |
 | boot_hwio-S.gb | ❌ |
 | boot_hwio-dmg0.gb | ❌ |
 | boot_hwio-dmgABCmgb.gb | ✅ |
@@ -231,19 +254,19 @@ Explore the individual tests for each suite using the table of contents below.
 | hblank_ly_scx_timing-GS.gb | ✅ |
 | intr_1_2_timing-GS.gb | ✅ |
 | intr_2_0_timing.gb | ✅ |
-| intr_2_mode0_timing.gb | ❌ |
+| intr_2_mode0_timing.gb | ✅ |
 | intr_2_mode0_timing_sprites.gb | ❌ |
-| intr_2_mode3_timing.gb | ❌ |
-| intr_2_oam_ok_timing.gb | ❌ |
+| intr_2_mode3_timing.gb | ✅ |
+| intr_2_oam_ok_timing.gb | ✅ |
 | lcdon_timing-GS.gb | ❌ |
-| lcdon_write_timing-GS.gb | ❌ |
+| lcdon_write_timing-GS.gb | ✅ |
 | stat_irq_blocking.gb | ✅ |
 | stat_lyc_onoff.gb | ✅ |
 | vblank_stat_intr-GS.gb | ✅ |
 ## serial
 | Test | Passing |
 | ---- | ------- |
-| boot_sclk_align-dmgABCmgb.gb | ✅ |
+| boot_sclk_align-dmgABCmgb.gb | ❌ |
 ## timer
 | Test | Passing |
 | ---- | ------- |
@@ -270,15 +293,15 @@ Explore the individual tests for each suite using the table of contents below.
 | bits_bank2.gb | ✅ |
 | bits_mode.gb | ✅ |
 | bits_ramg.gb | ✅ |
-| multicart_rom_8Mb.gb | ❌ |
+| multicart_rom_8Mb.gb | ✅ |
 | ram_256kb.gb | ✅ |
 | ram_64kb.gb | ✅ |
-| rom_16Mb.gb | ❌ |
+| rom_16Mb.gb | ✅ |
 | rom_1Mb.gb | ✅ |
 | rom_2Mb.gb | ✅ |
 | rom_4Mb.gb | ✅ |
 | rom_512kb.gb | ✅ |
-| rom_8Mb.gb | ❌ |
+| rom_8Mb.gb | ✅ |
 ## mbc2
 | Test | Passing |
 | ---- | ------- |
@@ -303,31 +326,31 @@ Explore the individual tests for each suite using the table of contents below.
 ## madness
 | Test | Passing |
 | ---- | ------- |
-| mgb_oam_dma_halt_sprites.gb | ❌ |
+| mgb_oam_dma_halt_sprites | ❌ |
 ## misc
 | Test | Passing |
 | ---- | ------- |
-| boot_div-A.gb | ❌ |
-| boot_div-cgb0.gb | ❌ |
-| boot_div-cgbABCDE.gb | ❌ |
+| boot_div-A.gb | ✅ |
+| boot_div-cgb0.gb | ✅ |
+| boot_div-cgbABCDE.gb | ✅ |
 | boot_hwio-C.gb | ❌ |
 | boot_regs-A.gb | ✅ |
 | boot_regs-cgb.gb | ✅ |
 ## bits
 | Test | Passing |
 | ---- | ------- |
-| unused_hwio-C.gb | ❌ |
+| unused_hwio-C.gb | ✅ |
 ## ppu
 | Test | Passing |
 | ---- | ------- |
-| vblank_stat_intr-C.gb | ❌ |
+| vblank_stat_intr-C.gb | ✅ |
 ## manual-only
 | Test | Passing |
 | ---- | ------- |
 | sprite_priority | ✅ |
 | sprite_priority | ❌ |
 # samesuite
-![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%2013&width=500)
+![progress](https://progress-bar.dev/46/?scale=100&title=passing%206,%20failing%207&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
@@ -339,18 +362,18 @@ Explore the individual tests for each suite using the table of contents below.
 ## dma
 | Test | Passing |
 | ---- | ------- |
-| gbc_dma_cont.gb | ❌ |
-| gdma_addr_mask.gb | ❌ |
-| hdma_lcd_off.gb | ❌ |
-| hdma_mode0.gb | ❌ |
+| gbc_dma_cont.gb | ✅ |
+| gdma_addr_mask.gb | ✅ |
+| hdma_lcd_off.gb | ✅ |
+| hdma_mode0.gb | ✅ |
 ## interrupt
 | Test | Passing |
 | ---- | ------- |
-| ei_delay_halt.gb | ❌ |
+| ei_delay_halt.gb | ✅ |
 ## ppu
 | Test | Passing |
 | ---- | ------- |
-| blocking_bgpi_increase.gb | ❌ |
+| blocking_bgpi_increase.gb | ✅ |
 ## sgb
 | Test | Passing |
 | ---- | ------- |
