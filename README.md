@@ -12,22 +12,15 @@ varying degrees of success.
 
 ### DMG Games
 
-<img src="assets/images/tetris.png" width="250">
-<img src="assets/images/super-mario-land2.png" width="250">
-<img src="assets/images/pokemon-red.png" width="250">
-
+<img src="assets/images/tetris.png" width="250"> <img src="assets/images/super-mario-land2.png" width="250"> <img src="assets/images/pokemon-red.png" width="250">
 
 ### DMG Games running on CGB hardware
 
-<img src="assets/images/tetris-cgb.png" width="250">
-<img src="assets/images/super-mario-land2-cgb.png" width="250">
-<img src="assets/images/pokemon-red-cgb.png" width="250">
+<img src="assets/images/tetris-cgb.png" width="250"> <img src="assets/images/super-mario-land2-cgb.png" width="250"> <img src="assets/images/pokemon-red-cgb.png" width="250">
 
 ### CGB Games
 
-<img src="assets/images/tetris-dx.png" width="250">
-<img src="assets/images/mario-tennis.png" width="250">
-<img src="assets/images/pokemon-crystal.png" width="250">
+<img src="assets/images/tetris-dx.png" width="250"> <img src="assets/images/mario-tennis.png" width="250"> <img src="assets/images/pokemon-crystal.png" width="250">
 
 ### Peripherals (Printer)
 
