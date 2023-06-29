@@ -12,26 +12,26 @@ varying degrees of success.
 
 ### DMG Games
 
-![Tetris](assets/images/tetris.png)
-![Super Mario Land](assets/images/super-mario-land2.png)
-![Pokemon Red](assets/images/pokemon-red.png)
+<img src="assets/images/tetris.png" width="250">
+<img src="assets/images/super-mario-land2.png" width="250">
+<img src="assets/images/pokemon-red.png" width="250">
+
 
 ### DMG Games running on CGB hardware
 
-![Tetris](assets/images/tetris-cgb.png)
-![Super Mario Land](assets/images/super-mario-land2-cgb.png)
-![Pokemon Red](assets/images/pokemon-red-cgb.png)
+<img src="assets/images/tetris-cgb.png" width="250">
+<img src="assets/images/super-mario-land2-cgb.png" width="250">
+<img src="assets/images/pokemon-red-cgb.png" width="250">
 
 ### CGB Games
 
-![Tetris DX](assets/images/tetris-dx.png)
-![Mario Tennis](assets/images/mario-tennis.png)
-![Pokemon Crystal](assets/images/pokemon-crystal.png)
+<img src="assets/images/tetris-dx.png" width="250">
+<img src="assets/images/mario-tennis.png" width="250">
+<img src="assets/images/pokemon-crystal.png" width="250">
 
-### Peripherals (Printer, Link Cable)
+### Peripherals (Printer)
 
 ![Printer](assets/images/printer.gif)
-![Link Cable](assets/images/link-cable.png)
 
 ---
 
@@ -55,7 +55,7 @@ varying degrees of success.
   - Serial
     - Printer
     - Link Cable
-    - Local Multiplayer
+    - Local Multiplayer (needs reimplementation)
 - Platform-agnostic (runs on Windows, Linux, and Mac)
 
 ---
@@ -86,3 +86,4 @@ varying degrees of success.
 - [ ] github actions
 - [ ] improve error handling and logging
 - [ ] expose more emulator options to the user
+- [ ] reimplement link cable & local multiplayer
