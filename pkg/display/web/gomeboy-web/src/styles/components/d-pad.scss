@@ -1,0 +1,247 @@
+.set .d-pad {
+  margin-right: 40px;
+}
+.set .d-pad {
+  display: inline-block;
+}
+
+.d-pad {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 48%;
+  overflow: hidden;
+  transform-origin: top left;
+}
+.d-pad:before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 5%;
+  transform: translate(-50%, -50%);
+  width: 66.6%;
+  height: 66.6%;
+  background: #ddd;
+}
+.d-pad:after {
+  content: '';
+  position: absolute;
+  display: none;
+  z-index: 2;
+  width: 20%;
+  height: 20%;
+  top: 50%;
+  left: 50%;
+  background: #ddd;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: all 0.25s;
+  cursor: pointer;
+}
+.d-pad:hover:after {
+  width: 30%;
+  height: 30%;
+}
+.d-pad button {
+  display: block;
+  position: absolute;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0);
+  width: 33.3%;
+  height: 43%;
+  line-height: 40%;
+  color: #fff;
+  background: #ddd;
+  text-align: center;
+  border: none;
+  cursor: pointer;
+}
+.d-pad button:hover {
+  background: #eee;
+}
+.d-pad button:before {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-radius: 5px;
+  border-style: solid;
+  transition: all 0.25s;
+}
+.d-pad button:after {
+  content: '';
+  position: absolute;
+  width: 102%;
+  height: 78%;
+  background: var(--surface-bg-color);
+  border-radius: 20%;
+}
+.d-pad button.left,
+.d-pad button.right {
+  width: 43%;
+  height: 33%;
+}
+.d-pad button.left:after,
+.d-pad button.right:after {
+  width: 78%;
+  height: 102%;
+}
+.d-pad button.up {
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, 0);
+  border-radius: 17% 17% 50% 50%;
+}
+.d-pad button.up:hover {
+  background: linear-gradient(0deg, #ddd 0%, #eee 50%);
+}
+.d-pad button.up:after {
+  left: 0;
+  top: 0;
+  transform: translate(-100%, 0);
+  border-top-left-radius: 50%;
+  pointer-events: none;
+}
+.d-pad button.up:before {
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-width: 0 5px 7px 5px;
+  border-color: transparent transparent #aaa transparent;
+}
+.d-pad button.up:active:before {
+  border-bottom-color: #333;
+}
+.d-pad button.up:hover:before {
+  top: 35%;
+}
+.d-pad button.down {
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%, 0);
+  border-radius: 50% 50% 17% 17%;
+}
+.d-pad button.down:hover {
+  background: linear-gradient(180deg, #ddd 0%, #eee 50%);
+}
+.d-pad button.down:after {
+  right: 0;
+  bottom: 0;
+  transform: translate(100%, 0);
+  border-bottom-right-radius: 50%;
+  pointer-events: none;
+}
+.d-pad button.down:before {
+  bottom: 40%;
+  left: 50%;
+  transform: translate(-50%, 50%);
+  border-width: 7px 5px 0px 5px;
+  border-color: #aaa transparent transparent transparent;
+}
+.d-pad button.down:active:before {
+  border-top-color: #333;
+}
+.d-pad button.down:hover:before {
+  bottom: 35%;
+}
+.d-pad button.left {
+  top: 50%;
+  left: 0;
+  transform: translate(0, -50%);
+  border-radius: 17% 50% 50% 17%;
+}
+.d-pad button.left:hover {
+  background: linear-gradient(-90deg, #ddd 0%, #eee 50%);
+}
+.d-pad button.left:after {
+  left: 0;
+  bottom: 0;
+  transform: translate(0, 100%);
+  border-bottom-left-radius: 50%;
+  pointer-events: none;
+}
+.d-pad button.left:before {
+  left: 40%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-width: 5px 7px 5px 0;
+  border-color: transparent #aaa transparent transparent;
+}
+.d-pad button.left:active:before {
+  border-right-color: #333;
+}
+.d-pad button.left:hover:before {
+  left: 35%;
+}
+.d-pad button.right {
+  top: 50%;
+  right: 0;
+  transform: translate(0, -50%);
+  border-radius: 50% 17% 17% 50%;
+}
+.d-pad button.right:hover {
+  background: linear-gradient(90deg, #ddd 0%, #eee 50%);
+}
+.d-pad button.right:after {
+  right: 0;
+  top: 0;
+  transform: translate(0, -100%);
+  border-top-right-radius: 50%;
+  pointer-events: none;
+}
+.d-pad button.right:before {
+  right: 40%;
+  top: 50%;
+  transform: translate(50%, -50%);
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent #aaa;
+}
+.d-pad button.right:active:before {
+  border-left-color: #333;
+}
+.d-pad button.right:hover:before {
+  right: 35%;
+}
+.dark .d-pad button {
+  border-radius: 35%;
+}
+.dark .d-pad:before,
+.dark .d-pad button {
+  background: #111;
+}
+.dark .d-pad button.up:hover {
+  background: linear-gradient(0deg, #111 0%, #222 50%);
+}
+.dark .d-pad button.right:hover {
+  background: linear-gradient(90deg, #111 0%, #222 50%);
+}
+.dark .d-pad button.down:hover {
+  background: linear-gradient(180deg, #111 0%, #222 50%);
+}
+.dark .d-pad button.left:hover {
+  background: linear-gradient(-90deg, #111 0%, #222 50%);
+}
+.dark .d-pad button.up:before {
+  border-bottom-color: rgba(255, 255, 255, 0.9);
+}
+.dark .d-pad button.right:before {
+  border-left-color: rgba(255, 255, 255, 0.9);
+}
+.dark .d-pad button.down:before {
+  border-top-color: rgba(255, 255, 255, 0.9);
+}
+.dark .d-pad button.left:before {
+  border-right-color: rgba(255, 255, 255, 0.9);
+}
+.dark .d-pad button.up:active:before {
+  border-bottom-color: #61e22d;
+}
+.dark .d-pad button.right:active:before {
+  border-left-color: #61e22d;
+}
+.dark .d-pad button.down:active:before {
+  border-top-color: #61e22d;
+}
+.dark .d-pad button.left:active:before {
+  border-right-color: #61e22d;
+}

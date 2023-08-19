@@ -1,0 +1,49 @@
+// so we don't have to calculate how all the various padding/margins
+// affect the sizing of content
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+// remove default margins and apply standard transition duration
+* {
+  margin: 0;
+  transition-duration: 0.3s;
+}
+
+// improve text accessibility and rendering
+body {
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+// set a more appropriate font-weight for headings
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 300;
+}
+
+// reset select, input, button to sane defaults
+select, input[type="select"] {
+  border: 2px solid #888;
+  background-color: transparent;
+  color: var(--color);
+  font-family: "Roboto", "Ubuntu", "sans-serif";
+  height: 50px;
+  line-height: 1.5;
+  width: 100%;
+
+  -moz-appearance: none;
+  -webkit-appearance: none;
+
+  &:focus {
+    border-color: blueviolet;
+
+    + label .text {
+      color: blueviolet;
+    }
+  }
+}
+
+label {
+  color: #a7a7a7;
+  font-size: 14px;
+}

@@ -1,0 +1,37 @@
+ul {
+  min-width: 250px;
+  list-style: none;
+  padding: 0;
+
+  li {
+    display: flex;
+    font-family: monospace, mono, monospaced;
+    font-size: 12px;
+
+    &.list-header {
+      display: grid;
+      font-family: monospace, mono, monospaced;
+      letter-spacing: 2px;
+      font-size: 12px;
+      padding: 0 2px;
+      text-transform: uppercase;
+    }
+
+    .label {
+      color: #a7a7a7;
+      flex-grow: 1;
+      line-height: 20px;
+    }
+
+    .list-content {
+      line-height: 20px;
+    }
+
+    i.material-icons {
+      background-color: transparent;
+      line-height: 20px;
+      font-size: 16px;
+      padding: 0 4px 0 0;
+    }
+  }
+}

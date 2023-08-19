@@ -1,0 +1,75 @@
+@use "sass:color";
+
+@media only screen and (max-width: 462px) {
+  div.input.error {
+    margin-bottom: 16px;
+  }
+}
+
+div.input {
+  margin-top: 12px;
+  position: relative;
+
+  &.error {
+    animation: shake .8s cubic-bezier(.36, .07, .19, .97) both;
+    color: color.scale(red, $whiteness: +20%);
+
+    input {
+      border-color: color.scale(red, $whiteness: +20%) !important;
+      color: color.scale(red, $whiteness: +20%);
+    }
+  }
+
+  .error {
+    border-radius: 0 0 4px 4px;
+    color: color.scale(red, $whiteness: +20%);
+    margin-top: 2px;
+    margin-left: 24px;
+    font-size: 12px;
+    position: absolute;
+    width: 100%;
+  }
+
+  label {
+
+    align-items: center;
+    display: flex;
+    inset: 0;
+    padding: 14px;
+    position: absolute;
+    pointer-events: none;
+    z-index: 2;
+
+  }
+}
+
+input[type="select"] {
+  padding-left: 40px;
+
+  &:focus, &:not(:placeholder-shown) {
+    outline: none;
+
+    + label .text {
+      background-color: var(--surface-bg-color);
+      font-size: .9rem;
+      font-weight: 500;
+
+      transform: translate(-8px, -115%);
+    }
+
+    ~ .prefix {
+      opacity: 1;
+    }
+  }
+}
+
+
+.text {
+  font-weight: 300;
+  padding: 0 5px;
+}
+
+input[type=checkbox] {
+  width: 24px;
+  height: 24px;
+}

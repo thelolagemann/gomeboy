@@ -1,0 +1,43 @@
+.btn-state {
+  background: transparent;
+  width: 0;
+  height: 16px;
+  transition: 100ms all ease;
+  cursor: pointer;
+  box-sizing: border-box;
+
+  border-color: transparent transparent transparent white;
+  will-change: border-width;
+
+  border-style: solid;
+  border-width: 7px 0 7px 12px;
+
+  &.paused {
+    border-style: double;
+    border-width: 0 0 0 16px;
+  }
+
+  &:hover {
+    border-color: transparent transparent transparent white;
+  }
+}
+
+button {
+  font-family: "Roboto Mono", monospace, mono, monospaced;
+  letter-spacing: 1px;
+  font-weight: 300;
+  transform-origin: top left;
+
+  &.actions {
+    border: none;
+    background-color: blueviolet;
+    color: white;
+    font-size: 10px;
+    border-radius: 20px;
+    letter-spacing: 0;
+    cursor: pointer;
+    &:hover {
+      color: black;
+    }
+  }
+}

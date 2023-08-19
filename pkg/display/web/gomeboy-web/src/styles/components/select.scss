@@ -1,0 +1,36 @@
+@use "sass:color";
+
+select {
+  font-size: 16px;
+  padding: 0 40px;
+  min-width: 100px;
+  outline: none;
+  position: relative;
+  z-index: 1;
+
+  &:focus, &:valid {
+    + label .text {
+      background-color: var(--surface-bg-color);
+      font-size: .9rem;
+      font-weight: 500;
+
+      transform: translate(-8px, -115%);
+    }
+
+    ~ .prefix {
+      opacity: 1;
+    }
+  }
+}
+
+.prefix {
+  align-items: center;
+  display: flex;
+  opacity: 0;
+  inset: 0;
+  padding: 0 16px;
+  pointer-events: none;
+  position: absolute;
+  transform: rotate(45deg);
+  width: fit-content;
+}

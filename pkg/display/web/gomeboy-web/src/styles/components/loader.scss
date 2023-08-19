@@ -1,0 +1,28 @@
+@use "sass:color";
+
+.placeholder {
+  margin: 0 auto;
+  background-color: #2b2b2b;
+}
+
+@keyframes shimmer {
+  0% {
+    background-color: color.scale(#2b2b2b, $whiteness: +20%);
+  }
+  50% {
+    background-color: color.scale(#2b2b2b, $whiteness: 10%);
+  }
+  100% {
+    background-color: color.scale(#2b2b2b, $whiteness: +20%);
+  }
+}
+
+.animated-background {
+  animation-duration: 2.5s;
+  animation-fill-mode: forwards;
+  animation-iteration-count: infinite;
+  animation-name: shimmer;
+  animation-timing-function: linear;
+  height: 480px;
+  position: relative;
+}
