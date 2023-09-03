@@ -10,8 +10,8 @@ import (
 
 // RAM represents a block of RAM. It is used for the internal
 // RAM and various other hardware components. It has a maximum
-// size of 65536 bytes, which is the maximum addressable memory
-// range of the Game Boy.
+// size of 65536 (64KiB) bytes, which is the maximum addressable
+// memory range of the Game Boy.
 type RAM struct {
 	data []uint8
 	size uint16
