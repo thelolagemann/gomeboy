@@ -89,6 +89,8 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler, a *apu.APU) 
 			s.DescheduleEvent(scheduler.TimerTIMAIncrement)
 			s.DescheduleEvent(scheduler.TimerTIMAReload)
 			s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
+			c.s.DescheduleEvent(scheduler.SerialBitTransfer)
+			c.s.ScheduleEvent(scheduler.SerialBitTransfer, 512)
 
 			s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
 		}, func() uint8 {
@@ -227,6 +229,8 @@ func (c *Controller) changeSpeed(newBit uint8) {
 	c.s.DescheduleEvent(scheduler.TimerTIMAReload)
 	c.s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
 	c.s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+	c.s.DescheduleEvent(scheduler.SerialBitTransfer)
+	c.s.ScheduleEvent(scheduler.SerialBitTransfer, 512)
 	c.s.ScheduleEvent(scheduler.TimerTIMAIncrement, uint64(ticksUntilIncrement))
 
 	c.currentBit = newBit

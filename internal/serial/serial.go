@@ -38,13 +38,10 @@ type Controller struct {
 	InternalClock   bool  // if true, this controller is the master.
 	TransferRequest bool  // if true, a transfer has been requested.
 
-	irq               *interrupts.Service // the interrupt service.
-	AttachedDevice    Device              // the device that is attached to this controller.
-	resultFallingEdge bool                // the result of the last falling edge. (Bit 8 of DIV: 8.192 kHz)
+	irq            *interrupts.Service // the interrupt service.
+	AttachedDevice Device              // the device that is attached to this controller.
 
 	s *scheduler.Scheduler // the scheduler.
-
-	lastDiv uint16 // the last value of DIV
 }
 
 // Attach attaches a Device to the Controller.
@@ -89,7 +86,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			// DIV = 0b0000_0010_0000_0000 (1024)
 
 			// a bit is sent every 128 M-cycles (8.192 kHz)
-			ticksToGo := s.SysClock() & (ticksPerBit - 1) // TODO fix boot serial
+			ticksToGo := s.SysClock() & (ticksPerBit - 1)
 			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
 		}
 	}, func() uint8 {
@@ -113,11 +110,16 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			c.count = 0
 			c.TransferRequest = false
 			c.control &^= types.Bit7
-			c.irq.Request(interrupts.SerialFlag)
+		} else if c.count == 7 {
+			// schedule interrupt to happen 1 cycle before count reaches 8 (TODO find out why, possibly the CPU interrupt handling?)
+			s.ScheduleEvent(scheduler.SerialBitInterrupt, ticksPerBit-4)
 		} else {
 			ticksToGo := s.SysClock() & (ticksPerBit - 1)
 			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
 		}
+	})
+	s.RegisterEvent(scheduler.SerialBitInterrupt, func() {
+		c.irq.Request(interrupts.SerialFlag)
 	})
 	return c
 }
@@ -169,7 +171,6 @@ var _ types.Stater = (*Controller)(nil)
 //   - TransferRequest (bool)
 //   - count (uint8)
 //   - InternalClock (bool)
-//   - resultFallingEdge (bool)
 func (c *Controller) Load(s *types.State) {
 	c.data = s.Read8()
 	c.control = s.Read8()
@@ -177,7 +178,6 @@ func (c *Controller) Load(s *types.State) {
 	c.TransferRequest = s.ReadBool()
 	c.count = s.Read8()
 	c.InternalClock = s.ReadBool()
-	c.resultFallingEdge = s.ReadBool()
 }
 
 // Save implements the types.Stater interface.
@@ -188,7 +188,6 @@ func (c *Controller) Load(s *types.State) {
 //   - TransferRequest (bool)
 //   - count (uint8)
 //   - InternalClock (bool)
-//   - resultFallingEdge (bool)
 func (c *Controller) Save(s *types.State) {
 	s.Write8(c.data)
 	s.Write8(c.control)
@@ -196,5 +195,4 @@ func (c *Controller) Save(s *types.State) {
 	s.WriteBool(c.TransferRequest)
 	s.Write8(c.count)
 	s.WriteBool(c.InternalClock)
-	s.WriteBool(c.resultFallingEdge)
 }

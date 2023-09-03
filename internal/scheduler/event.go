@@ -59,10 +59,11 @@ const (
 	TimerTIMAIncrement
 
 	SerialBitTransfer
+	SerialBitInterrupt
 )
 
 const (
-	eventTypes = 47
+	eventTypes = 48
 )
 
 var eventTypeNames = []string{
@@ -118,6 +119,7 @@ var eventTypeNames = []string{
 	"TimerTIMAIncrement",
 
 	"SerialBitTransfer",
+	"SerialBitInterrupt",
 }
 
 type Event struct {
