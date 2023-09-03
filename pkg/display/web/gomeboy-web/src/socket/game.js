@@ -1,5 +1,5 @@
 import init, * as brotliWasm from "../../node_modules/brotli-dec-wasm/pkg/index.js";
-import cache from "./cache";
+import cache from "$lib/dataCache.js";
 
 
 import XXH64 from "xxhashjs";

@@ -1,13 +1,10 @@
 @use "styles/reset";
 @use "sass:color";
 @use "styles/components/button";
-@use "styles/components/d-pad";
 @use "styles/components/input";
 @use "styles/components/keybinding";
 @use "styles/components/list";
-@use "styles/components/loader";
 @use "styles/components/select";
-@use "styles/components/switch";
 
 body {
   background-color: #171717;
@@ -20,7 +17,7 @@ body {
 main {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  justify-content: space-between;
   padding: 16px;
 }
 
@@ -44,31 +41,6 @@ main {
     display: grid;
     gap: 4px;
     padding: 4px 8px;
-
-    hr {
-      border-color: gray;
-    }
-
-    .header {
-      display: inline;
-      padding: 2px 0;
-
-      span {
-        font-size: 12px;
-        display: flex;
-        justify-content: space-between;
-        line-height: 24px;
-        font-family: monospace, mono, monospaced;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-      }
-
-      i {
-        background-color: transparent;
-        font-size: 20px;
-        line-height: 24px;
-      }
-    }
   }
 }
 
@@ -77,48 +49,6 @@ canvas {
   outline: none;
   image-rendering: pixelated;
   transform-origin: top left;
-}
-
-nav.header {
-  background-color: blueviolet;
-  color: white;
-  display: flex;
-  height: 48px;
-  line-height: 48px;
-  padding: 0 16px;
-  width: 100%;
-  justify-content: space-between;;
-
-  > .headline {
-    font-family:  monospace, mono, monospaced
-  }
-}
-
-.player {
-  gap: 8px;
-}
-
-.game-player {
-
-  .scaler {
-    position: relative;
-  }
-}
-
-.ip {
-  color: color.scale(black, $whiteness: +90%);
-  font-size: 12px;
-}
-
-.info {
-  display: grid;
-  font-family: monospace, mono, monospaced;
-  font-size: 14px;
-}
-
-.status {
-  display: grid;
-  gap: 8px;
 }
 
 html[data-theme="dark"] {
@@ -148,84 +78,6 @@ i.material-icons.pad {
   gap: 4px;
 }
 
-.scaler {
-  transform-origin: top left;
-  image-rendering: pixelated;
-  overflow: hidden;
-
-  &.btn-1x {
-    height: 70px;
-    width: 70px;
-  }
-  &.btn-1-5x {
-    height: 105px;
-    width: 105px;
-  }
-  &.btn-2x {
-    height: 140px;
-    width: 140px;
-  }
-  &.btn-2-5x {
-    height: 175px;
-    width: 175px;
-  }
-  &.btn-3x {
-    height: 210px;
-    width: 210px;
-  }
-  &.player-1x {
-    border-radius: 4px;
-    height: 144px;
-    width: 160px;
-  }
-  &.player-1-5x {
-    border-radius: 6px;
-    height: 216px;
-    width: 240px;
-  }
-  &.player-2x {
-    border-radius: 8px;
-    height: 288px;
-    width: 320px;
-  }
-  &.player-2-5x {
-    border-radius: 10px;
-    height: 360px;
-    width: 400px;
-
-  }
-  &.player-3x {
-    border-radius: 12px;
-    height: 432px;
-    width: 480px;
-  }
-}
-
-.game-player {
-  display: grid;
-  gap: 24px;
-}
-
-.scale-1-5x {
-  transform: scale(1.5);
-}
-
-.scale-2x {
-  transform: scale(2);
-}
-
-.scale-2-5x {
-  transform: scale(2.5);
-}
-
-.scale-3x {
-  transform: scale(3);
-}
-
-.player-controls {
-  display: flex;
-  justify-content: space-between;
-}
 .pad {
   position: relative;
   height: 70px;
@@ -266,72 +118,5 @@ i.material-icons.pad {
       text-align: center;
       line-height: 16px;
     }
-
-    &.up {
-      top: 0;
-      left: calc(50% - 12px);
-      transform: rotate(180deg);
-    }
-    &.down {
-      bottom: 0;
-      left: calc(50% - 12px);
-    }
-    &.left {
-      top: calc(50% - 12px);
-      left: 0;
-      transform: rotate(90deg);
-    }
-    &.right {
-      top: calc(50% - 12px);
-      right: 0;
-      transform: rotate(270deg);
-    }
-    &.fill {
-      position: absolute;
-      top: calc(50% - 12px);
-      left: calc(50% - 12px);
-      background-color: blueviolet;
-      width: 24px;
-      height: 24px;
-
-
-      border-radius: 0;
-    }
   }
-}
-
-.network-status {
-  color: darkgray;
-  font-size: 14px;
-  display: flex;
-  justify-content: space-between;
-
-  i {
-    background-color: gray;
-    border: 1px solid grey;
-    border-radius: 50%;
-    color: white;
-    margin: 12px;
-    padding: 12px;
-    font-size: 48px;
-  }
-}
-
-.network-info {
-  display: grid;
-  text-align: center;
-  justify-items: center;
-}
-
-.pause-overlay {
-  position: absolute;
-  top: 0;
-  font-size: 32px;
-  height: 100%;
-  width: 100%;
-  background: rgba(0, 0, 0, 0.75);
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }

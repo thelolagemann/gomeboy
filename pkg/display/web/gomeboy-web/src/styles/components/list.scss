@@ -1,11 +1,9 @@
 ul {
-  min-width: 250px;
   list-style: none;
   padding: 0;
 
   li {
     display: flex;
-    font-family: monospace, mono, monospaced;
     font-size: 12px;
 
     &.list-header {
