@@ -17,6 +17,10 @@ const (
 	APUChannel4
 	APUSample
 
+	EIPending
+	HaltDI
+	EIHaltDelay
+
 	PPUHBlank
 	PPUHBlankInterrupt
 	PPUVBlank
@@ -31,8 +35,10 @@ const (
 	PPULine153End
 	PPUStartVBlank
 	PPUContinueVBlank
-	PPUVRAMUnlocked
-	PPUVRAMLocked
+	PPUVRAMReadLocked
+	PPUVRAMReadUnlocked
+	PPUVRAMWriteLocked
+	PPUVRAMWriteUnlocked
 	PPUVRAMTransfer
 	PPUOAMLocked
 	PPUOAMUnlocked
@@ -52,15 +58,11 @@ const (
 	TimerTIMAFinishReload
 	TimerTIMAIncrement
 
-	EIPending
-	HaltDI
-	EIHaltDelay
-
 	SerialBitTransfer
 )
 
 const (
-	eventTypes = 45
+	eventTypes = 47
 )
 
 var eventTypeNames = []string{
@@ -73,6 +75,10 @@ var eventTypeNames = []string{
 	"APUChannel3WaveRAMWriteCorruptionEnd",
 	"APUChannel4",
 	"APUSample",
+
+	"EIPending",
+	"HaltDI",
+	"EIHaltDelay",
 
 	"PPUHBlank",
 	"PPUHBlankInterrupt",
@@ -88,8 +94,10 @@ var eventTypeNames = []string{
 	"PPULine153End",
 	"PPUStartVBlank",
 	"PPUContinueVBlank",
-	"PPUVRAMUnlocked",
-	"PPUVRAMLocked",
+	"PPUVRAMReadLocked",
+	"PPUVRAMReadUnlocked",
+	"PPUVRAMWriteLocked",
+	"PPUVRAMWriteUnlocked",
 	"PPUVRAMTransfer",
 	"PPUOAMLocked",
 	"PPUOAMUnlocked",
@@ -108,10 +116,6 @@ var eventTypeNames = []string{
 	"TimerTIMAReload",
 	"TimerTIMAFinishReload",
 	"TimerTIMAIncrement",
-
-	"EIPending",
-	"HaltDI",
-	"EIHaltDelay",
 
 	"SerialBitTransfer",
 }

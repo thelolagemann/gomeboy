@@ -484,13 +484,17 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPULine153Continue, p.continueLine153)
 	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
-	s.RegisterEvent(scheduler.PPUVRAMLocked, func() {
+	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
 		p.vramReadBlocked = true
-		p.vramWriteBlocked = true // TODO make separate
 	})
-	s.RegisterEvent(scheduler.PPUVRAMUnlocked, func() {
+	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
 		p.vramReadBlocked = false
-		p.vramWriteBlocked = false // TODO make separate
+	})
+	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
+		p.vramWriteBlocked = true
+	})
+	s.RegisterEvent(scheduler.PPUVRAMWriteUnlocked, func() {
+		p.vramWriteBlocked = false
 	})
 	s.RegisterEvent(scheduler.PPUOAMLocked, func() {
 		p.oamReadBlocked = true
@@ -644,6 +648,7 @@ func (p *PPU) continueOAM() {
 
 	p.oamWriteBlocked = true
 
+	p.s.ScheduleEvent(scheduler.PPUVRAMReadLocked, 76)
 	p.s.ScheduleEvent(scheduler.PPUOAMUnlocked, 76)
 
 	// schedule end of OAM search for (80 cycles later)
@@ -864,7 +869,6 @@ func (p *PPU) Read(address uint16) uint8 {
 		if !p.vramReadBlocked {
 			return p.vRAM[p.vRAMBank].Read(address - 0x8000)
 		} else {
-			fmt.Printf("PPU: Read from VRAM while blocked\n")
 			return 0xFF
 		}
 	}
@@ -1075,10 +1079,8 @@ func (p *PPU) renderScanline() {
 	if p.CurrentScanline >= ScreenHeight {
 		return
 	}
-	if !p.Debug.BackgroundDisabled {
-		if (!p.backgroundLineRendered[p.CurrentScanline] || p.oam.spriteScanlines[p.CurrentScanline] || p.oam.dirtyScanlines[p.CurrentScanline] || p.backgroundDirty) && (p.BackgroundEnabled || p.isGBC) {
-			p.renderBackgroundScanline()
-		}
+	if (!p.backgroundLineRendered[p.CurrentScanline] || p.oam.spriteScanlines[p.CurrentScanline] || p.oam.dirtyScanlines[p.CurrentScanline] || p.backgroundDirty) && (p.BackgroundEnabled || p.isGBC) {
+		p.renderBackgroundScanline()
 	}
 
 	if !p.Debug.WindowDisabled {
@@ -1275,7 +1277,11 @@ func (p *PPU) renderBackgroundScanline() {
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// set scanline using unsafe to copy 4 bytes at a time
 		//*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
-		scanline[i] = pal[colourLUT[xPixelPos]]
+		if p.Debug.BackgroundDisabled {
+			scanline[i] = [3]uint8{255, 255, 255}
+		} else {
+			scanline[i] = pal[colourLUT[xPixelPos]]
+		}
 		bgPriorityLine[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]
 
