@@ -5,14 +5,12 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/veandco/go-sdl2/sdl"
 	"math"
-	"unsafe"
 )
 
 const (
-	bufferSize           = 2048
-	emulatedSampleRate   = 4194304 / 64
+	bufferSize           = 4096
+	emulatedSampleRate   = 44100
 	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
@@ -22,33 +20,11 @@ var (
 	chargeFactor = math.Pow(0.998943, 4194304/emulatedSampleRate)
 )
 
-var (
-	audioDeviceID sdl.AudioDeviceID
-)
-
 type Sample struct {
 	Channel1, Channel2, Channel3, Channel4 uint8
 }
 
 type Samples []Sample
-
-func init() {
-	// initialize SDL audio
-	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
-		panic(fmt.Sprintf("failed to initialize SDL audio: %v", err))
-	}
-
-	// open audio device
-	var err error
-	if audioDeviceID, err = sdl.OpenAudioDevice("", false, &sdl.AudioSpec{
-		Freq:     emulatedSampleRate,
-		Format:   sdl.AUDIO_U16SYS,
-		Channels: 2,
-		Samples:  bufferSize,
-	}, nil, 0); err != nil {
-		panic(fmt.Sprintf("failed to open audio device: %v", err))
-	}
-}
 
 // APU represents the GameBoy's audio processing unit. It comprises 4
 // channels: 2 pulse channels, a wave channel and a noise channel. Each
@@ -91,6 +67,9 @@ type APU struct {
 	lastUpdate            uint64
 	s                     *scheduler.Scheduler
 	currentSamplePosition int
+
+	listeners []chan []byte
+	playBack  func([]byte)
 }
 
 func (a *APU) highPass(channel int, in uint8, dacEnabled bool) uint8 {
@@ -101,12 +80,6 @@ func (a *APU) highPass(channel int, in uint8, dacEnabled bool) uint8 {
 	}
 
 	return out
-}
-
-// sync the APU with the currently passed ticks
-func (a *APU) sync() {
-	// get the cycles passed since the last update
-	//lastUpdate := a.s.Cycle() - a.lastUpdate
 }
 
 func (a *APU) AttachBus(bus mmu.IOBus) {
@@ -274,7 +247,7 @@ func NewAPU(s *scheduler.Scheduler) *APU {
 	s.ScheduleEvent(scheduler.APUFrameSequencer, 0)
 	a.sample()
 	s.ScheduleEvent(scheduler.APUChannel3, 0)
-	sdl.PauseAudioDevice(audioDeviceID, false)
+
 	return a
 }
 
@@ -332,10 +305,10 @@ func (a *APU) sample() {
 	}
 
 	// apply high-pass filter
-	channel1Amplitude = a.highPass(0, channel1Amplitude, a.chan1.channel.dacEnabled)
-	channel2Amplitude = a.highPass(1, channel2Amplitude, a.chan2.channel.dacEnabled)
-	channel3Amplitude = a.highPass(2, channel3Amplitude, a.chan3.channel.dacEnabled)
-	channel4Amplitude = a.highPass(3, channel4Amplitude, a.chan4.channel.dacEnabled)
+	//channel1Amplitude = a.highPass(0, channel1Amplitude, a.chan1.channel.dacEnabled)
+	//channel2Amplitude = a.highPass(1, channel2Amplitude, a.chan2.channel.dacEnabled)
+	//channel3Amplitude = a.highPass(2, channel3Amplitude, a.chan3.channel.dacEnabled)
+	//channel4Amplitude = a.highPass(3, channel4Amplitude, a.chan4.channel.dacEnabled)
 
 	left := uint16(0)
 	right := uint16(0)
@@ -348,20 +321,22 @@ func (a *APU) sample() {
 		}
 	}
 
-	// push to internal buffer using unsafe
-	*(*uint16)(unsafe.Pointer(&a.buffer[a.bufferPos])) = left * 128 * uint16(a.volumeLeft)
-	*(*uint16)(unsafe.Pointer(&a.buffer[a.bufferPos+2])) = right * 128 * uint16(a.volumeRight)
+	left *= 128 * uint16(a.volumeLeft)
+	right *= 128 * uint16(a.volumeRight)
+
+	a.buffer[a.bufferPos] = uint8(left)
+	a.buffer[a.bufferPos+1] = uint8(left >> 8)
+	a.buffer[a.bufferPos+2] = uint8(right)
+	a.buffer[a.bufferPos+3] = uint8(right >> 8)
 
 	a.bufferPos += 4
 
-	// push to SDL buffer when internal buffer is full
+	// push to broadcast when internal buffer is full
 	if a.bufferPos >= bufferSize {
 		// are we playing?
-		if a.playing {
-			// wait until the buffer is empty
-			if err := sdl.QueueAudio(audioDeviceID, a.buffer); err != nil {
-				panic(err)
-			}
+		if a.playing && a.playBack != nil {
+			// broadcast buffer to listeners
+			a.playBack(a.buffer)
 		}
 		a.bufferPos = 0
 	}
@@ -393,7 +368,7 @@ func (a *APU) Write(address uint16, value uint8) {
 func (a *APU) Pause() {
 	a.playing = false
 	a.enabled = false
-	sdl.PauseAudioDevice(audioDeviceID, true)
+	// sdl.PauseAudioDevice(audioDeviceID, true)
 }
 
 // Play resumes the APU.
@@ -401,4 +376,9 @@ func (a *APU) Play() {
 	a.playing = true
 	a.enabled = true
 	// sdl.PauseAudioDevice(a.audioDeviceID, false)
+}
+
+func (a *APU) AttachPlayback(playback func([]byte)) {
+	// attach provided channel to listeners
+	a.playBack = playback
 }

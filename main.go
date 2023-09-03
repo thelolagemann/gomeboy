@@ -6,8 +6,10 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/pkg/audio"
 	"github.com/thelolagemann/go-gameboy/pkg/display/fyne"
 	"github.com/thelolagemann/go-gameboy/pkg/display/views"
+	"github.com/thelolagemann/go-gameboy/pkg/display/web"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
 	"github.com/thelolagemann/go-gameboy/pkg/utils"
 	"net/http"
@@ -36,6 +38,7 @@ func main() {
 	dualView := flag.Bool("dual", false, "Show dual view")
 	printer := flag.Bool("printer", false, "enable printer")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
+	webUI := flag.Bool("web", false, "Start the webUI server")
 	flag.Parse()
 
 	var rom []byte
@@ -101,45 +104,57 @@ func main() {
 	opts = append(opts, gameboy.Debug())
 	gb := gameboy.NewGameBoy(rom, opts...)
 
-	a := fyne.NewApplication(app.NewWithID("com.thelolagemann.gomeboy"), gb)
+	gb.AttachAudioListener(audio.PlaySDL)
 
-	if *debugViews {
-		for _, view := range strings.Split(*activeDebugViews, ",") {
-			switch view {
-			case "cpu":
-				a.NewWindow("CPU", views.NewCPU(gb.CPU))
-			case "ppu":
-				a.NewWindow("PPU", views.NewPPU(gb.PPU))
-			case "mmu":
-				a.NewWindow("MMU", views.NewMMU(gb.MMU))
-			case "vram":
-				a.NewWindow("Tiles", &views.Tiles{PPU: gb.PPU})
-			case "logger":
-				l := &views.Log{}
-				gb.Logger = logger
-				a.NewWindow("Log", l)
-			case "system":
-				a.NewWindow("System", &views.System{})
-			case "render":
-				a.NewWindow("Render", &views.Render{Video: gb.PPU})
+	if *webUI {
+		var opts []web.HubOpt
+		if len(rom) > 0 {
+			opts = append(opts, web.WithROM(rom))
+		}
+		h := web.NewHub(opts...)
+		h.Run()
+	} else {
+		a := fyne.NewApplication(app.NewWithID("com.thelolagemann.gomeboy"), gb)
+
+		if *debugViews {
+			for _, view := range strings.Split(*activeDebugViews, ",") {
+				switch view {
+				case "cpu":
+					a.NewWindow("CPU", views.NewCPU(gb.CPU))
+				case "ppu":
+					a.NewWindow("PPU", views.NewPPU(gb.PPU))
+				case "mmu":
+					a.NewWindow("MMU", views.NewMMU(gb.MMU))
+				case "vram":
+					a.NewWindow("Tiles", &views.Tiles{PPU: gb.PPU})
+				case "logger":
+					l := &views.Log{}
+					gb.Logger = logger
+					a.NewWindow("Log", l)
+				case "system":
+					a.NewWindow("System", &views.System{})
+				case "render":
+					a.NewWindow("Render", &views.Render{Video: gb.PPU})
+				}
 			}
 		}
-	}
 
-	if *printer {
-		a.NewWindow("Printer", &views.Printer{Printer: gb.Printer, DrawMode: 1})
+		if *printer {
+			a.NewWindow("Printer", &views.Printer{Printer: gb.Printer, DrawMode: 1})
+		}
+
+		if *dualView {
+			opts = append(opts, gameboy.SerialConnection(gb))
+			// create a new gameboy
+			gb2 := gameboy.NewGameBoy(rom, opts...)
+			a.AddGameBoy(gb2)
+		}
+
+		if err := a.Run(); err != nil {
+			panic(err)
+		}
 	}
 
 	logger.Infof("Loaded rom %s", *romFile)
 
-	if *dualView {
-		opts = append(opts, gameboy.SerialConnection(gb))
-		// create a new gameboy
-		gb2 := gameboy.NewGameBoy(rom, opts...)
-		a.AddGameBoy(gb2)
-	}
-
-	if err := a.Run(); err != nil {
-		panic(err)
-	}
 }
