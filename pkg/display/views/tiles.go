@@ -428,19 +428,19 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 			var tapImage *tappableImage
 			// add the tile to the grid
 			if i < 128 {
-				tapImage = newTappableImage(img, t, func() {
+				tapImage = newTappableImage(img, t, func(_ *fyne.PointEvent) {
 					// update the selected tile
 					selectTile(0, newI)
 				})
 				grid1.Add(tapImage)
 			} else if i < 256 {
-				tapImage = newTappableImage(img, t, func() {
+				tapImage = newTappableImage(img, t, func(_ *fyne.PointEvent) {
 					// update the selected tile
 					selectTile(0, newI)
 				})
 				grid2.Add(tapImage)
 			} else {
-				tapImage = newTappableImage(img, t, func() {
+				tapImage = newTappableImage(img, t, func(_ *fyne.PointEvent) {
 					// update the selected tile
 					selectTile(0, newI)
 				})
@@ -466,20 +466,20 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 			var tapImage *tappableImage
 			// add the tile to the grid
 			if i < 128 {
-				tapImage = newTappableImage(img, t, func() {
+				tapImage = newTappableImage(img, t, func(_ *fyne.PointEvent) {
 					// update the selected tile
 					selectTile(1, newI)
 				})
 				grid4.Add(tapImage)
 
 			} else if i < 256 {
-				tapImage = newTappableImage(img, t, func() {
+				tapImage = newTappableImage(img, t, func(_ *fyne.PointEvent) {
 					// update the selected tile
 					selectTile(1, newI)
 				})
 				grid5.Add(tapImage)
 			} else {
-				tapImage = newTappableImage(img, t, func() {
+				tapImage = newTappableImage(img, t, func(_ *fyne.PointEvent) {
 					// update the selected tile
 					selectTile(1, newI)
 				})
@@ -581,15 +581,15 @@ type tappableImage struct {
 	widget.BaseWidget
 	c          *canvas.Raster
 	img        *image.RGBA
-	tapHandler func()
+	tapHandler func(event *fyne.PointEvent)
 }
 
 func (t *tappableImage) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
 }
 
-func (t *tappableImage) Tapped(*fyne.PointEvent) {
-	t.tapHandler()
+func (t *tappableImage) Tapped(at *fyne.PointEvent) {
+	t.tapHandler(at)
 }
 
 func (t *tappableImage) TappedSecondary(*fyne.PointEvent) {
@@ -600,7 +600,7 @@ func (t *tappableImage) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(t.c)
 }
 
-func newTappableImage(img *image.RGBA, c *canvas.Raster, tapHandler func()) *tappableImage {
+func newTappableImage(img *image.RGBA, c *canvas.Raster, tapHandler func(event *fyne.PointEvent)) *tappableImage {
 	t := &tappableImage{img: img, tapHandler: tapHandler, c: c}
 	t.ExtendBaseWidget(t)
 	return t

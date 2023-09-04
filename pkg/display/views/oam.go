@@ -14,6 +14,10 @@ var (
 type OAM struct {
 }
 
+func (o *OAM) Title() string {
+	return "OAM"
+}
+
 type sprite struct {
 }
 

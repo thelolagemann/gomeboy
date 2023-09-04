@@ -3,12 +3,13 @@ package views
 import (
 	"fmt"
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/go-gameboy/internal/cheats"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
-	"strings"
-	"unicode"
+	"image/color"
 )
 
 type cheatEntryLayout struct {
@@ -82,6 +83,10 @@ type CheatManager struct {
 	genieSubheading bool
 }
 
+func (cm *CheatManager) Title() string {
+	return "Cheats"
+}
+
 func (cm *CheatManager) LoadedCheatCount() int {
 	var total = 0
 	if cm.genie != nil {
@@ -120,7 +125,7 @@ func WithGameShark(shark *cheats.GameShark) CheatManagerOption {
 }
 
 func (cm *CheatManager) Run(window fyne.Window, events <-chan display.Event) error {
-	// create a grid for the lists
+	/*// create a grid for the lists
 	cheatGrid := container.NewVBox()
 
 	// set the content of the window
@@ -283,10 +288,12 @@ func (cm *CheatManager) Run(window fyne.Window, events <-chan display.Event) err
 
 		// create a grid for the input
 		gameSharkInputGrid := container.NewGridWithRows(3)
+		gameSharkInputGrid.Resize(fyne.NewSize(300, 100))
 
 		// create a textbox input for cheat code
 		gameSharkInput := widget.NewEntry()
 		gameSharkInput.SetPlaceHolder("Enter cheat code")
+
 		// create a textbox input for cheat name
 		gameSharkNameInput := widget.NewEntry()
 		gameSharkNameInput.SetPlaceHolder("Enter cheat name")
@@ -295,91 +302,20 @@ func (cm *CheatManager) Run(window fyne.Window, events <-chan display.Event) err
 		gameSharkInputGrid.Add(gameSharkInput)
 		gameSharkInputGrid.Add(gameSharkNameInput)
 
-		// add the input grid to the shark grid
-		gameSharkGrid.Add(gameSharkInputGrid)
-
-		// create the cheat list using a label and checkbox
-		/*sharkList := widget.NewList(
-			func() int {
-				return len(cm.shark.Codes)
-			},
-			func() fyne.CanvasObject {
-				box := container.New(&cheatEntryLayout{})
-
-				// create the text vbox
-				textBox := container.NewVBox()
-
-				// make the text box fill the space
-
-				// add the name label
-				nameLabel := widget.NewLabel("")
-				nameLabel.TextStyle = fyne.TextStyle{Bold: true}
-				textBox.Add(nameLabel)
-
-				// add the subheader label
-				subheaderLabel := widget.NewLabel("")
-				subheaderLabel.TextStyle = fyne.TextStyle{Monospace: true}
-				textBox.Add(subheaderLabel)
-
-				// add the text box to the box
-				box.Add(textBox)
-
-				// add a spacer
-				box.Add(canvas.NewRectangle(color.Transparent))
-
-				box.Add(widget.NewCheck("", func(checked bool) {}))
-				return box
-			},
-			func(id widget.ListItemID, obj fyne.CanvasObject) {
-				// get the box
-				box := obj.(*fyne.Container)
-
-				// get the text box
-				textBox := box.Objects[0].(*fyne.Container)
-
-				// get the name label
-				nameLabel := textBox.Objects[0].(*widget.Label)
-
-				// get the subheader label
-				subheaderLabel := textBox.Objects[1].(*widget.Label)
-
-				// get the checkbox
-				checkBox := box.Objects[2].(*widget.Check)
-
-				// set the name label
-				nameLabel.SetText(cm.shark.Codes[id].Name)
-
-				// set the subheader label
-				subheaderLabel.SetText(fmt.Sprintf("Address 0x%04X -> %02x", cm.shark.Codes[id].Address, cm.shark.Codes[id].NewData))
-
-				// set the checkbox
-				checkBox.SetChecked(cm.shark.Codes[id].Enabled)
-			},
-		)*/
-
 		// create the cheat list using a label and checkbox
 		cm.sharkList = container.NewVBox()
 		// add the list to the shark grid
 		gameSharkGrid.Add(cm.sharkList)
 
 		// create a button for adding the cheat
-		gameSharkAddButton := widget.NewButton("Add", func() {
-			// add the cheat to the list
-			if err := cm.shark.Load(gameSharkInput.Text, gameSharkNameInput.Text); err != nil {
-				// TODO: show error
-			} else {
-				// clear the input
-				gameSharkInput.SetText("")
-				gameSharkNameInput.SetText("")
-
-				// refresh the list
-				cm.refreshSharkCheats()
-			}
+		gameSharkAddButton := widget.NewButton("Add GameShark Code", func() {
+			dialog.NewCustom("Add GameShark Code", "Cancel", gameSharkInputGrid, window).Show()
 		})
 
 		// add the button to the grid
-		gameSharkInputGrid.Add(gameSharkAddButton)
+		gameSharkGrid.Add(gameSharkAddButton)
 
+		// add the shark grid to the cheat grid
 		cheatGrid.Add(gameSharkGrid)
 
 		// create save button
@@ -406,19 +342,123 @@ func (cm *CheatManager) Run(window fyne.Window, events <-chan display.Event) err
 
 		// add the button grid to the cheat grid
 		cheatGrid.Add(buttonGrid)
-	}
+	}*/
 
-	go func() {
-		for {
-			<-events // cheat manager does not react to any events from the GameBoy
+	// create the cheat list
+	cheatList := container.NewVBox()
+	cm.sharkList = container.NewVBox()
+	cm.genieList = container.NewVBox()
+
+	cheatList.Add(cm.sharkList)
+	cheatList.Add(cm.genieList)
+
+	// create the input box
+	cheatInput := container.NewVBox()
+
+	// create the title box
+	cheatTitleBox := container.New(titleLayout{})
+	cheatTitle := widget.NewLabel("Cheat Manager")
+	cheatTitleBox.Add(cheatTitle)
+
+	// create the debug checkbox
+	debugCheckbox := widget.NewCheck("", func(checked bool) {
+		cm.sharkSubheading = checked
+		cm.genieSubheading = checked
+		cm.refreshSharkCheats()
+		cm.refreshGenieCheats()
+	})
+
+	// create the cheat name input
+	cheatNameInput := widget.NewEntry()
+	cheatNameInput.SetPlaceHolder("Enter cheat name")
+
+	// create the entry box (multiline, so we can add multiple cheats at once)
+	entry := widget.NewMultiLineEntry()
+	entry.SetPlaceHolder("Enter cheats here")
+	entry.SetMinRowsVisible(10)
+
+	// create the add button
+	addButton := widget.NewButton("Add Cheat", func() {
+		var cheatName string
+		if cheatNameInput.Text == "" {
+			cheatName = "Unnamed Cheat"
+		} else {
+			cheatName = cheatNameInput.Text
 		}
-	}()
+		if err := cheats.ParseCheatText(entry.Text, cheatName, cm.genie, cm.shark); err != nil {
+			dialog.ShowError(err, window)
+			return
+		} else {
+			// refresh the cheat lists
+			cm.refreshGenieCheats()
+			cm.refreshSharkCheats()
+
+			// clear the entry box
+			entry.SetText("")
+			cheatNameInput.SetText("")
+		}
+	})
+
+	// create the load/save buttons
+	fileInput := container.NewGridWithColumns(2)
+	loadButton := widget.NewButton("Load", func() {
+
+	})
+	saveButton := widget.NewButton("Save", func() {
+
+	})
+	fileInput.Add(loadButton)
+	fileInput.Add(saveButton)
+
+	cheatTitleBox.Add(debugCheckbox)
+
+	// add the title box to the cheat input
+	cheatInput.Add(cheatTitleBox)
+	cheatInput.Add(addButton)
+	cheatInput.Add(fileInput)
+	cheatInput.Add(cheatNameInput)
+	cheatInput.Add(entry)
+
+	// create a hsplit for the cheat list, and the input
+	cheatHSplit := container.NewHSplit(cheatList, cheatInput)
+
+	// set cheat manager to the window content
+	window.SetContent(cheatHSplit)
+
+	runUntilQuit(events, func() {
+		// TODO save cheats (or maybe not (save on change?)) (more thought needed)
+	})
 
 	return nil
 }
 
+func runUntilQuit(events <-chan display.Event, onQuit func()) {
+	go func() {
+		for {
+			select {
+			case e := <-events:
+				switch e.Type {
+				case display.EventTypeQuit:
+					onQuit()
+					return
+				}
+			}
+		}
+	}()
+}
+
 func (cm *CheatManager) refreshGenieCheats() {
 	cm.genieList.RemoveAll()
+	// add top level header for genie
+	header := canvas.NewText("Game Genie (ROM)", color.White)
+	header.TextStyle = fyne.TextStyle{Bold: true}
+	header.TextSize = 18
+	// move the header to the center
+	header.Move(fyne.NewPos(0, 12))
+	cm.genieList.Add(header)
+	// add a separator
+	cm.genieList.Add(widget.NewSeparator())
+
 	for _, code := range cm.genie.Codes {
 		// copy the name so it can be used in the callback
 		codeName := code.Name
@@ -454,11 +494,21 @@ func (cm *CheatManager) refreshGenieCheats() {
 
 		// add the box to the list
 		cm.genieList.Add(entryBox)
+
+		// add a separator
+		cm.genieList.Add(widget.NewSeparator())
 	}
 }
 
 func (cm *CheatManager) refreshSharkCheats() {
 	cm.sharkList.RemoveAll()
+	// add top level header for shark
+	header := canvas.NewText("Game Shark (RAM)", color.White)
+	header.TextStyle = fyne.TextStyle{Bold: true}
+	header.TextSize = 18
+	cm.sharkList.Add(header)
+	// add a separator
+	cm.sharkList.Add(widget.NewSeparator())
 	for _, code := range cm.shark.Codes {
 		codeName := code.Name // copy the name so it can be used in the callback
 		entryBox := container.New(&cheatEntryLayout{})
@@ -498,6 +548,9 @@ func (cm *CheatManager) refreshSharkCheats() {
 		}))
 
 		cm.sharkList.Add(entryBox)
+
+		// add a separator
+		cm.sharkList.Add(widget.NewSeparator())
 	}
 
 }

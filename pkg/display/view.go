@@ -8,4 +8,6 @@ type View interface {
 	// or an error occurs. The event channel is used to send events
 	// to the view.
 	Run(window fyne.Window, events <-chan Event) error
+	// Title returns a unique title for the view.
+	Title() string
 }

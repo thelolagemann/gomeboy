@@ -9,8 +9,10 @@ type EventType int
 const (
 	// EventTypeQuit is the event type for when the user quits the application
 	EventTypeQuit EventType = iota
+	EventTypeSample
 	// EventTypeFrame is the event type for when a frame should be drawn
 	EventTypeFrame
+	EventTypeFrameTime
 	// EventTypeTitle is the event type for when the title of the window should be changed
 	EventTypeTitle
 	// EventTypePrint is the event type for when a print job should be performed

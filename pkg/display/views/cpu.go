@@ -22,6 +22,10 @@ type CPU struct {
 	flags []binding.BoolList
 }
 
+func (c *CPU) Title() string {
+	return "CPU"
+}
+
 func (c *CPU) Run(window fyne.Window, events <-chan display.Event) error {
 	grid := container.NewVBox()
 	// set the content of the window

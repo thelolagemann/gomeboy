@@ -26,6 +26,10 @@ type PPU struct {
 	grid *fyne.Container
 }
 
+func (p *PPU) Title() string {
+	return "PPU"
+}
+
 func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 	// create the base grid and set it as the content of the window
 	grid := container.New(layout.NewVBoxLayout())
@@ -46,20 +50,20 @@ func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 	cgbBgPaletteEntryGrids := make([]*fyne.Container, 8)
 	cgbObjPaletteEntryGrids := make([]*fyne.Container, 8)
 
-	// dmg palette
+	// dmg paletteView
 	for i, str := range []string{"BG   ", "OBJ 0", "OBJ 1"} {
-		dmgPaletteEntryGrids[i] = container.New(&palette{})
+		dmgPaletteEntryGrids[i] = container.New(&paletteView{})
 		// add the label to the grid
 		dmgPaletteEntryGrids[i].Add(widget.NewLabelWithStyle(str, fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}))
 		dmgPaletteGrid.Add(dmgPaletteEntryGrids[i])
 	}
 	for i := 0; i < 8; i++ {
-		cgbBgPaletteEntryGrids[i] = container.New(&palette{})
+		cgbBgPaletteEntryGrids[i] = container.New(&paletteView{})
 		// add the label to the grid
 		cgbBgPaletteEntryGrids[i].Add(widget.NewLabelWithStyle("BG  "+strconv.Itoa(i), fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}))
 		cgbBgPaletteGrid.Add(cgbBgPaletteEntryGrids[i])
 
-		cgbObjPaletteEntryGrids[i] = container.New(&palette{}) // 4 colors + label
+		cgbObjPaletteEntryGrids[i] = container.New(&paletteView{}) // 4 colors + label
 		// add the label to the grid
 		cgbObjPaletteEntryGrids[i].Add(widget.NewLabelWithStyle("OBJ "+strconv.Itoa(i), fyne.TextAlignLeading, fyne.TextStyle{Monospace: true}))
 		cgbObjPaletteEntryGrids[i].Resize(fyne.NewSize(64, 16))
@@ -86,7 +90,7 @@ func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 	}
 
 	// TODO find better way to do this
-	// copy the palette entry rectangles to the PPU struct
+	// copy the paletteView entry rectangles to the PPU struct
 	p.dmgPaletteEntryRects = dmgPaletteEntryRects
 	p.cgbBgPaletteEntryRects = cgbBgPaletteEntryRects
 	p.cgbObjPaletteEntryRects = cgbObjPaletteEntryRects
@@ -140,26 +144,26 @@ func toRGB(rgb [3]uint8) color.RGBA {
 }
 
 // TODO
-// - create function to create palette grid (colours 0 - 3)
+// - create function to create paletteView grid (colours 0 - 3)
 // - new window function
 // - window interface - Run() error - creates a new window and runs it, Update() error - updates the window when appropriate
 // - channel from main window that sends a signal over channel to update all windows on new frame
-// - palettes actually hold colours (not just indexes) - palette changes
+// - palettes actually hold colours (not just indexes) - paletteView changes
 
-type palette struct {
+type paletteView struct {
 }
 
-func (p *palette) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(164, 24)
+func (p *paletteView) MinSize(_ []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(136, 24)
 }
 
-func (p *palette) Layout(objects []fyne.CanvasObject, _ fyne.Size) {
-	pos := fyne.NewPos(0, 0)
+func (p *paletteView) Layout(objects []fyne.CanvasObject, _ fyne.Size) {
+	pos := fyne.NewPos(8, 0)
 	for _, o := range objects {
 		s := o.MinSize()
 		o.Resize(s)
 		o.Move(pos)
 
-		pos = pos.Add(fyne.NewPos(s.Width+4, 0))
+		pos = pos.Add(fyne.NewPos(s.Width+8, 0))
 	}
 }

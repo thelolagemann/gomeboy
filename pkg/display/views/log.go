@@ -21,6 +21,10 @@ type Log struct {
 	entries []string
 }
 
+func (l *Log) Title() string {
+	return "Log"
+}
+
 func (l *Log) Infof(format string, args ...interface{}) {
 	l.Lock()
 	defer l.Unlock()

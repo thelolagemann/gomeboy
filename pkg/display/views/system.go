@@ -16,6 +16,10 @@ var (
 type System struct {
 }
 
+func (s *System) Title() string {
+	return "System"
+}
+
 func (s *System) Run(window fyne.Window, events <-chan display.Event) error {
 	box := container.NewVBox()
 	window.SetContent(box)

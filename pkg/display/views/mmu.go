@@ -21,6 +21,10 @@ type MMU struct {
 	*mmu.MMU
 }
 
+func (M *MMU) Title() string {
+	return "MMU"
+}
+
 func (M *MMU) Run(w fyne.Window, events <-chan display.Event) error {
 	// create the base grid
 	grid := container.NewVBox()
