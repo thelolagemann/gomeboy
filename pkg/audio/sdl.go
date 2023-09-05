@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	buffer = newBuffer(1024 * 1024)
-	paused = false
+	buffer   = newBuffer(1024 * 1024)
+	paused   = false
+	disabled = false
 )
 
 // circularBuffer is a circular buffer of bytes.
@@ -93,7 +94,7 @@ func init() {
 		Samples:  bufferSize,
 		Callback: sdl.AudioCallback(C.AudioData),
 	}, nil, 0); err != nil {
-		panic(fmt.Sprintf("failed to open audio device: %v", err))
+		disabled = true
 	}
 	sdl.PauseAudioDevice(audioDeviceID, false)
 }
@@ -108,8 +109,9 @@ const (
 )
 
 func PlaySDL(data []byte) {
-	buffer.write(data)
-
+	if !disabled {
+		buffer.write(data)
+	}
 }
 
 func Pause() {
