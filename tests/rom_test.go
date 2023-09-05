@@ -64,10 +64,18 @@ func Test_All(t *testing.T) {
 	// write markdown table to README.md
 	f, err := os.Create("README.md")
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
 	_, err = f.WriteString(testTable.CreateReadme())
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if err := f.Close(); err != nil {
+		t.Error(err)
+	}
 }
 
 // TestTable is a collection of many TestSuite(s).
