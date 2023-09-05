@@ -186,7 +186,6 @@ var CompatibilityHashEntries = []hashEntry{
 }
 
 func GetCompatibilityPaletteEntry(hash uint16) (CompatibilityPaletteEntry, bool) {
-	fmt.Printf("hash: %x\n", hash)
 	for _, entry := range CompatibilityHashEntries {
 		if entry.EntryID == uint8(hash>>8) && (entry.Disambiguation == 0 || entry.Disambiguation == uint8(hash&0xFF)) {
 			fmt.Printf("found entry: %x\n", entry.EntryID)

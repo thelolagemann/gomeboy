@@ -287,7 +287,6 @@ func CreateMarkdownTableFromTests(tests []ROMTest) string {
 			pass = "❌"
 		}
 		table += "| " + test.Name() + " | " + pass + " |\n"
-		fmt.Println(test.Name(), test.Passed())
 	}
 	return table
 }
