@@ -370,9 +370,7 @@ func SerialDebugger(output *string) GameBoyOpt {
 		// used to intercept serial output and store it in a string
 		types.RegisterHardware(types.SB, func(v uint8) {
 			*output += string(v)
-			fmt.Println(*output)
 			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
-				fmt.Println("BREAKPOINT")
 				gb.CPU.DebugBreakpoint = true
 			}
 		}, func() uint8 {

@@ -1,7 +1,6 @@
 package ppu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
@@ -52,7 +51,6 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		h.destination |= uint16(v & 0xF0)
 	}, types.NoRead)
 	types.RegisterHardware(types.HDMA5, func(v uint8) {
-		fmt.Printf("HDMA5: %02X\n", v)
 		// update the length
 		h.length = (v & 0x7F) + 1
 
