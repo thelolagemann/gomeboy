@@ -1,6 +1,9 @@
 name: gomeboy
 
-on: [pull_request]
+on:
+  push:
+    branches:
+      - dev
 
 jobs:
   build:
