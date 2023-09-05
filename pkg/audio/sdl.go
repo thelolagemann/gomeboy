@@ -4,7 +4,6 @@ package audio
 // void AudioData(void *userdata, Uint8 *stream, int len);
 import "C"
 import (
-	"fmt"
 	"github.com/veandco/go-sdl2/sdl"
 	"reflect"
 	"unsafe"
@@ -79,13 +78,11 @@ func AudioData(userdata unsafe.Pointer, stream *C.Uint8, length C.int) {
 	}
 }
 
-func init() {
-	// initialize SDL audio
+func OpenAudio() error {
 	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
-		panic(fmt.Sprintf("failed to initialize SDL audio: %v", err))
+		return err
 	}
 
-	// open audio device
 	var err error
 	if audioDeviceID, err = sdl.OpenAudioDevice("", false, &sdl.AudioSpec{
 		Freq:     sampleRate,
@@ -94,9 +91,12 @@ func init() {
 		Samples:  bufferSize,
 		Callback: sdl.AudioCallback(C.AudioData),
 	}, nil, 0); err != nil {
-		disabled = true
+		return err
 	}
+
 	sdl.PauseAudioDevice(audioDeviceID, false)
+
+	return nil
 }
 
 var (
