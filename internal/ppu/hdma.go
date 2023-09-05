@@ -76,12 +76,10 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 			// performed by the scheduler until the next HBlank period, so we perform
 			// the transfer immediately here and decrement the remaining length
 			if h.ppu.Enabled && h.ppu.Mode == lcd.HBlank && h.hdmaRemaining > 0 {
-
 				h.newDMA(1)
 				h.hdmaRemaining--
 			}
 		} else {
-
 			// if bit 7 is not set, we are starting a new GDMA transfer
 			if h.hdmaRemaining > 0 {
 				// if we're in the middle of a HDMA transfer, pause it
@@ -89,13 +87,11 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 				h.gdmaComplete = false
 
 				h.hdmaRemaining = h.length
-
 			} else {
 				// if we're not in the middle of a HDMA transfer, perform a GDMA transfer
 				h.newDMA(h.length)
 				h.gdmaComplete = true
 			}
-
 		}
 
 	}, func() uint8 {
@@ -117,7 +113,6 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 }
 
 func (h *HDMA) newDMA(length uint8) {
-
 	for i := uint8(0); i < length; i++ {
 		for j := uint8(0); j < 16; j++ {
 			// tick the scheduler

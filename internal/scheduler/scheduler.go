@@ -75,10 +75,6 @@ func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 	s.events[eventType].eventType = eventType
 }
 
-func (s *Scheduler) Start() {
-	// s.root = s.events[APUSample]
-}
-
 // Tick advances the scheduler by the given number of cycles. This will
 // execute all scheduled events up to the current cycle. If an event is
 // scheduled for the current cycle, it will be executed and removed from
@@ -86,33 +82,47 @@ func (s *Scheduler) Start() {
 // be executed when the scheduler is ticked with the cycle at which it
 // should be executed.
 func (s *Scheduler) Tick(c uint64) {
-	for i := uint64(0); i < c; i++ {
-		s.tick()
-	}
-}
+	// what cycle are we advancing to
+	cycleToAdvance := s.cycles + c
 
-func (s *Scheduler) tick() {
-	s.cycles++
+	// get the current cycle at which the next event occurs
+	nextEvent := s.nextEventAt
 
-	if s.nextEventAt > s.cycles {
+	// if the next event occurs in the future, simply increment
+	// the cycle count and return
+	if nextEvent > cycleToAdvance {
+		s.cycles = cycleToAdvance
 		return
 	}
 
-	s.nextEventAt = s.doEvents()
+	// otherwise perform accurate loop, jumping from each event
+	// (mostly to pass blarggs wave read/write/trigger - maybe make
+	// this optional in the future?)
+	for nextEvent <= cycleToAdvance {
+		s.cycles = nextEvent
+
+		nextEvent = s.doEvents(s.cycles)
+	}
+
+	// update cycles and next event
+	s.cycles = cycleToAdvance
+	s.nextEventAt = nextEvent
 }
 
+// SysClock returns the internal divider clock of the Game Boy.
 func (s *Scheduler) SysClock() uint16 {
 	return uint16((s.cycles - s.divTimer) & 0xFFFF)
 }
 
+// SysClockReset resets the internal divider clock. TODO notify
+// timer of reset.
 func (s *Scheduler) SysClockReset() {
 	s.divTimer = s.cycles
 }
 
 // doEvents executes all events scheduled in the list up to the given
 // cycle. It returns the cycle at which the next event should be executed.
-func (s *Scheduler) doEvents() uint64 {
-	until := s.cycles // avoid the cost of accessing the field in each iteration
+func (s *Scheduler) doEvents(until uint64) uint64 {
 	nextEvent := s.nextEventAt
 
 	for {
@@ -124,13 +134,7 @@ func (s *Scheduler) doEvents() uint64 {
 		// set the next event to be executed
 		s.root = event.next
 
-		if event.eventType <= PPUOAMInterrupt {
-			// fmt.Printf("executing event %s at cycle %d\n", eventTypeNames[event.eventType], s.cycles)
-		}
 		// execute the event
-		if event.handler == nil {
-			panic(fmt.Sprintf("no handler for event %s", eventTypeNames[event.eventType]))
-		}
 		event.handler()
 
 		nextEvent = s.root.cycle
@@ -142,10 +146,6 @@ func (s *Scheduler) doEvents() uint64 {
 	}
 
 	return nextEvent
-}
-
-func (s *Scheduler) DoEventNow(event EventType) {
-	s.events[event].handler()
 }
 
 // ScheduleEvent schedules an event to be executed at the given cycle.
@@ -239,6 +239,7 @@ func (s *Scheduler) DoEvent() uint64 {
 
 	s.root = event.next
 	event.handler()
+
 	return s.root.cycle
 }
 
@@ -331,6 +332,7 @@ func (s *Scheduler) Skip() {
 	s.cycles = s.nextEventAt
 	s.nextEventAt = s.DoEvent()
 }
+
 func (s *Scheduler) String() string {
 	result := ""
 	event := s.root

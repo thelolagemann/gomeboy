@@ -17,6 +17,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/go-gameboy/pkg/audio"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/emu"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
@@ -33,13 +34,10 @@ const (
 )
 
 var (
-	// ClockSpeed is the clock speed of the Game Boy.
-	ClockSpeed = 4194304 // 4.194304 MHz
 	// FrameRate is the frame rate of the emulator.
-	FrameRate = 60
+	FrameRate = 59.97
 	// FrameTime is the time it should take to render a frame.
-	FrameTime            = time.Second / time.Duration(FrameRate)
-	TicksPerFrame uint32 = uint32(ClockSpeed / FrameRate)
+	FrameTime = time.Second / time.Duration(FrameRate)
 )
 
 // GameBoy represents a Game Boy. It contains all the components of the Game Boy.
@@ -74,6 +72,10 @@ type GameBoy struct {
 	Scheduler       *scheduler.Scheduler
 
 	Options []GameBoyOpt
+}
+
+func (g *GameBoy) AttachAudioListener(player func([]byte)) {
+	g.APU.AttachPlayback(player)
 }
 
 func (g *GameBoy) StartLinked(
@@ -262,6 +264,7 @@ emuLoop:
 			}
 			g.MMU.PrintLoggedReads()
 			g.CPU.LogUsedInstructions()
+			g.running = false
 			break emuLoop
 		case <-ticker.C:
 			// lock the gameboy
@@ -288,9 +291,9 @@ emuLoop:
 					// append to avg render times
 					avgRenderTimes = append(avgRenderTimes, avgRenderTime)
 
-					//totalAvgRenderTime := avgTime(avgRenderTimes)
+					totalAvgRenderTime := avgTime(avgRenderTimes)
 
-					//events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
+					events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
 					events <- display.Event{Type: display.EventTypeFrameTime, Data: avgRenderTimes}
 					g.frames = 0
 					start = time.Now()
@@ -336,10 +339,12 @@ emuLoop:
 
 func (g *GameBoy) Pause() {
 	g.paused = true
+	audio.Pause()
 }
 
 func (g *GameBoy) Unpause() {
 	g.paused = false
+	audio.Play()
 }
 
 func (g *GameBoy) TogglePause() {
@@ -425,7 +430,8 @@ func WithBootROM(rom []byte) GameBoyOpt {
 		gb.CPU.D = 0x00
 		gb.CPU.E = 0x00
 		gb.CPU.H = 0x00
-		gb.CPU.L = 0x00
+		gb.CPU.L = 0x0
+
 	}
 }
 
@@ -463,6 +469,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	video.AttachNotifyFrame(func() {
 		processor.HasFrame()
 	})
+	processor.AttachIO(memBus.IO())
+
 	g := &GameBoy{
 		CPU:    processor,
 		MMU:    memBus,
@@ -640,4 +648,8 @@ func (g *GameBoy) Save(s *types.State) {
 
 func (g *GameBoy) IsRunning() bool {
 	return g.running
+}
+
+func (g *GameBoy) IsPaused() bool {
+	return g.paused
 }

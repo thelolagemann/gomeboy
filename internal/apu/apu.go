@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	bufferSize           = 4096
+	bufferSize           = 256
 	emulatedSampleRate   = 44100
 	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
@@ -64,12 +64,10 @@ type APU struct {
 	bufferPos int
 	buffer    []byte
 
-	lastUpdate            uint64
-	s                     *scheduler.Scheduler
-	currentSamplePosition int
+	lastUpdate uint64
+	s          *scheduler.Scheduler
 
-	listeners []chan []byte
-	playBack  func([]byte)
+	playBack func([]byte)
 }
 
 func (a *APU) highPass(channel int, in uint8, dacEnabled bool) uint8 {
@@ -299,11 +297,6 @@ func (a *APU) sample() {
 	channel3Amplitude := a.chan3.getAmplitude()
 	channel4Amplitude := a.chan4.getAmplitude()
 
-	// copy to samples debug
-	if a.currentSamplePosition%64 == 0 {
-		a.Samples[a.currentSamplePosition/64].Channel1 = channel1Amplitude
-	}
-
 	// apply high-pass filter
 	//channel1Amplitude = a.highPass(0, channel1Amplitude, a.chan1.channel.dacEnabled)
 	//channel2Amplitude = a.highPass(1, channel2Amplitude, a.chan2.channel.dacEnabled)
@@ -340,7 +333,6 @@ func (a *APU) sample() {
 		}
 		a.bufferPos = 0
 	}
-	a.currentSamplePosition = (a.currentSamplePosition + 1) % len(a.Samples)
 
 	// schedule next sample in samplePeriod cycles
 	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)

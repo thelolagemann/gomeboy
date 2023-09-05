@@ -26,17 +26,12 @@ type channel3 struct {
 
 	// embed APU to access from wave RAM Read/Write
 	apu *APU
-
-	s *scheduler.Scheduler
 }
 
 func newChannel3(a *APU) *channel3 {
 	c := &channel3{
 		channel: newChannel(),
-		//waveRAMPosition:     4,
-		//waveRAMLastPosition: 2,
-		apu: a,
-		s:   a.s,
+		apu:     a,
 	}
 
 	a.s.RegisterEvent(scheduler.APUChannel3, func() {
@@ -142,8 +137,6 @@ func newChannel3(a *APU) *channel3 {
 
 			a.s.DescheduleEvent(scheduler.APUChannel3)
 			a.s.ScheduleEvent(scheduler.APUChannel3, uint64((2048-c.frequency)*2)+6)
-
-			// c.frequencyTimer = 6 // + 6 to pass blargg's 09-wave read while on test
 		}
 
 	}), func() uint8 {
@@ -156,23 +149,6 @@ func newChannel3(a *APU) *channel3 {
 
 	return c
 }
-
-/*func (c *channel3) step() {
-	c.ticksSinceRead++
-	if c.frequencyTimer--; c.frequencyTimer == 0 {
-		c.frequencyTimer = (2048 - c.frequency) * 2
-
-		if c.enabled && c.dacEnabled {
-			c.ticksSinceRead = 0
-			c.waveRAMLastPosition = c.waveRAMPosition >> 1
-			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
-
-			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
-		} else {
-			c.waveRAMSampleBuffer = 0
-		}
-	}
-}*/
 
 func (c *channel3) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
@@ -188,7 +164,6 @@ func (c *channel3) getAmplitude() uint8 {
 
 func (c *channel3) readWaveRAM(address uint16) uint8 {
 	if c.isEnabled() {
-
 		if c.apu.s.Cycle()-c.waveRAMLastRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
 			return c.waveRAM[c.waveRAMLastPosition]
 		} else {

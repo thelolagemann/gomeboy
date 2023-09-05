@@ -91,7 +91,7 @@ func init() {
 		Format:   sdl.AUDIO_U16SYS,
 		Channels: 2,
 		Samples:  bufferSize,
-		// Callback: sdl.AudioCallback(C.AudioData),
+		Callback: sdl.AudioCallback(C.AudioData),
 	}, nil, 0); err != nil {
 		panic(fmt.Sprintf("failed to open audio device: %v", err))
 	}
@@ -103,14 +103,13 @@ var (
 )
 
 const (
-	bufferSize = 512
+	bufferSize = 256
 	sampleRate = 44100
 )
 
 func PlaySDL(data []byte) {
-	if err := sdl.QueueAudio(audioDeviceID, data); err != nil {
-		panic(err)
-	}
+	buffer.write(data)
+
 }
 
 func Pause() {

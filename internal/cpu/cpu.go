@@ -11,13 +11,6 @@ import (
 	"time"
 )
 
-const (
-	// ClockSpeed is the clock speed of the CPU.
-	ClockSpeed = 4194304
-)
-
-type mode = uint8
-
 // CPU represents the Gameboy CPU. It is responsible for executing instructions.
 type CPU struct {
 	// PC is the program counter, it points to the next instruction to be executed.
@@ -31,13 +24,10 @@ type CPU struct {
 
 	ime bool
 
-	doubleSpeed  bool
-	perTickCount uint16
+	doubleSpeed bool
 
 	mmu *mmu.MMU
 	irq *interrupts.Service
-
-	mode mode
 
 	registerSlice [8]*uint8
 
@@ -45,32 +35,38 @@ type CPU struct {
 	instructionsCB [256]func(cpu *CPU)
 
 	cartFixedBank [0x4000]byte
-	isGBC         bool
-	isMBC1        bool
-	hasFrame      bool
-	s             *scheduler.Scheduler
-	model         types.Model
-	ppu           *ppu.PPU
+	io            *[65536]*types.Address
+
+	isGBC    bool
+	isMBC1   bool
+	hasFrame bool
+	s        *scheduler.Scheduler
+	model    types.Model
+	ppu      *ppu.PPU
+	stopped  bool
 }
 
 func (c *CPU) SetModel(model types.Model) {
 	c.model = model
 }
 
+func (c *CPU) AttachIO(io *[65536]*types.Address) {
+	c.io = io
+}
+
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
 func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c := &CPU{
-		Registers:    Registers{},
-		mmu:          mmu,
-		irq:          irq,
-		perTickCount: 4,
-		//sysClock:     0xABCC,
-		isMBC1: mmu.IsMBC1,
-		isGBC:  mmu.IsGBC(),
-		s:      sched,
-		ppu:    ppu,
+		Registers: Registers{},
+		mmu:       mmu,
+		irq:       irq,
+		isMBC1:    mmu.IsMBC1,
+		isGBC:     mmu.IsGBC(),
+		s:         sched,
+		ppu:       ppu,
 	}
+
 	// create register pairs
 	c.BC = &RegisterPair{&c.B, &c.C}
 	c.DE = &RegisterPair{&c.D, &c.E}
@@ -95,7 +91,6 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, p
 
 	sched.RegisterEvent(scheduler.EIPending, func() {
 		c.ime = true
-
 	})
 	sched.RegisterEvent(scheduler.EIHaltDelay, func() {
 		c.ime = true
@@ -165,14 +160,9 @@ func (c *CPU) handleOAMCorruption(pos uint16) {
 
 // Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
-
 	for !c.hasFrame && !c.DebugBreakpoint {
-
-		// get the next instruction
-		instr := c.readOpcode()
-
 		// execute the instruction
-		c.instructions[instr](c)
+		c.instructions[c.readOpcode()](c)
 
 		// did we get an interrupt?
 		if c.ime && c.irq.Enable&c.irq.Flag != 0 {
@@ -181,7 +171,6 @@ func (c *CPU) Frame() {
 
 	}
 	c.hasFrame = false
-
 }
 
 // readOpcode reads the next instruction from memory.
@@ -207,17 +196,21 @@ func (c *CPU) skipOperand() {
 // readByte reads a byte from memory.
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.s.Tick(4)
-	/* TODO reimplement this*/
-	/*if c.mmu.BootROM != nil && !c.mmu.IsBootROMDone() {
+
+	switch {
+	case c.mmu.BootROM != nil && !c.mmu.IsBootROMDone():
 		if addr < 0x100 {
 			return c.mmu.BootROM.Read(addr)
 		}
 		if addr >= 0x200 && addr < 0x900 {
 			return c.mmu.BootROM.Read(addr)
 		}
-	}*/
-	if addr < 0x4000 && !c.isMBC1 {
+	case addr < 0x4000 && !c.isMBC1:
+		// can we avoid the call to mmu? MBC1 is special
 		return c.cartFixedBank[addr]
+	case addr >= 0xFF00 && addr <= 0xFF7F:
+		// are we trying to read an IO register?
+		return c.io[addr].Read(addr)
 	}
 
 	return c.mmu.Read(addr)
@@ -319,7 +312,6 @@ func (c *CPU) Load(s *types.State) {
 	c.L = s.Read8()
 	c.SP = s.Read16()
 	c.PC = s.Read16()
-	c.mode = s.Read8()
 	c.doubleSpeed = s.ReadBool()
 	c.irq.Load(s)
 }
@@ -335,7 +327,6 @@ func (c *CPU) Save(s *types.State) {
 	s.Write8(c.L)
 	s.Write16(c.SP)
 	s.Write16(c.PC)
-	s.Write8(c.mode)
 	s.WriteBool(c.doubleSpeed)
 	c.irq.Save(s)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
 	"image/color"
+	"unsafe"
 )
 
 const (
@@ -1261,7 +1262,7 @@ func (p *PPU) renderBackgroundScanline() {
 
 	// assign the palette to use
 	var pal palette.Palette
-	if p.isGBC || p.bus.BootROM != nil && !p.bus.IsBootROMDone() {
+	if p.isGBC || p.bus.IsBootROMCGB() && !p.bus.IsBootROMDone() {
 		pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
 	} else if p.isGBCCompat {
 		// we use the last palette for compatibility mode (not actually representative of
@@ -1275,12 +1276,11 @@ func (p *PPU) renderBackgroundScanline() {
 	scanline := &p.PreparedFrame[p.CurrentScanline]
 
 	for i := uint8(0); i < ScreenWidth; i++ {
-		// set scanline using unsafe to copy 4 bytes at a time
-		//*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 		if p.Debug.BackgroundDisabled {
 			scanline[i] = [3]uint8{255, 255, 255}
 		} else {
-			scanline[i] = pal[colourLUT[xPixelPos]]
+			// set scanline using unsafe to copy 4 bytes at a time
+			*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 		}
 		bgPriorityLine[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]
@@ -1296,7 +1296,7 @@ func (p *PPU) renderBackgroundScanline() {
 			tileEntry = p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
 			tileID = tileEntry.GetID(p.UsingSignedTileData())
 
-			if p.isGBC || p.bus.BootROM != nil && !p.bus.IsBootROMDone() {
+			if p.isGBC || p.bus.IsBootROMCGB() && !p.bus.IsBootROMDone() {
 				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
 			} else if p.isGBCCompat {
 				// we use the last palette for compatibility mode (not actually representative of

@@ -34,22 +34,26 @@ func DefineInstructionCB(opcode uint8, name string, fn func(*CPU)) {
 func init() {
 	DefineInstruction(0x00, "NOP", func(c *CPU) {})
 	DefineInstruction(0x10, "STOP", func(c *CPU) {
-		if c.mmu.IsGBCCompat() {
-			if c.mmu.Key()&0b0000_0001 == 1 {
-				fmt.Printf("STOP: %08b\n", c.mmu.Key())
-				c.mmu.Log.Debugf("CGB STOP, key: %08b", c.mmu.Key())
-				c.doubleSpeed = !c.doubleSpeed
-				c.s.ChangeSpeed(c.doubleSpeed)
+		// reset div clock
+		c.s.SysClockReset()
 
-				if c.mmu.Key()&0b1000_0000 == 1 {
-					c.mmu.SetKey(0)
-				} else {
-					c.mmu.SetKey(0b1000_0000)
-				}
+		// if there's no pending interrupt then STOP becomes a 2-byte opcode
+		if !c.irq.HasInterrupts() {
+			c.PC++
+		}
+
+		// are we in gbc mode (STOP is alternatively used for speed-switching)
+		if c.mmu.IsGBC() && c.mmu.Key()&types.Bit0 == types.Bit0 {
+			c.doubleSpeed = !c.doubleSpeed
+			c.s.ChangeSpeed(c.doubleSpeed)
+
+			if c.doubleSpeed {
+				c.mmu.SetKey(types.Bit7)
+			} else {
+				c.mmu.SetKey(0)
 			}
-
 		} else {
-			c.skipHALT()
+			c.stopped = true
 		}
 	})
 	DefineInstruction(0x27, "DAA", func(cpu *CPU) {
@@ -134,7 +138,7 @@ func init() {
 	generateShiftInstructions()
 
 	for _, opcode := range disallowedOpcodes {
-		DefineInstruction(opcode, "disallowed", disallowedOpcode)
+		DefineInstruction(opcode, "disallowed", disallowedOpcode(opcode))
 	}
 }
 
@@ -144,6 +148,8 @@ var disallowedOpcodes = []uint8{
 
 var InstructionSet [256]Instruction
 
-func disallowedOpcode(cpu *CPU) {
-	panic(fmt.Sprintf("disallowed opcode %X at %04x", cpu.mmu.Read(cpu.PC), cpu.PC))
+func disallowedOpcode(opcode uint8) func(*CPU) {
+	return func(cpu *CPU) {
+		panic(fmt.Sprintf("disallowed opcode %X at %04x", opcode, cpu.PC))
+	}
 }

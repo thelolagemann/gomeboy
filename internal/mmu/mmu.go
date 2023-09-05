@@ -71,6 +71,7 @@ type MMU struct {
 	ff72, ff73, ff74, ff75 uint8
 	GameGenie              *cheats.GameGenie
 	GameShark              *cheats.GameShark
+	bootROMCGB             bool
 }
 
 func (m *MMU) init() {
@@ -251,6 +252,10 @@ func NewMMU(cart *cartridge.Cartridge, sound IOBus) *MMU {
 	return m
 }
 
+func (m *MMU) IO() *[65536]*types.Address {
+	return &m.raw
+}
+
 func (m *MMU) SetLogger(l log.Logger) {
 	m.Log = l
 }
@@ -368,6 +373,7 @@ func (m *MMU) SetBootROM(rom []byte) {
 	m.bootROMDone = false
 	if len(rom) == 0x900 {
 		m.isGBCCompat = true
+		m.bootROMCGB = true
 	} else {
 		m.isGBCCompat = false
 	}
@@ -510,4 +516,8 @@ func (m *MMU) Set(i types.HardwareAddress, v interface{}) {
 	} else {
 		register.Write(v.(uint8))
 	}
+}
+
+func (m *MMU) IsBootROMCGB() bool {
+	return m.bootROMCGB
 }
