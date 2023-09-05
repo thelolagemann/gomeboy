@@ -104,7 +104,11 @@ func main() {
 	opts = append(opts, gameboy.Debug())
 	gb := gameboy.NewGameBoy(rom, opts...)
 
-	gb.AttachAudioListener(audio.PlaySDL)
+	if err := audio.OpenAudio(); err != nil {
+		logger.Errorf("unable to open audio device %s", err)
+	} else {
+		gb.AttachAudioListener(audio.PlaySDL)
+	}
 
 	if *webUI {
 		var opts []web.HubOpt

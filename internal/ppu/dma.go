@@ -1,7 +1,6 @@
 package ppu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/go-gameboy/internal/mmu"
 	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
@@ -99,10 +98,6 @@ func (d *DMA) startTransfer() {
 }
 
 func (d *DMA) doTransfer() {
-	// check if dma in HWIO range
-	if d.source >= 0xFF00 && d.source <= 0xFF7F {
-		fmt.Println("DMA transfer attempted from HWIO range")
-	}
 	if d.restarting {
 		d.restarting = false
 	}
