@@ -1,23 +1,13 @@
-//go:build !test
-
 package utils
 
 import (
 	"archive/zip"
 	"compress/gzip"
 	"github.com/bodgit/sevenzip"
-	"github.com/sqweek/dialog"
 	"io"
 	"os"
 	"path/filepath"
 )
-
-func AskForFile(title, startingDir string) (string, error) {
-	builder := dialog.File().SetStartDir(startingDir).Title(title)
-
-	// show the dialog
-	return builder.Load()
-}
 
 func IsSize(filename string, size int64) bool {
 	// open the file
