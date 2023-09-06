@@ -3,7 +3,6 @@ package tests
 import (
 	"os"
 	"path/filepath"
-	"testing"
 )
 
 const (
@@ -35,7 +34,7 @@ func newSamesuiteTestCollectionFromDir(suite *TestSuite, dir string) *TestCollec
 	return tc
 }
 
-func testSamesuite(t *testing.T, roms *TestTable) {
+func testSamesuite(roms *TestTable) {
 	// create top level test suite
 	tS := roms.NewTestSuite("samesuite")
 

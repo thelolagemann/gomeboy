@@ -115,7 +115,7 @@ func (m *mooneyeTest) Passed() bool {
 	return m.passed
 }
 
-func testMooneye(t *testing.T, roms *TestTable) {
+func testMooneye(roms *TestTable) {
 	// create top level test
 	tS := roms.NewTestSuite("mooneye")
 
