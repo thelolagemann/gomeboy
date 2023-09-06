@@ -65,7 +65,7 @@ varying degrees of success.
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
-| mooneye | 92% | 106 | 8 | 114 |
+| mooneye | 94% | 108 | 6 | 114 |
 | samesuite | 46% | 6 | 7 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
