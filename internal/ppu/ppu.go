@@ -12,7 +12,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"image"
 	"image/color"
-	"unsafe"
 )
 
 const (
@@ -1280,7 +1279,8 @@ func (p *PPU) renderBackgroundScanline() {
 			scanline[i] = [3]uint8{255, 255, 255}
 		} else {
 			// set scanline using unsafe to copy 4 bytes at a time
-			*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
+			scanline[i] = pal[colourLUT[xPixelPos]]
+			//*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 		}
 		bgPriorityLine[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]

@@ -17,7 +17,6 @@ import (
 	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
 	"github.com/thelolagemann/go-gameboy/internal/timer"
 	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/pkg/audio"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/emu"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
@@ -339,12 +338,10 @@ emuLoop:
 
 func (g *GameBoy) Pause() {
 	g.paused = true
-	audio.Pause()
 }
 
 func (g *GameBoy) Unpause() {
 	g.paused = false
-	audio.Play()
 }
 
 func (g *GameBoy) TogglePause() {

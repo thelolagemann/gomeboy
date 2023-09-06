@@ -298,29 +298,29 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 			// save the diff image
 			f, err := os.Create("results/" + name + ".png")
 			if err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 			if err = png.Encode(f, diffResult); err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 
 			// save the actual image
 			f, err = os.Create("results/" + name + "_actual.png")
 			if err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 
 			if err = png.Encode(f, img3); err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 
 			// save the expected image
 			f, err = os.Create("results/" + name + "_expected.png")
 			if err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 			if err = png.Encode(f, img2); err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 		}
 	})

@@ -1,9 +1,16 @@
 package tests
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -35,18 +42,14 @@ is compared against a reference image from a known good emulator.
 
 `
 
+var (
+	_, b, _, _ = runtime.Caller(0)
+	basePath   = filepath.Dir(b)
+	tableRE    = regexp.MustCompile(`\| ([a-zA-Z0-9-]+) \| ([0-9]+%) \| ([0-9]+) \| ([0-9]+) \| ([0-9]+) \|`)
+)
+
 func Test_All(t *testing.T) {
-	testTable := &TestTable{
-		testSuites: make([]*TestSuite, 0),
-	}
-	testAcid2(testTable)
-	// testAge(testTable)
-	testBully(testTable)
-	testBlarrg(testTable)
-	testLittleThings(testTable)
-	testMooneye(t, testTable)
-	testSamesuite(t, testTable)
-	testStrikethrough(testTable)
+	testTable := testAllTable()
 
 	// execute tests
 	for _, top := range testTable.testSuites {
@@ -58,8 +61,6 @@ func Test_All(t *testing.T) {
 			}
 		})
 	}
-
-	// wait for all tests to finish
 
 	// write markdown table to README.md
 	f, err := os.Create("README.md")
@@ -76,6 +77,110 @@ func Test_All(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Error(err)
 	}
+}
+
+func testAllTable() *TestTable {
+	testTable := &TestTable{
+		testSuites: make([]*TestSuite, 0),
+	}
+	testAcid2(testTable)
+	// testAge(testTable)
+	testBully(testTable)
+	testBlarrg(testTable)
+	testLittleThings(testTable)
+	testMooneye(testTable)
+	testSamesuite(testTable)
+	testStrikethrough(testTable)
+
+	return testTable
+}
+
+type regressionTests map[string]int
+
+func Test_Regressions(t *testing.T) {
+	// load README from main branch
+	req, err := http.Get("https://raw.githubusercontent.com/thelolagemann/gomeboy/main/tests/README.md")
+	if err != nil {
+		t.Error(err)
+	}
+	defer req.Body.Close()
+
+	// read bytes
+	b, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Error(err)
+	}
+
+	currentTests := parseTable(string(b))
+
+	// jump to basepath
+	if err := os.Chdir(basePath); err != nil {
+		t.Error(err)
+	}
+
+	// run test with exec (cheeky hack to avoid exit status 1 on failure)
+	cmd := exec.Command("go", "test", "-v",
+		"acid2_test.go",
+		"age_test.go",
+		"blarrg_test.go",
+		"bully_test.go",
+		"image_test.go",
+		"input_test.go",
+		"little_things_test.go",
+		"mealybug_test.go",
+		"misc_test.go",
+		"mooneye_test.go",
+		"rom_test.go",
+		"samesuite_test.go",
+		"scribbl_test.go",
+		"strikethrough_test.go",
+		"wilbertpol_test.go",
+		"-run", "Test_All")
+	var exitError *exec.ExitError
+	if err := cmd.Run(); errors.As(err, &exitError) {
+		if exitError.ExitCode() > 1 {
+			t.Error(err)
+		}
+	} else {
+		t.Error(err)
+	}
+
+	// load local README for comparison
+	f, err := os.Open("README.md")
+	if err != nil {
+		t.Error(err)
+	}
+	defer f.Close()
+	b, err = io.ReadAll(f)
+	if err != nil {
+		t.Error(err)
+	}
+
+	newTests := parseTable(string(b))
+
+	// check that each test suite either passes the same number, or a greater number of tests (TODO per test specificity)
+	for suite, passed := range currentTests {
+		t.Run(suite, func(t *testing.T) {
+			if newTests[suite] < passed {
+				t.Errorf("%s has a regression, %d -> %d", suite, passed, newTests[suite])
+			}
+		})
+	}
+
+}
+
+func parseTable(markdown string) regressionTests {
+	matches := tableRE.FindAllStringSubmatch(markdown, -1)
+
+	tests := make(regressionTests)
+
+	for _, match := range matches {
+		suite := match[1]
+		passed, _ := strconv.Atoi(match[3])
+		tests[suite] = passed
+	}
+
+	return tests
 }
 
 // TestTable is a collection of many TestSuite(s).
