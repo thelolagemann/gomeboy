@@ -79,8 +79,6 @@ func Test_All(t *testing.T) {
 	if err := f.Close(); err != nil {
 		panic(err)
 	}
-
-	fmt.Println(testTable.CreateReadme())
 }
 
 func testAllTable() *TestTable {
@@ -133,7 +131,7 @@ func Test_Regressions(t *testing.T) {
 	}
 
 	// run test with exec (cheeky hack to avoid exit status 1 on failure)
-	cmd := exec.Command("go", "test", "-v",
+	cmd := exec.Command("go", "test", "-tags", "test", "-v",
 		"acid2_test.go",
 		"age_test.go",
 		"blarrg_test.go",
@@ -157,8 +155,6 @@ func Test_Regressions(t *testing.T) {
 	if err := cmd.Run(); errors.As(err, &exitError) {
 		if exitError.ExitCode() > 1 {
 			t.Error(err)
-		} else {
-			fmt.Println(err, out.String())
 		}
 	} else {
 		t.Error(err)
@@ -177,8 +173,6 @@ func Test_Regressions(t *testing.T) {
 
 	if bytes.Equal(oldB, newB) {
 		t.Error("no changes detected in README file", string(oldB), string(newB))
-	} else {
-		fmt.Println(string(oldB), string(newB))
 	}
 
 	newTests := parseTable(string(newB))
