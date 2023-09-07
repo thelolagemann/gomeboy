@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -151,12 +152,17 @@ func Test_Regressions(t *testing.T) {
 		t.Error(err)
 	}
 	defer f.Close()
-	b, err = io.ReadAll(f)
+	newB, err := io.ReadAll(f)
 	if err != nil {
 		t.Error(err)
 	}
 
-	newTests := parseTable(string(b))
+	// READMEs should be different based on the commit hash, so just check byte equality
+	if bytes.Equal(b, newB) {
+		t.Error("no changes detected in README file")
+	}
+
+	newTests := parseTable(string(newB))
 
 	// check that each test suite either passes the same number, or a greater number of tests (TODO per test specificity)
 	for suite, passed := range currentTests {
