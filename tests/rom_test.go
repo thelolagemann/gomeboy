@@ -44,8 +44,8 @@ is compared against a reference image from a known good emulator.
 `
 
 var (
-	_, b, _, _ = runtime.Caller(0)
-	basePath   = filepath.Dir(b)
+	_, c, _, _ = runtime.Caller(0)
+	basePath   = filepath.Dir(c)
 	tableRE    = regexp.MustCompile(`\| ([a-zA-Z0-9-]+) \| ([0-9]+%) \| ([0-9]+) \| ([0-9]+) \| ([0-9]+) \|`)
 )
 
@@ -78,6 +78,8 @@ func Test_All(t *testing.T) {
 	if err := f.Close(); err != nil {
 		panic(err)
 	}
+
+	fmt.Println(testTable.CreateReadme())
 }
 
 func testAllTable() *TestTable {
@@ -168,7 +170,7 @@ func Test_Regressions(t *testing.T) {
 	}
 
 	if bytes.Equal(oldB, newB) {
-		t.Error("no changes detected in README file")
+		t.Error("no changes detected in README file", string(oldB), string(newB))
 	} else {
 		fmt.Println(string(oldB), string(newB))
 	}
