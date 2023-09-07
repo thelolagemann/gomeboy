@@ -119,6 +119,16 @@ func Test_Regressions(t *testing.T) {
 		t.Error(err)
 	}
 
+	// read existing README to compare against to make sure file changed
+	oldF, err := os.Open("README.md")
+	if err != nil {
+		panic(err)
+	}
+	oldB, err := io.ReadAll(oldF)
+	if err != nil {
+		panic(err)
+	}
+
 	// run test with exec (cheeky hack to avoid exit status 1 on failure)
 	cmd := exec.Command("go", "test", "-v",
 		"acid2_test.go",
@@ -157,9 +167,10 @@ func Test_Regressions(t *testing.T) {
 		t.Error(err)
 	}
 
-	// READMEs should be different based on the commit hash, so just check byte equality
-	if bytes.Equal(b, newB) {
+	if bytes.Equal(oldB, newB) {
 		t.Error("no changes detected in README file")
+	} else {
+		fmt.Println(string(oldB), string(newB))
 	}
 
 	newTests := parseTable(string(newB))
