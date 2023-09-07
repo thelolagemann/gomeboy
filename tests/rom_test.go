@@ -186,6 +186,10 @@ func Test_Regressions(t *testing.T) {
 		})
 	}
 
+	if t.Failed() {
+		fmt.Println(string(oldB), string(newB))
+	}
+
 }
 
 func parseTable(markdown string) regressionTests {
