@@ -2,15 +2,23 @@ name: gomeboy
 
 on:
   push:
+    branches-ignore:
+      - main
+  pull_request_review:
     branches:
-      - dev
+      - main
 
 jobs:
-  build:
+  test_regressions:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
       - name: setup go
         uses: actions/setup-go@v4
         with:
@@ -19,3 +27,7 @@ jobs:
         run: go get .
       - name: Test
         run: go test -tags test -v tests/*.go -run Test_Regressions
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Automated test results
+          file_pattern: '*.md'
