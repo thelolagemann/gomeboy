@@ -56,9 +56,8 @@ varying degrees of success.
 # Automated Test Results
 
 
-![progress](https://progress-bar.dev/89/?scale=100&title=passing%20162,%20failing%2019&width=500)
+![progress](https://progress-bar.dev/90/?scale=100&title=passing%20164,%20failing%2017&width=500)
 
-# Test Results
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
 | acid2 | 75% | 3 | 1 | 4 |
@@ -69,7 +68,7 @@ varying degrees of success.
 | samesuite | 46% | 6 | 7 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
-<sup>Visit the [tests](tests/README.md) directory for more information.</sup>
+Visit the [tests](tests/README.md) directory for more information.</sup>
 
 ---
 
@@ -79,4 +78,4 @@ varying degrees of success.
 - [ ] github actions
 - [ ] improve error handling and logging
 - [ ] expose more emulator options to the user
-- [ ] reimplement link cable & local multiplayer
+- [ ] reimplement link cable & local multiplayer & local multiplayer
