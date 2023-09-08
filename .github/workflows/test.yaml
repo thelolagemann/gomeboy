@@ -1,9 +1,6 @@
 name: gomeboy
 
 on:
-  push:
-    branches-ignore:
-      - main
   pull_request:
     branches:
       - main
