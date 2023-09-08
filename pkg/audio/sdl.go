@@ -106,7 +106,7 @@ var (
 )
 
 const (
-	bufferSize = 256
+	bufferSize = 512
 	sampleRate = 44100
 )
 
