@@ -63,11 +63,6 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		pressed := make(chan joypad.Button, 10)
 		released := make(chan joypad.Button, 10)
 
-		// start the gameboy
-		go func() {
-			gb.Start(frames, events, pressed, released)
-		}()
-
 		// sort the inputs by cycle (so we can press them in order)
 		sort.Slice(inputs, func(i, j int) bool {
 			return inputs[i].atEmulatedCycle < inputs[j].atEmulatedCycle
@@ -103,6 +98,11 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 					<-events
 				}
 			}
+		}()
+
+		// start the gameboy
+		go func() {
+			gb.Start(frames, events, pressed, released)
 		}()
 
 		// wait for the test to finish
