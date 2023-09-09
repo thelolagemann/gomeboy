@@ -56,7 +56,7 @@ varying degrees of success.
 # Automated Test Results
 
 
-![progress](https://progress-bar.dev/90/?scale=100&title=passing%20164,%20failing%2017&width=500)
+![progress](https://progress-bar.dev/91/?scale=100&title=passing%20165,%20failing%2016&width=500)
 
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ varying degrees of success.
 | bully | 0% | 0 | 1 | 1 |
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
-| mooneye | 94% | 108 | 6 | 114 |
+| mooneye | 95% | 109 | 5 | 114 |
 | samesuite | 46% | 6 | 7 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
