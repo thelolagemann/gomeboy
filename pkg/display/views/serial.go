@@ -2,7 +2,7 @@ package views
 
 import (
 	"fyne.io/fyne/v2"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display"
 )
 
 var _ display.View = (*Serial)(nil)

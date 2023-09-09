@@ -1,8 +1,8 @@
 package apu
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/scheduler"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 type channel4 struct {

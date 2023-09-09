@@ -1,7 +1,7 @@
 package cpu
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // Flag represents a flag in the F register, which is

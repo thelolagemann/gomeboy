@@ -1,7 +1,7 @@
 package ppu
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"image"
 )
 

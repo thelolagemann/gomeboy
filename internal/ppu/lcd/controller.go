@@ -1,8 +1,8 @@
 package lcd
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
+	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
 // Controller is the LCD controller. It is responsible for controlling various

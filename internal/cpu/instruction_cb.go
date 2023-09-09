@@ -2,7 +2,7 @@ package cpu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
 var registerNameMap = map[uint8]string{

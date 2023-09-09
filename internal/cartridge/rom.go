@@ -1,6 +1,6 @@
 package cartridge
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import "github.com/thelolagemann/gomeboy/internal/types"
 
 // ROMCartridge represents a ROM cartridge. This cartridge type is the simplest
 // cartridge type and has no external RAM or MBCm.

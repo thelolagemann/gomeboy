@@ -2,7 +2,7 @@ package cartridge
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"time"
 )
 

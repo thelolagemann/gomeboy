@@ -5,11 +5,11 @@ package mmu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/boot"
-	"github.com/thelolagemann/go-gameboy/internal/cartridge"
-	"github.com/thelolagemann/go-gameboy/internal/cheats"
-	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"github.com/thelolagemann/gomeboy/internal/boot"
+	"github.com/thelolagemann/gomeboy/internal/cartridge"
+	"github.com/thelolagemann/gomeboy/internal/cheats"
+	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/log"
 	"math/rand"
 	"reflect"
 )

@@ -2,7 +2,7 @@ package cpu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 )
 
 // pushStack pushes a 16 bit value onto the stack.

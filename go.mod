@@ -1,4 +1,4 @@
-module github.com/thelolagemann/go-gameboy
+module github.com/thelolagemann/gomeboy
 
 go 1.21
 

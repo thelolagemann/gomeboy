@@ -5,7 +5,7 @@ package ram
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // RAM represents a block of RAM. It is used for the internal

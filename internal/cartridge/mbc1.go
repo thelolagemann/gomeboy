@@ -2,7 +2,7 @@ package cartridge
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // MemoryBankedCartridge1 represents a MemoryBankedCartridge1 cartridge. This cartridge type has external RAM and

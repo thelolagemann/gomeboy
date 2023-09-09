@@ -2,7 +2,7 @@ package views
 
 import (
 	"fyne.io/fyne/v2"
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
 )
 
 type Gameboy struct {
