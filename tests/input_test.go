@@ -3,6 +3,7 @@ package tests
 import (
 	"github.com/thelolagemann/go-gameboy/internal/gameboy"
 	"github.com/thelolagemann/go-gameboy/internal/joypad"
+	"github.com/thelolagemann/go-gameboy/internal/scheduler"
 	"github.com/thelolagemann/go-gameboy/internal/types"
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
@@ -10,6 +11,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math/rand"
 	"os"
 	"sort"
 	"testing"
@@ -53,7 +55,7 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		}
 
 		// create a new gameboy
-		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(5), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
+		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(0), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)
@@ -61,44 +63,61 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		pressed := make(chan joypad.Button, 10)
 		released := make(chan joypad.Button, 10)
 
+		// sort the inputs by cycle (so we can press them in order)
+		sort.Slice(inputs, func(i, j int) bool {
+			return inputs[i].atEmulatedCycle < inputs[j].atEmulatedCycle
+		})
+
+		var lastCycle uint64
+		// schedule input events on gameboy to occur at emulated cycles (with some degree of randomization TODO make configurable)
+		for _, input := range inputs {
+			adjustedCycle := input.atEmulatedCycle
+			adjustedCycle += (1024 + uint64(rand.Intn(4192))) * 4
+
+			gb.Scheduler.ScheduleEvent(scheduler.JoypadA+scheduler.EventType(input.button), adjustedCycle)
+			gb.Scheduler.ScheduleEvent(scheduler.JoypadARelease+scheduler.EventType(input.button), adjustedCycle+72240)
+			lastCycle = adjustedCycle + 72240
+		}
+
+		done := make(chan struct{})
+		go func() {
+			// wait for the cycle
+			for gb.Scheduler.Cycle() < lastCycle {
+			}
+			done <- struct{}{}
+			done <- struct{}{}
+		}()
+
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					<-frames
+					<-events
+				}
+			}
+		}()
+
 		// start the gameboy
 		go func() {
 			gb.Start(frames, events, pressed, released)
 		}()
 
-		go func() {
-			// sort the inputs by cycle (so we can press them in order)
-			sort.Slice(inputs, func(i, j int) bool {
-				return inputs[i].atEmulatedCycle < inputs[j].atEmulatedCycle
-			})
-			// check if we should press a button
-			for i, input := range inputs {
-				if i > 0 {
-					// wait for the cycle to release the previous button
-					for gb.Scheduler.Cycle() < input.atEmulatedCycle-70224 { //
-					}
-					// release the previous button
-					if i > 0 {
-						released <- inputs[i-1].button
-					}
-				}
-				// wait for the cycle
-				for gb.Scheduler.Cycle() < input.atEmulatedCycle {
-				}
-				// press the button
-				pressed <- input.button
-			}
-		}()
+		// wait for the test to finish
+		<-done
 
-		// custom test loop (emulate for 6 seconds TODO: make this configurable)
-		for frame := 0; frame < 60*20; frame++ {
+		// wait an additional 5 seconds (60 * 5) frames to wait for test completion
+		for frame := 0; frame < 60*5; frame++ {
 			// get the next frame
 			<-frames
-
 			// empty the event channel
 			<-events
-
 		}
+
+		// close the channels
+		close(done)
 
 		// create the actual image
 		img := gb.PPU.PreparedFrame

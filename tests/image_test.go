@@ -244,7 +244,7 @@ func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath st
 		}
 
 		// create the emulator
-		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
+		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(0), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
 		// custom test loop
 		for frame := 0; frame < 60*emulatedSeconds; frame++ {

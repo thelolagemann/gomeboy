@@ -19,34 +19,34 @@ const (
 var (
 	dmgSoundTests = func() []ROMTest {
 		return []ROMTest{
-			newImageTest("dmg_sound/01-registers", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/02-len ctr", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/03-trigger", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/04-sweep", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/05-sweep details", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/06-overflow on trigger", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/07-len sweep period sync", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/08-len ctr during power", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/09-wave read while on", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/10-wave trigger while on", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/11-regs after power", withEmulatedSeconds(20)),
-			newImageTest("dmg_sound/12-wave write while on", withEmulatedSeconds(20)),
+			newImageTest("dmg_sound/01-registers", withEmulatedSeconds(2)),
+			newImageTest("dmg_sound/02-len ctr", withEmulatedSeconds(10)),
+			newImageTest("dmg_sound/03-trigger", withEmulatedSeconds(17)),
+			newImageTest("dmg_sound/04-sweep", withEmulatedSeconds(3)),
+			newImageTest("dmg_sound/05-sweep details", withEmulatedSeconds(3)),
+			newImageTest("dmg_sound/06-overflow on trigger", withEmulatedSeconds(2)),
+			newImageTest("dmg_sound/07-len sweep period sync", withEmulatedSeconds(1)),
+			newImageTest("dmg_sound/08-len ctr during power", withEmulatedSeconds(3)),
+			newImageTest("dmg_sound/09-wave read while on", withEmulatedSeconds(4)),
+			newImageTest("dmg_sound/10-wave trigger while on", withEmulatedSeconds(10)),
+			newImageTest("dmg_sound/11-regs after power", withEmulatedSeconds(2)),
+			newImageTest("dmg_sound/12-wave write while on", withEmulatedSeconds(10)),
 		}
 	}
 	cgbSoundTests = func() []ROMTest {
 		return []ROMTest{
-			newImageTest("cgb_sound/01-registers", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/02-len ctr", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/03-trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/04-sweep", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/05-sweep details", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/06-overflow on trigger", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/07-len sweep period sync", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/08-len ctr during power", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/09-wave read while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/10-wave trigger while on", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/11-regs after power", asModel(types.CGBABC), withEmulatedSeconds(20)),
-			newImageTest("cgb_sound/12-wave", asModel(types.CGBABC), withEmulatedSeconds(20)),
+			newImageTest("cgb_sound/01-registers", asModel(types.CGBABC), withEmulatedSeconds(2)),
+			newImageTest("cgb_sound/02-len ctr", asModel(types.CGBABC), withEmulatedSeconds(10)),
+			newImageTest("cgb_sound/03-trigger", asModel(types.CGBABC), withEmulatedSeconds(17)),
+			newImageTest("cgb_sound/04-sweep", asModel(types.CGBABC), withEmulatedSeconds(3)),
+			newImageTest("cgb_sound/05-sweep details", asModel(types.CGBABC), withEmulatedSeconds(3)),
+			newImageTest("cgb_sound/06-overflow on trigger", asModel(types.CGBABC), withEmulatedSeconds(2)),
+			newImageTest("cgb_sound/07-len sweep period sync", asModel(types.CGBABC), withEmulatedSeconds(1)),
+			newImageTest("cgb_sound/08-len ctr during power", asModel(types.CGBABC), withEmulatedSeconds(3)),
+			newImageTest("cgb_sound/09-wave read while on", asModel(types.CGBABC), withEmulatedSeconds(4)),
+			newImageTest("cgb_sound/10-wave trigger while on", asModel(types.CGBABC), withEmulatedSeconds(10)),
+			newImageTest("cgb_sound/11-regs after power", asModel(types.CGBABC), withEmulatedSeconds(2)),
+			newImageTest("cgb_sound/12-wave", asModel(types.CGBABC), withEmulatedSeconds(10)),
 		}
 	}
 

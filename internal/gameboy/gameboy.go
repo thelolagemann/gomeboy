@@ -20,6 +20,7 @@ import (
 	"github.com/thelolagemann/go-gameboy/pkg/display"
 	"github.com/thelolagemann/go-gameboy/pkg/emu"
 	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"math/rand"
 	"sort"
 	"strings"
 	"sync"
@@ -215,8 +216,13 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	// set initial image
 	avgRenderTimes := make([]time.Duration, 0, int(FrameRate))
 
+	var ticker *time.Ticker
 	// start a ticker
-	ticker := time.NewTicker(FrameTime / time.Duration(g.speed))
+	if g.speed == 0 {
+		ticker = time.NewTicker(1)
+	} else {
+		ticker = time.NewTicker(FrameTime / time.Duration(g.speed))
+	}
 	frameBuffer := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*3)
 	var frame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
 
@@ -229,16 +235,29 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	// update window title
 	events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy (%s)", g.MMU.Cart.Header().Title)}
 
+	// create event handlers for input
+	for i := joypad.ButtonA; i <= joypad.ButtonDown; i++ {
+		_i := i
+		g.Scheduler.RegisterEvent(scheduler.JoypadA+scheduler.EventType(_i), func() {
+			g.Joypad.Press(_i)
+		})
+		g.Scheduler.RegisterEvent(scheduler.JoypadARelease+scheduler.EventType(_i), func() {
+			g.Joypad.Release(_i)
+		})
+	}
+
 	// create a goroutine to handle the input
 	go func() {
 		for {
 			select {
+			case b := <-pressed:
+				// press button with some entropy by pressing at a random cycle in the future
+				g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadA)+b), uint64(1024+rand.Intn(4192)*4))
+			case b := <-released:
+				until := g.Scheduler.Until(scheduler.JoypadA + scheduler.EventType(b))
+				g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadARelease)+b), until+uint64(1024+rand.Intn(1024)*4))
 			case <-g.Close:
 				return
-			case p := <-pressed:
-				g.Joypad.Press(p)
-			case r := <-released:
-				g.Joypad.Release(r)
 			}
 		}
 	}()
@@ -249,7 +268,6 @@ emuLoop:
 		case <-g.Close:
 			// once the gameboy is closed, stop the ticker
 			ticker.Stop()
-			//g.Logger.Debugf("closing gameboy")
 
 			// close the save file
 			if g.save != nil {
@@ -261,14 +279,19 @@ emuLoop:
 					g.Logger.Errorf("error closing save file: %v", err)
 				}
 			}
-			g.MMU.PrintLoggedReads()
-			g.CPU.LogUsedInstructions()
 			g.running = false
 			break emuLoop
-		case <-ticker.C:
-			// lock the gameboy
+		case <-saveTicker.C:
 			g.Lock()
-
+			// get the data from the RAM
+			data := ram.SaveRAM()
+			// write the data to the save
+			if err := g.save.SetBytes(data); err != nil {
+				g.Logger.Errorf("error saving emu: %v", err)
+				g.Unlock()
+			}
+			g.Unlock()
+		default:
 			// update the fps counter
 			g.frames++
 
@@ -318,20 +341,12 @@ emuLoop:
 				}
 			}
 
-			// unlock the gameboy
-			g.Unlock()
-		case <-saveTicker.C:
-			g.Lock()
-			// get the data from the RAM
-			data := ram.SaveRAM()
-			// write the data to the save
-			if err := g.save.SetBytes(data); err != nil {
-				g.Logger.Errorf("error saving emu: %v", err)
-				g.Unlock()
-			}
-			g.Unlock()
+			// wait for next tick
+			<-ticker.C
 		}
 	}
+
+	<-g.Close
 
 	g.running = false
 }

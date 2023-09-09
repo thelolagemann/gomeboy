@@ -439,10 +439,6 @@ func (m *MMU) readCart(address uint16) uint8 {
 // Read returns the value at the given address. It handles all the memory
 // banks, mirroring, I/O, etc.
 func (m *MMU) Read(address uint16) uint8 {
-	if address >= 0xFF00 && address < 0xFF80 && address != 0xFF44 {
-		//fmt.Printf("read from 0x%04X\n", address)
-	}
-	// m.loggedReads[address]++
 	switch {
 	case address < 0x8000:
 		return m.readCart(address)

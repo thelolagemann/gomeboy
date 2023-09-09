@@ -1,6 +1,6 @@
 package scheduler
 
-type EventType uint
+type EventType uint8
 
 func (e EventType) String() string {
 	return eventTypeNames[e]
@@ -60,10 +60,28 @@ const (
 
 	SerialBitTransfer
 	SerialBitInterrupt
+
+	JoypadA
+	JoypadB
+	JoypadSelect
+	JoypadStart
+	JoypadRight
+	JoypadLeft
+	JoypadUp
+	JoypadDown
+
+	JoypadARelease
+	JoypadBRelease
+	JoypadSelectRelease
+	JoypadStartRelease
+	JoypadRightRelease
+	JoypadLeftRelease
+	JoypadUpRelease
+	JoypadDownRelease
 )
 
 const (
-	eventTypes = 48
+	eventTypes = 64
 )
 
 var eventTypeNames = []string{
@@ -120,6 +138,24 @@ var eventTypeNames = []string{
 
 	"SerialBitTransfer",
 	"SerialBitInterrupt",
+
+	"JoypadA",
+	"JoypadB",
+	"JoypadSelect",
+	"JoypadStart",
+	"JoypadRight",
+	"JoypadLeft",
+	"JoypadUp",
+	"JoypadDown",
+
+	"JoypadARelease",
+	"JoypadBRelease",
+	"JoypadSelectRelease",
+	"JoypadStartRelease",
+	"JoypadRightRelease",
+	"JoypadLeftRelease",
+	"JoypadUpRelease",
+	"JoypadDownRelease",
 }
 
 type Event struct {
