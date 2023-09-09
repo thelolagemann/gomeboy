@@ -36,9 +36,9 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: automated test results
-          commit_user_name: ${{ env.GIT_USER }}
-          commit_user_email: ${{ env.GIT_EMAIL }}
-          commit_author: ${{ env.GIT_AUTHOR }}
+          commit_user_name: ${{ vars.GIT_USER }}
+          commit_user_email: ${{ vars.GIT_EMAIL }}
+          commit_author: ${{ vars.GIT_AUTHOR }}
           file_pattern: '*.md'
           disable_globbing: true
           commit_options: '-S'
