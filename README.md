@@ -68,7 +68,7 @@ varying degrees of success.
 | samesuite | 46% | 6 | 7 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
-Visit the [tests](tests/README.md) directory for more information.</sup>
+<sup>Visit the [tests](tests/README.md) directory for more information.</sup>
 
 ---
 
@@ -78,4 +78,4 @@ Visit the [tests](tests/README.md) directory for more information.</sup>
 - [ ] github actions
 - [ ] improve error handling and logging
 - [ ] expose more emulator options to the user
-- [ ] reimplement link cable & local multiplayer & local multiplayer
+- [ ] reimplement link cable & local multiplayer

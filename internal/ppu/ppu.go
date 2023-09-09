@@ -340,7 +340,7 @@ func (p *PPU) init() {
 			}
 		},
 		func() uint8 {
-			if p.isGBC {
+			if p.isGBCCompat {
 				return p.vRAMBank | ^uint8(0x01)
 			}
 			return 0xFF
