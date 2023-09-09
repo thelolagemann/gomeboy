@@ -5,10 +5,10 @@ import (
 	"encoding/binary"
 	"github.com/cespare/xxhash"
 	"github.com/google/brotli/go/cbrotli"
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/internal/joypad"
-	"github.com/thelolagemann/go-gameboy/internal/ppu"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/ppu"
+	"github.com/thelolagemann/gomeboy/pkg/display"
 	"sync"
 )
 

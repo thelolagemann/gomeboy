@@ -2,8 +2,8 @@ package cpu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/scheduler"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 type Instruction struct {

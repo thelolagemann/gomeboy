@@ -6,8 +6,8 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/thelolagemann/go-gameboy/internal/serial/accessories"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
+	"github.com/thelolagemann/gomeboy/pkg/display"
 	"image"
 	"time"
 )

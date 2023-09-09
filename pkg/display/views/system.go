@@ -5,7 +5,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/thelolagemann/go-gameboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display"
 	"runtime"
 )
 

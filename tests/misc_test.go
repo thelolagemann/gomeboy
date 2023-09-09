@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"testing"
 )
 

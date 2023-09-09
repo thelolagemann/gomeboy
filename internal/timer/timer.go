@@ -1,10 +1,10 @@
 package timer
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/apu"
-	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-	"github.com/thelolagemann/go-gameboy/internal/scheduler"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/apu"
+	"github.com/thelolagemann/gomeboy/internal/interrupts"
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // Controller is a timer controller. It is used to generate

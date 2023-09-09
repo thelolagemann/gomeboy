@@ -4,9 +4,9 @@
 package joypad
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
+	"github.com/thelolagemann/gomeboy/internal/interrupts"
+	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
 // Button represents a physical button on the Game Boy.

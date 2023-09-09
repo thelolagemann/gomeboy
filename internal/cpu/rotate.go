@@ -1,6 +1,6 @@
 package cpu
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import "github.com/thelolagemann/gomeboy/internal/types"
 
 // rotateLeft rotates the given value left by 1 bit. Bit 7 is copied to both
 // the carry flag and the least significant bit.

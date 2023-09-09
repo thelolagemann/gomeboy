@@ -1,6 +1,6 @@
 package cartridge
 
-import "github.com/thelolagemann/go-gameboy/internal/types"
+import "github.com/thelolagemann/gomeboy/internal/types"
 
 type MemoryBankedCartridge2 struct {
 	rom    []byte

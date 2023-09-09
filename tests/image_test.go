@@ -2,9 +2,9 @@ package tests
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/internal/types"
-	"github.com/thelolagemann/go-gameboy/pkg/log"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/log"
 	"image"
 	"image/color"
 	"image/draw"

@@ -1,8 +1,8 @@
 package tests
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/joypad"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"testing"
 )
 

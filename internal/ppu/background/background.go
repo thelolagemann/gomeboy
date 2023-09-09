@@ -3,8 +3,8 @@
 package background
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // Background represents the background.

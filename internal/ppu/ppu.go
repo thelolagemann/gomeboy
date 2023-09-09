@@ -3,13 +3,13 @@ package ppu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/internal/interrupts"
-	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
-	"github.com/thelolagemann/go-gameboy/internal/ppu/palette"
-	"github.com/thelolagemann/go-gameboy/internal/ram"
-	"github.com/thelolagemann/go-gameboy/internal/scheduler"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/interrupts"
+	"github.com/thelolagemann/gomeboy/internal/mmu"
+	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
+	"github.com/thelolagemann/gomeboy/internal/ram"
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
 	"image/color"
 )

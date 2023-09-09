@@ -1,9 +1,9 @@
 package ppu
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/mmu"
-	"github.com/thelolagemann/go-gameboy/internal/scheduler"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/mmu"
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // DMA (Direct Memory Access) is used to transfer data from

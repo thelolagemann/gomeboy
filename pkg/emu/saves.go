@@ -2,7 +2,7 @@ package emu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/go-gameboy/pkg/utils"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"os"
 	"path/filepath"
 	"sort"

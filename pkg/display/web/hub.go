@@ -3,9 +3,9 @@ package web
 import (
 	"encoding/binary"
 	"github.com/gorilla/websocket"
-	"github.com/thelolagemann/go-gameboy/internal/gameboy"
-	"github.com/thelolagemann/go-gameboy/internal/joypad"
-	"github.com/thelolagemann/go-gameboy/internal/types"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"golang.org/x/sys/unix"
 	"log"
 	"net"

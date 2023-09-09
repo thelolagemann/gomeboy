@@ -1,7 +1,7 @@
 package cpu
 
 import (
-	"github.com/thelolagemann/go-gameboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 )
 
 // increment the given value and set the flags accordingly.
