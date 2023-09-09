@@ -48,7 +48,7 @@ var (
 	_, c, _, _   = runtime.Caller(0)
 	basePath     = filepath.Dir(c)
 	parseTableRE = regexp.MustCompile(`\| ([a-zA-Z0-9-]+) \| ([0-9]+%) \| ([0-9]+) \| ([0-9]+) \| ([0-9]+) \|`)
-	findTableRE  = regexp.MustCompile(`(?s)# Test Results\n(.*?)(\n<sup>)`)
+	findTableRE  = regexp.MustCompile(`(?s)\| Test Suite.*\|(.*?)`)
 	progressRE   = regexp.MustCompile(`!\[progress].*?\)`)
 )
 
@@ -275,7 +275,7 @@ func (t *TestTable) createTestResultsTable() string {
 		str += suite.CreateTableEntry()
 	}
 
-	return str + "\n\n"
+	return str
 }
 
 func (t *TestTable) createProgressBar() string {
@@ -305,7 +305,7 @@ func (t *TestTable) CreateReadme() string {
 	tableOfContents := "# Test Results\n"
 	// create the table of contents with links
 	tableOfContents += t.createTestResultsTable()
-	tableOfContents += "Explore the individual tests for each suite using the table of contents below.\n\n## Table of Contents\n"
+	tableOfContents += "\n\nExplore the individual tests for each suite using the table of contents below.\n\n## Table of Contents\n"
 	for _, suite := range t.testSuites {
 		tableOfContents += "* [" + suite.name + "](#" + suite.name + ")\n"
 		for _, collection := range suite.collections {
