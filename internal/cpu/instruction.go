@@ -116,16 +116,12 @@ func init() {
 	})
 	DefineInstruction(0xFB, "EI", func(c *CPU) {
 		// handle ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
-		if c.mmu.Read(c.PC) == 0x76 {
+		if c.mmu.Read(c.PC) == 0x76 && c.irq.HasInterrupts() {
 			// if an EI instruction is directly succeeded by a HALT instruction,
 			// and there is a pending interrupt, the interrupt will be serviced
 			// first, before the interrupt returns control to the HALT instruction,
 			// effectively delaying the execution of HALT by one instruction.
-			if c.irq.HasInterrupts() {
-				c.s.ScheduleEvent(scheduler.EIHaltDelay, 4)
-			} else {
-				c.s.ScheduleEvent(scheduler.EIPending, 4)
-			}
+			c.s.ScheduleEvent(scheduler.EIHaltDelay, 4)
 		} else {
 			c.s.ScheduleEvent(scheduler.EIPending, 4)
 		}

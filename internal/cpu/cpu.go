@@ -129,16 +129,6 @@ func (c *CPU) doHALTBug() {
 	}
 }
 
-// registerIndex returns a Register pointer for the given index.
-func (c *CPU) registerIndex(index uint8) Register {
-	return *c.registerSlice[index]
-}
-
-// registerPointer returns a Register pointer for the given index.
-func (c *CPU) registerPointer(index uint8) *Register {
-	return c.registerSlice[index]
-}
-
 func (c *CPU) handleOAMCorruption(pos uint16) {
 	if c.model == types.CGBABC || c.model == types.CGB0 {
 		return // no corruption on CGB

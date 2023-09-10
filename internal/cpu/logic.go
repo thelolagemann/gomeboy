@@ -128,35 +128,35 @@ func generateLogicInstructions() {
 			switch i {
 			case 0:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADD A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.add(cpu.A, cpu.registerIndex(currentReg), false)
+					cpu.A = cpu.add(cpu.A, *cpu.registerSlice[currentReg], false)
 				})
 			case 1:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADC A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.add(cpu.A, cpu.registerIndex(currentReg), true)
+					cpu.A = cpu.add(cpu.A, *cpu.registerSlice[currentReg], true)
 				})
 			case 2:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SUB %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.sub(cpu.A, cpu.registerIndex(currentReg), false)
+					cpu.A = cpu.sub(cpu.A, *cpu.registerSlice[currentReg], false)
 				})
 			case 3:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SBC A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.sub(cpu.A, cpu.registerIndex(currentReg), true)
+					cpu.A = cpu.sub(cpu.A, *cpu.registerSlice[currentReg], true)
 				})
 			case 4:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("AND %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.and(cpu.A, cpu.registerIndex(currentReg))
+					cpu.A = cpu.and(cpu.A, *cpu.registerSlice[currentReg])
 				})
 			case 5:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("XOR %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.xor(cpu.A, cpu.registerIndex(currentReg))
+					cpu.A = cpu.xor(cpu.A, *cpu.registerSlice[currentReg])
 				})
 			case 6:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("OR %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.or(cpu.A, cpu.registerIndex(currentReg))
+					cpu.A = cpu.or(cpu.A, *cpu.registerSlice[currentReg])
 				})
 			case 7:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("CP %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.compare(cpu.registerIndex(currentReg))
+					cpu.compare(*cpu.registerSlice[currentReg])
 				})
 			}
 		}

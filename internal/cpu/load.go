@@ -163,7 +163,7 @@ func generateLoadRegisterToRegisterInstructions() {
 				}
 				fromRegister := j
 				DefineInstruction(0x70+j, fmt.Sprintf("LD (HL), %s", registerNameMap[fromRegister]), func(c *CPU) {
-					c.loadRegisterToMemory(c.registerIndex(fromRegister), c.HL.Uint16())
+					c.loadRegisterToMemory(*c.registerSlice[fromRegister], c.HL.Uint16())
 				})
 			}
 			continue
@@ -177,7 +177,7 @@ func generateLoadRegisterToRegisterInstructions() {
 			// if j is 6, then we are loading from memory
 			if j == 6 {
 				DefineInstruction(0x40+i*8+j, fmt.Sprintf("LD %s, (HL)", registerNameMap[toRegister]), func(c *CPU) {
-					c.loadMemoryToRegister(c.registerPointer(toRegister), c.HL.Uint16())
+					c.loadMemoryToRegister(c.registerSlice[toRegister], c.HL.Uint16())
 				})
 			} else {
 				// get the register to load from
@@ -199,7 +199,7 @@ func generateLoadRegisterToRegisterInstructions() {
 					0x40+(i*8)+j,
 					fmt.Sprintf("LD %s, %s", registerNameMap[toRegister], registerNameMap[fromRegister]),
 					func(c *CPU) {
-						c.loadRegisterToRegister(c.registerPointer(toRegister), c.registerPointer(fromRegister))
+						c.loadRegisterToRegister(c.registerSlice[toRegister], c.registerSlice[fromRegister])
 					})
 			}
 		}
