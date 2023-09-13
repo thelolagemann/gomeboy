@@ -2,93 +2,94 @@ package cpu
 
 import "github.com/thelolagemann/gomeboy/internal/types"
 
-// rotateLeft rotates the given value left by 1 bit. Bit 7 is copied to both
-// the carry flag and the least significant bit.
+// rotateLeftCarry rotates n left by 1 bit. The most significant bit is copied
+// to both the carry flag and the least significant bit.
 //
 //	RLC n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
-//	Z - Set if Result is zero.
+//	Z - Set if result is zero.
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 7 data.
-func (c *CPU) rotateLeft(value uint8) uint8 {
-	carry := value >> 7
-	rotated := (value<<1)&0xFF | carry
-	c.setFlags(rotated == 0, false, false, carry == 1)
+func (c *CPU) rotateLeftCarry(n uint8) uint8 {
+	carry := n & types.Bit7
+	computed := n<<1 | carry>>7
+	c.setFlags(computed == 0, false, false, carry == types.Bit7)
 
-	return rotated
-}
-
-// rotateRight rotates the given value right by 1 bit. The most significant bit is
-// copied to the carry flag, and the least significant bit is copied to the most
-// significant bit.
-//
-//	RRC n
-//	n = A, B, C, D, E, H, L, (HL)
-//
-// Flags affected:
-//
-//	Z - Set if Result is zero.
-//	N - Reset.
-//	H - Reset.
-//	C - Contains old bit 0 data.
-func (c *CPU) rotateRight(value uint8) uint8 {
-	newCarry := value & 0x1
-	computed := (value >> 1) | (newCarry << 7)
-	c.setFlags(computed == 0, false, false, newCarry == 1)
 	return computed
 }
 
-// rotateRightThroughCarry rotates the given value right by 1 bit through the carry flag.
+// rotateRightCarry n right by 1 bit. The least significant bit is copied
+// to both the carry flag and the most significant bit.
 //
-//	RR n
-//	n = A, B, C, D, E, H, L, (HL)
+//	RRC n
+//	n = B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
-//	Z - Set if Result is zero.
+//	Z - Set if result is zero.
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 0 data.
-func (c *CPU) rotateRightThroughCarry(value uint8) uint8 {
-	newCarry := value & 0x01
-	computed := value >> 1
+func (c *CPU) rotateRightCarry(n uint8) uint8 {
+	carry := n & types.Bit0
+	computed := n>>1 | carry<<7
+	c.setFlags(computed == 0, false, false, carry == types.Bit0)
+	return computed
+}
+
+// rotateRightThroughCarry rotates n right by 1 bit. The carry flag is copied to
+// the most significant bit, and the least significant bit is copied to the
+// carry flag.
+//
+//	RR n
+//	n = B, C, D, E, H, L, (HL), A
+//
+// Flags affected:
+//
+//	Z - Set if result is zero.
+//	N - Reset.
+//	H - Reset.
+//	C - Contains old bit 0 data.
+func (c *CPU) rotateRightThroughCarry(n uint8) uint8 {
+	computed := n >> 1
 	if c.isFlagSet(FlagCarry) {
 		computed |= types.Bit7
 	}
 
-	c.setFlags(computed == 0, false, false, newCarry == 1)
+	c.setFlags(computed == 0, false, false, n&types.Bit0 == types.Bit0)
 	return computed
 }
 
-// rotateLeftThroughCarry rotates the given value left by 1 bit through the carry flag.
+// rotateLeftThroughCarry rotates n left by 1 bit.  The carry flag is copied to
+// the least significant bit, and the most significant bit is copied to the
+// carry flag.
 //
 //	RL n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
-//	Z - Set if Result is zero.
+//	Z - Set if result is zero.
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 7 data.
-func (c *CPU) rotateLeftThroughCarry(value uint8) uint8 {
-	newCarry := value >> 7
-	computed := value << 1
+func (c *CPU) rotateLeftThroughCarry(n uint8) uint8 {
+	computed := n << 1
 	if c.isFlagSet(FlagCarry) {
 		computed |= types.Bit0
 	}
 
-	c.setFlags(computed == 0, false, false, newCarry == 1)
+	c.setFlags(computed == 0, false, false, n&types.Bit7 == types.Bit7)
 	return computed
 }
 
-// rotateLeftAccumulator rotates the accumulator left by 1 bit. The least significant bit is
-// copied to the carry flag, and the most significant bit is copied to the least
-// significant bit.
+// rotateLeftCarryAccumulator rotates the accumulator left by 1 bit. The most
+// significant bit is copied to both the carry flag and the least significant
+// bit.
 //
 //	RLCA
 //
@@ -98,13 +99,15 @@ func (c *CPU) rotateLeftThroughCarry(value uint8) uint8 {
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 7 data.
-func (c *CPU) rotateLeftAccumulator() {
-	carry := c.A >> 7
-	c.A = (c.A<<1)&0xFF | carry
-	c.setFlags(false, false, false, carry == 1)
+func (c *CPU) rotateLeftCarryAccumulator() {
+	carry := c.A & types.Bit7
+	c.A = c.A<<1 | carry>>7
+	c.setFlags(false, false, false, carry == types.Bit7)
 }
 
-// rotateLeftAccumulatorThroughCarry rotates the accumulator left by 1 bit through the carry flag.
+// rotateLeftAccumulatorThroughCarry rotates the accumulator left by 1 bit. The
+// carry flag is copied to the least significant bit, and the most significant
+// bit is copied to the carry flag.
 //
 //	RLA
 //
@@ -115,18 +118,17 @@ func (c *CPU) rotateLeftAccumulator() {
 //	H - Reset.
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftAccumulatorThroughCarry() {
-	newCarry := c.A&0x80 != 0
-	oldCarry := c.isFlagSet(FlagCarry)
+	carry := c.A & types.Bit7
 	c.A <<= 1
-	if oldCarry {
-		c.A |= 0x01
+	if c.isFlagSet(FlagCarry) {
+		c.A |= types.Bit0
 	}
-	c.setFlags(false, false, false, newCarry)
+	c.setFlags(false, false, false, carry == types.Bit7)
 }
 
-// rotateRightAccumulator rotates the accumulator right by 1 bit. The most significant bit is
-// copied to the carry flag, and the least significant bit is copied to the most
-// significant bit.
+// rotateRightAccumulator rotates the accumulator right by 1 bit. The least
+// significant bit is copied to both the carry flag and the most significant
+// bit.
 //
 //	RRCA
 //
@@ -137,15 +139,14 @@ func (c *CPU) rotateLeftAccumulatorThroughCarry() {
 //	H - Reset.
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightAccumulator() {
-	carry := c.A&0x1 != 0
-	c.A >>= 1
-	if carry {
-		c.A |= 0x80
-	}
-	c.setFlags(false, false, false, carry)
+	carry := c.A & types.Bit0
+	c.A = c.A>>1 | carry<<7
+	c.setFlags(false, false, false, carry == types.Bit0)
 }
 
-// rotateRightAccumulatorThroughCarry rotates the accumulator right by 1 bit through the carry flag.
+// rotateRightAccumulatorThroughCarry rotates the accumulator right by 1 bit.
+// The carry flag is copied to the most significant bit, and the least significant
+// bit is copied to the carry flag.
 //
 //	RRA
 //
@@ -156,17 +157,17 @@ func (c *CPU) rotateRightAccumulator() {
 //	H - Reset.
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightAccumulatorThroughCarry() {
-	newCarry := c.A&0x1 != 0
+	carry := c.A&types.Bit0 == types.Bit0
 	c.A >>= 1
 	if c.isFlagSet(FlagCarry) {
-		c.A |= 0x80
+		c.A |= types.Bit7
 	}
 
-	c.setFlags(false, false, false, newCarry)
+	c.setFlags(false, false, false, carry)
 }
 
 func init() {
-	DefineInstruction(0x07, "RLCA", func(c *CPU) { c.rotateLeftAccumulator() })
+	DefineInstruction(0x07, "RLCA", func(c *CPU) { c.rotateLeftCarryAccumulator() })
 	DefineInstruction(0x0F, "RRCA", func(c *CPU) { c.rotateRightAccumulator() })
 	DefineInstruction(0x17, "RLA", func(c *CPU) { c.rotateLeftAccumulatorThroughCarry() })
 	DefineInstruction(0x1F, "RRA", func(c *CPU) { c.rotateRightAccumulatorThroughCarry() })

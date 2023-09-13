@@ -45,8 +45,8 @@ func (c *CPU) loadRegisterToMemory(reg Register, address uint16) {
 //
 //	LD (0xFF00 + n), A
 //	n = B, C, D, E, H, L, 8 bit immediate value (0xFF00 + n)
-func (c *CPU) loadRegisterToHardware(reg *Register, address uint8) {
-	c.writeByte(0xFF00+uint16(address), *reg)
+func (c *CPU) loadRegisterToHardware(reg Register, address uint8) {
+	c.writeByte(0xFF00+uint16(address), reg)
 }
 
 // loadRegister16 loads the given value into the given Register pair.
@@ -116,9 +116,9 @@ func init() {
 	})
 	DefineInstruction(0x3E, "LD A, d8", func(c *CPU) { c.loadRegister8(&c.A) })
 	DefineInstruction(0xE0, "LDH (a8), A", func(c *CPU) {
-		c.loadRegisterToHardware(&c.A, c.readOperand())
+		c.loadRegisterToHardware(c.A, c.readOperand())
 	})
-	DefineInstruction(0xE2, "LD (C), A", func(c *CPU) { c.loadRegisterToHardware(&c.A, c.C) })
+	DefineInstruction(0xE2, "LD (C), A", func(c *CPU) { c.loadRegisterToHardware(c.A, c.C) })
 	DefineInstruction(0xEA, "LD (a16), A", func(c *CPU) {
 		low := c.readOperand()
 		high := c.readOperand()

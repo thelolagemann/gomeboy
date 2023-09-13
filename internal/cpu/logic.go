@@ -2,35 +2,26 @@ package cpu
 
 import "fmt"
 
-// andRegister performs a bitwise AND operation on the given Register and the
-// A Register.
+// and performs a bitwise AND operation on n and the A Register.
 //
 //	AND n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = d8, B, C, D, E, H, L, (HL), A
 //
-// IF affected:
+// Flags affected:
 //
 //	Z - Set if result is zero.
 //	N - Reset.
 //	H - Set.
 //	C - Reset.
-func (c *CPU) andRegister(reg *Register) {
-	c.A = c.and(c.A, *reg)
+func (c *CPU) and(n uint8) {
+	c.A &= n
+	c.setFlags(c.A == 0, false, true, false)
 }
 
-// and is a helper function for that performs a bitwise AND operation on the
-// two given values, and sets the flags accordingly.
-func (c *CPU) and(a, b uint8) uint8 {
-	computed := a & b
-	c.setFlags(computed == 0, false, true, false)
-	return computed
-}
-
-// orRegister performs a bitwise OR operation on the given Register and the A
-// Register.
+// or performs a bitwise OR operation on n and the A Register.
 //
 //	OR n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = d8, B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
@@ -38,23 +29,15 @@ func (c *CPU) and(a, b uint8) uint8 {
 //	N - Reset.
 //	H - Reset.
 //	C - Reset.
-func (c *CPU) orRegister(reg *Register) {
-	c.A = c.or(c.A, *reg)
+func (c *CPU) or(n uint8) {
+	c.A |= n
+	c.setFlags(c.A == 0, false, false, false)
 }
 
-// or is a helper function for that performs a bitwise OR operation on the two
-// given values, and sets the flags accordingly.
-func (c *CPU) or(a, b uint8) uint8 {
-	computed := a | b
-	c.setFlags(computed == 0, false, false, false)
-	return computed
-}
-
-// xorRegister performs a bitwise XOR operation on the given Register and the A
-// Register.
+// xor performs a bitwise XOR operation on n and the A Register.
 //
 //	XOR n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = d8, B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
@@ -62,22 +45,15 @@ func (c *CPU) or(a, b uint8) uint8 {
 //	N - Reset.
 //	H - Reset.
 //	C - Reset.
-func (c *CPU) xorRegister(reg *Register) {
-	c.A = c.xor(c.A, *reg)
+func (c *CPU) xor(n uint8) {
+	c.A ^= n
+	c.setFlags(c.A == 0, false, false, false)
 }
 
-// xor is a helper function for that performs a bitwise XOR operation on the two
-// given values, and sets the flags accordingly.
-func (c *CPU) xor(a, b uint8) uint8 {
-	computed := a ^ b
-	c.setFlags(computed == 0, false, false, false)
-	return computed
-}
-
-// compareRegister compares the given Register with the A Register.
+// compare compares n to the A Register.
 //
 //	CP n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = d8, B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
@@ -85,15 +61,8 @@ func (c *CPU) xor(a, b uint8) uint8 {
 //	N - Set.
 //	H - Set if no borrow from bit 4.
 //	C - Set if no borrow.
-func (c *CPU) compareRegister(reg *Register) {
-	c.compare(*reg)
-}
-
-// compare is a helper function for that compares the two given values, and sets
-// the flags accordingly.
-func (c *CPU) compare(b uint8) {
-	total := c.A - b
-	c.setFlags(total == 0, true, b&0x0f > c.A&0x0f, b > c.A)
+func (c *CPU) compare(n uint8) {
+	c.setFlags(c.A-n == 0, true, n&0x0f > c.A&0x0f, n > c.A)
 }
 
 // generateLogicInstructions generates the instructions for the bitwise logic
@@ -128,31 +97,31 @@ func generateLogicInstructions() {
 			switch i {
 			case 0:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADD A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.add(cpu.A, *cpu.registerSlice[currentReg], false)
+					cpu.add(*cpu.registerSlice[currentReg], false)
 				})
 			case 1:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("ADC A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.add(cpu.A, *cpu.registerSlice[currentReg], true)
+					cpu.add(*cpu.registerSlice[currentReg], true)
 				})
 			case 2:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SUB %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.sub(cpu.A, *cpu.registerSlice[currentReg], false)
+					cpu.sub(*cpu.registerSlice[currentReg], false)
 				})
 			case 3:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("SBC A, %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.sub(cpu.A, *cpu.registerSlice[currentReg], true)
+					cpu.sub(*cpu.registerSlice[currentReg], true)
 				})
 			case 4:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("AND %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.and(cpu.A, *cpu.registerSlice[currentReg])
+					cpu.and(*cpu.registerSlice[currentReg])
 				})
 			case 5:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("XOR %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.xor(cpu.A, *cpu.registerSlice[currentReg])
+					cpu.xor(*cpu.registerSlice[currentReg])
 				})
 			case 6:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("OR %s", registerNameMap[currentReg]), func(cpu *CPU) {
-					cpu.A = cpu.or(cpu.A, *cpu.registerSlice[currentReg])
+					cpu.or(*cpu.registerSlice[currentReg])
 				})
 			case 7:
 				DefineInstruction(0x80+i*8+j, fmt.Sprintf("CP %s", registerNameMap[currentReg]), func(cpu *CPU) {
@@ -165,22 +134,22 @@ func generateLogicInstructions() {
 
 func init() {
 	// Bitwise d8 instructions
-	DefineInstruction(0xC6, "ADD A, d8", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.readOperand(), false) })
-	DefineInstruction(0xCE, "ADC A, d8", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.readOperand(), true) })
-	DefineInstruction(0xD6, "SUB d8", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.readOperand(), false) })
-	DefineInstruction(0xDE, "SBC A, d8", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.readOperand(), true) })
-	DefineInstruction(0xE6, "AND d8", func(cpu *CPU) { cpu.A = cpu.and(cpu.A, cpu.readOperand()) })
-	DefineInstruction(0xEE, "XOR d8", func(cpu *CPU) { cpu.A = cpu.xor(cpu.A, cpu.readOperand()) })
-	DefineInstruction(0xF6, "OR d8", func(cpu *CPU) { cpu.A = cpu.or(cpu.A, cpu.readOperand()) })
+	DefineInstruction(0xC6, "ADD A, d8", func(cpu *CPU) { cpu.add(cpu.readOperand(), false) })
+	DefineInstruction(0xCE, "ADC A, d8", func(cpu *CPU) { cpu.add(cpu.readOperand(), true) })
+	DefineInstruction(0xD6, "SUB d8", func(cpu *CPU) { cpu.sub(cpu.readOperand(), false) })
+	DefineInstruction(0xDE, "SBC A, d8", func(cpu *CPU) { cpu.sub(cpu.readOperand(), true) })
+	DefineInstruction(0xE6, "AND d8", func(cpu *CPU) { cpu.and(cpu.readOperand()) })
+	DefineInstruction(0xEE, "XOR d8", func(cpu *CPU) { cpu.xor(cpu.readOperand()) })
+	DefineInstruction(0xF6, "OR d8", func(cpu *CPU) { cpu.or(cpu.readOperand()) })
 	DefineInstruction(0xFE, "CP d8", func(cpu *CPU) { cpu.compare(cpu.readOperand()) })
 
 	// (HL) instructions
-	DefineInstruction(0x86, "ADD A, (HL)", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.readByte(cpu.HL.Uint16()), false) })
-	DefineInstruction(0x8E, "ADC A, (HL)", func(cpu *CPU) { cpu.A = cpu.add(cpu.A, cpu.readByte(cpu.HL.Uint16()), true) })
-	DefineInstruction(0x96, "SUB (HL)", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.readByte(cpu.HL.Uint16()), false) })
-	DefineInstruction(0x9E, "SBC A, (HL)", func(cpu *CPU) { cpu.A = cpu.sub(cpu.A, cpu.readByte(cpu.HL.Uint16()), true) })
-	DefineInstruction(0xA6, "AND (HL)", func(cpu *CPU) { cpu.A = cpu.and(cpu.A, cpu.readByte(cpu.HL.Uint16())) })
-	DefineInstruction(0xAE, "XOR (HL)", func(cpu *CPU) { cpu.A = cpu.xor(cpu.A, cpu.readByte(cpu.HL.Uint16())) })
-	DefineInstruction(0xB6, "OR (HL)", func(cpu *CPU) { cpu.A = cpu.or(cpu.A, cpu.readByte(cpu.HL.Uint16())) })
+	DefineInstruction(0x86, "ADD A, (HL)", func(cpu *CPU) { cpu.add(cpu.readByte(cpu.HL.Uint16()), false) })
+	DefineInstruction(0x8E, "ADC A, (HL)", func(cpu *CPU) { cpu.add(cpu.readByte(cpu.HL.Uint16()), true) })
+	DefineInstruction(0x96, "SUB (HL)", func(cpu *CPU) { cpu.sub(cpu.readByte(cpu.HL.Uint16()), false) })
+	DefineInstruction(0x9E, "SBC A, (HL)", func(cpu *CPU) { cpu.sub(cpu.readByte(cpu.HL.Uint16()), true) })
+	DefineInstruction(0xA6, "AND (HL)", func(cpu *CPU) { cpu.and(cpu.readByte(cpu.HL.Uint16())) })
+	DefineInstruction(0xAE, "XOR (HL)", func(cpu *CPU) { cpu.xor(cpu.readByte(cpu.HL.Uint16())) })
+	DefineInstruction(0xB6, "OR (HL)", func(cpu *CPU) { cpu.or(cpu.readByte(cpu.HL.Uint16())) })
 	DefineInstruction(0xBE, "CP (HL)", func(cpu *CPU) { cpu.compare(cpu.readByte(cpu.HL.Uint16())) })
 }

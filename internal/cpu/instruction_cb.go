@@ -28,14 +28,14 @@ func generateRotateInstructions() {
 			DefineInstructionCB(0x06, "RLC (HL)", func(cpu *CPU) {
 				cpu.writeByte(
 					cpu.HL.Uint16(),
-					cpu.rotateLeft(cpu.readByte(cpu.HL.Uint16())),
+					cpu.rotateLeftCarry(cpu.readByte(cpu.HL.Uint16())),
 				)
 			})
 			// 0x0E - RRC (HL)
 			DefineInstructionCB(0x0E, "RRC (HL)", func(cpu *CPU) {
 				cpu.writeByte(
 					cpu.HL.Uint16(),
-					cpu.rotateRight(cpu.readByte(cpu.HL.Uint16())),
+					cpu.rotateRightCarry(cpu.readByte(cpu.HL.Uint16())),
 				)
 			})
 			// 0x16 - RL (HL)
@@ -61,12 +61,12 @@ func generateRotateInstructions() {
 
 		// 0x00 - 0x07 - RLC r
 		DefineInstructionCB(0x00+j, fmt.Sprintf("RLC %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerSlice[reg] = cpu.rotateLeft(*cpu.registerSlice[reg])
+			*cpu.registerSlice[reg] = cpu.rotateLeftCarry(*cpu.registerSlice[reg])
 		})
 
 		// 0x08 - 0x0F - RRC r
 		DefineInstructionCB(0x08+j, fmt.Sprintf("RRC %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerSlice[reg] = cpu.rotateRight(*cpu.registerSlice[reg])
+			*cpu.registerSlice[reg] = cpu.rotateRightCarry(*cpu.registerSlice[reg])
 		})
 
 		// 0x10 - 0x17 - RL r
@@ -90,14 +90,14 @@ func generateShiftInstructions() {
 			DefineInstructionCB(0x26, "SLA (HL)", func(cpu *CPU) {
 				cpu.writeByte(
 					cpu.HL.Uint16(),
-					cpu.shiftLeftIntoCarry(cpu.readByte(cpu.HL.Uint16())),
+					cpu.shiftLeftArithmetic(cpu.readByte(cpu.HL.Uint16())),
 				)
 			})
 			// 0x2E - SRA (HL)
 			DefineInstructionCB(0x2E, "SRA (HL)", func(cpu *CPU) {
 				cpu.writeByte(
 					cpu.HL.Uint16(),
-					cpu.shiftRightIntoCarry(cpu.readByte(cpu.HL.Uint16())),
+					cpu.shiftRightArithmetic(cpu.readByte(cpu.HL.Uint16())),
 				)
 			})
 			// 0x36 - SWAP (HL)
@@ -124,12 +124,12 @@ func generateShiftInstructions() {
 
 		// 0x20 - 0x27 - SLA r
 		DefineInstructionCB(0x20+j, fmt.Sprintf("SLA %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerSlice[reg] = cpu.shiftLeftIntoCarry(*cpu.registerSlice[reg])
+			*cpu.registerSlice[reg] = cpu.shiftLeftArithmetic(*cpu.registerSlice[reg])
 		})
 
 		// 0x28 - 0x2F - SRA r
 		DefineInstructionCB(0x28+j, fmt.Sprintf("SRA %s", registerNameMap[reg]), func(cpu *CPU) {
-			*cpu.registerSlice[reg] = cpu.shiftRightIntoCarry(*cpu.registerSlice[reg])
+			*cpu.registerSlice[reg] = cpu.shiftRightArithmetic(*cpu.registerSlice[reg])
 		})
 
 		// 0x30 - 0x37 - SWAP r

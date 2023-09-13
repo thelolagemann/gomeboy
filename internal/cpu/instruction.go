@@ -60,7 +60,7 @@ func init() {
 		if !cpu.isFlagSet(FlagSubtract) {
 			if cpu.isFlagSet(FlagCarry) || cpu.A > 0x99 {
 				cpu.A += 0x60
-				cpu.setFlag(FlagCarry)
+				cpu.F |= FlagCarry
 			}
 			if cpu.isFlagSet(FlagHalfCarry) || cpu.A&0xF > 0x9 {
 				cpu.A += 0x06
@@ -76,7 +76,7 @@ func init() {
 			cpu.clearFlag(FlagHalfCarry)
 		}
 		if cpu.A == 0 {
-			cpu.setFlag(FlagZero)
+			cpu.F |= FlagZero
 		} else {
 			cpu.clearFlag(FlagZero)
 		}

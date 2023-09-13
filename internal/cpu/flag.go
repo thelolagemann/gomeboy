@@ -72,14 +72,8 @@ func (c *CPU) clearFlag(flag Flag) {
 	c.F &^= flag
 }
 
-// setFlag sets the given flag in the F register,
-// leaving all other flags unchanged. If the flag
-// is already set, this function does nothing. To
-// clear a flag, use clearFlag.
-func (c *CPU) setFlag(flag Flag) {
-	c.F |= flag
-}
-
+// setFlags sets all the flags in the F register,
+// as specified by the given arguments.
 func (c *CPU) setFlags(Z bool, N bool, H bool, C bool) {
 	v := uint8(0)
 	if Z {

@@ -7,8 +7,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"sort"
-	"time"
 )
 
 // CPU represents the Gameboy CPU. It is responsible for executing instructions.
@@ -210,48 +208,6 @@ func (c *CPU) readByte(addr uint16) uint8 {
 func (c *CPU) writeByte(addr uint16, val uint8) {
 	c.s.Tick(4)
 	c.mmu.Write(addr, val)
-}
-
-// LogUsedInstructions sorts the used instructions by the number of times they have
-// been executed, and logs them in a human-readable format, in descending order.
-func (c *CPU) LogUsedInstructions() {
-	// c.mmu.Log.Infof("Instruction\t Count\t Time")
-	type instructionResult struct {
-		instruction string
-		count       uint64
-		time        time.Duration
-	}
-	results := make([]instructionResult, 512)
-	/*for i := 0; i < 256; i++ {
-		if c.usedInstructions[i] > 10 {
-			results = append(results, instructionResult{
-				instruction: InstructionSet[i].name,
-				count:       c.usedInstructions[i],
-				time:        c.usedInstructionsTime[i],
-			})
-		}
-		if c.usedInstructions[i+256] > 10 {
-			results = append(results, instructionResult{
-				instruction: InstructionSetCB[i].name,
-				count:       c.usedInstructions[i+256],
-				time:        c.usedInstructionsTime[i+256],
-			})
-		}
-	}*/
-
-	// sort the instructions by time taken
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].time > results[j].time
-	})
-
-	for i := 0; i < 256; i++ {
-		if results[i].count > 10 {
-			c.mmu.Log.Infof("%16s\t %d\t %s", results[i].instruction, results[i].count, results[i].time.String())
-		}
-		if results[i+256].count > 10 {
-			c.mmu.Log.Infof("%16s\t %d\t %s", results[i].instruction, results[i].count, results[i].time.String())
-		}
-	}
 }
 
 func (c *CPU) executeInterrupt() {

@@ -4,7 +4,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 )
 
-// increment the given value and set the flags accordingly.
+// increment n by 1 and set the flags accordingly.
 //
 //	INC n
 //	n = 8-bit value
@@ -13,18 +13,18 @@ import (
 //
 //	Z - Set if result is zero.
 //	N - Reset.
-//	H - Set if carry from bit 3.
+//	H - Set if carry from lower nibble.
 //	C - Not affected.
-func (c *CPU) increment(value uint8) uint8 {
-	incremented := value + 0x01
-	c.setFlags(incremented == 0, false, value&0xF == 0xF, c.isFlagSet(FlagCarry))
+func (c *CPU) increment(n uint8) uint8 {
+	incremented := n + 0x01
+	c.setFlags(incremented == 0, false, n&0xF == 0xF, c.isFlagSet(FlagCarry))
 	return incremented
 }
 
 // incrementNN increments the given RegisterPair by 1.
 //
 //	INC nn
-//	nn = 16-bit register
+//	nn = AF, BC, DE, HL
 //
 // Flags affected:
 //
@@ -39,7 +39,7 @@ func (c *CPU) incrementNN(register *RegisterPair) {
 	c.s.Tick(4)
 }
 
-// decrement the given value and set the flags accordingly.
+// decrement n by 1 and set the flags accordingly.
 //
 //	DEC n
 //	n = 8-bit value
@@ -50,16 +50,16 @@ func (c *CPU) incrementNN(register *RegisterPair) {
 //	N - Set.
 //	H - Set if carry from bit 3.
 //	C - Not affected.
-func (c *CPU) decrement(value uint8) uint8 {
-	decremented := value - 0x01
-	c.setFlags(decremented == 0, true, value&0xF == 0x0, c.isFlagSet(FlagCarry))
+func (c *CPU) decrement(n uint8) uint8 {
+	decremented := n - 0x01
+	c.setFlags(decremented == 0, true, n&0xF == 0x0, c.isFlagSet(FlagCarry))
 	return decremented
 }
 
 // decrementNN decrements the given RegisterPair by 1.
 //
 //	DEC nn
-//	nn = 16-bit register
+//	nn = AF, BC, DE, HL
 //
 // Flags affected:
 //
@@ -83,8 +83,8 @@ func (c *CPU) decrementNN(register *RegisterPair) {
 
 // addHLRR adds the given RegisterPair to the HL RegisterPair.
 //
-//	ADD HL, rr
-//	rr = 16-bit register
+//	ADD HL, nn
+//	nn = AF, BC, DE, HL
 //
 // Flags affected:
 //
@@ -111,16 +111,16 @@ func (c *CPU) addHLRR(register *RegisterPair) {
 //	N - Reset.
 //	H - Set if carry from bit 3.
 //	C - Set if carry from bit 7.
-func (c *CPU) add(a, b uint8, shouldCarry bool) uint8 {
+func (c *CPU) add(n uint8, shouldCarry bool) {
 	newCarry := c.isFlagSet(FlagCarry) && shouldCarry
-	sum := int16(a) + int16(b)
-	sumHalf := int16(a&0xF) + int16(b&0xF)
+	sum := int16(c.A) + int16(n)
+	sumHalf := int16(c.A&0xF) + int16(n&0xF)
 	if newCarry {
 		sum++
 		sumHalf++
 	}
 	c.setFlags(uint8(sum) == 0, false, sumHalf > 0xF, sum > 0xFF)
-	return uint8(sum)
+	c.A = uint8(sum)
 }
 
 // addUint16 is a helper function for adding two uint16 values together and
@@ -156,17 +156,17 @@ func (c *CPU) addUint16(a, b uint16) uint16 {
 //	N - Set.
 //	H - Set if no borrow from bit 4.
 //	C - Set if no borrow.
-func (c *CPU) sub(a, b uint8, shouldCarry bool) uint8 {
+func (c *CPU) sub(n uint8, shouldCarry bool) {
 	newCarry := c.isFlagSet(FlagCarry) && shouldCarry
-	sub := int16(a) - int16(b)
-	subHalf := int16(a&0xF) - int16(b&0xF)
+	sub := int16(c.A) - int16(n)
+	subHalf := int16(c.A&0xF) - int16(n&0xF)
 	if newCarry {
 		sub--
 		subHalf--
 	}
 
 	c.setFlags(uint8(sub) == 0, true, subHalf < 0, sub < 0)
-	return uint8(sub)
+	c.A = uint8(sub)
 }
 
 // pushNN pushes the two registers onto the stack.

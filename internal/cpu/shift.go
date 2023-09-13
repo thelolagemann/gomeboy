@@ -1,10 +1,12 @@
 package cpu
 
-// shiftLeftIntoCarry shifts the given value left by one bit, and sets the
-// carry flag to the old bit 7 data. The most significant bit is set to 0.
+import "github.com/thelolagemann/gomeboy/internal/types"
+
+// shiftLeftArithmetic shifts n left by one bit, and sets the carry flag to the
+// most significant bit of n.
 //
 //	SLA n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
@@ -12,18 +14,17 @@ package cpu
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 7 data.
-func (c *CPU) shiftLeftIntoCarry(value uint8) uint8 {
-	newCarry := value >> 7
-	computed := (value << 1) & 0xFF
-	c.setFlags(computed == 0, false, false, newCarry == 1)
+func (c *CPU) shiftLeftArithmetic(n uint8) uint8 {
+	computed := n << 1
+	c.setFlags(computed == 0, false, false, n&types.Bit7 == types.Bit7)
 	return computed
 }
 
-// shiftRightIntoCarry shifts the given value right by one bit, and sets the
-// carry flag to the old bit 0 data. The most significant bit does not change.
+// shiftRightArithmetic shifts n right by one bit and sets the carry flag to the
+// least significant bit of n. The most significant bit does not change.
 //
 //	SRA n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
@@ -31,17 +32,17 @@ func (c *CPU) shiftLeftIntoCarry(value uint8) uint8 {
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 0 data.
-func (c *CPU) shiftRightIntoCarry(value uint8) uint8 {
-	result := (value >> 1) | (value & 0x80)
-	c.setFlags(result == 0, false, false, value&0x01 == 0x01)
-	return result
+func (c *CPU) shiftRightArithmetic(n uint8) uint8 {
+	computed := n>>1 | n&types.Bit7
+	c.setFlags(computed == 0, false, false, n&types.Bit0 == types.Bit0)
+	return computed
 }
 
-// shiftRightLogical shifts the given value right by one bit, and sets the
-// carry flag to the old bit 0 data. The most significant bit is set to 0.
+// shiftRightLogical shifts n right one bit and sets the carry flag to the
+// least significant bit of n.
 //
 //	SRL n
-//	n = A, B, C, D, E, H, L, (HL)
+//	n = B, C, D, E, H, L, (HL), A
 //
 // Flags affected:
 //
@@ -49,10 +50,9 @@ func (c *CPU) shiftRightIntoCarry(value uint8) uint8 {
 //	N - Reset.
 //	H - Reset.
 //	C - Contains old bit 0 data.
-func (c *CPU) shiftRightLogical(value uint8) uint8 {
-	newCarry := value & 0x1
-	computed := value >> 1
-	c.setFlags(computed == 0, false, false, newCarry == 1)
+func (c *CPU) shiftRightLogical(n uint8) uint8 {
+	computed := n >> 1
+	c.setFlags(computed == 0, false, false, n&types.Bit0 == types.Bit0)
 
 	return computed
 }
