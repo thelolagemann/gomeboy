@@ -1,7 +1,6 @@
 package cpu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 )
 
@@ -100,70 +99,8 @@ func (c *CPU) pop(high *uint8, low *uint8) {
 	c.SP++
 }
 
-func init() {
-	// 0x18 - JR n
-	DefineInstruction(0x18, "JR n", func(c *CPU) { c.jumpRelative(true) })
-	DefineInstruction(0x20, "JR NZ, n", func(c *CPU) {
-		c.jumpRelative(!c.isFlagSet(FlagZero))
-	})
-	DefineInstruction(0x28, "JR Z, n", func(c *CPU) {
-		c.jumpRelative(c.isFlagSet(FlagZero))
-	})
-	DefineInstruction(0x30, "JR NC, n", func(c *CPU) {
-		c.jumpRelative(!c.isFlagSet(FlagCarry))
-	})
-	DefineInstruction(0x38, "JR C, n", func(c *CPU) {
-		c.jumpRelative(c.isFlagSet(FlagCarry))
-	})
-	DefineInstruction(0xC0, "RET NZ", func(c *CPU) { c.s.Tick(4); c.ret(!c.isFlagSet(FlagZero)) })
-	DefineInstruction(0xC2, "JP NZ, nn", func(c *CPU) {
-		c.jumpAbsolute(!c.isFlagSet(FlagZero))
-	})
-	DefineInstruction(0xC3, "JP nn", func(c *CPU) {
-		c.jumpAbsolute(true)
-	})
-	DefineInstruction(0xC4, "CALL NZ, nn", func(c *CPU) {
-		c.call(!c.isFlagSet(FlagZero))
-	})
-	DefineInstruction(0xC8, "RET Z", func(c *CPU) { c.s.Tick(4); c.ret(c.isFlagSet(FlagZero)) })
-	DefineInstruction(0xC9, "RET", func(c *CPU) { c.ret(true) })
-	DefineInstruction(0xCA, "JP Z, nn", func(c *CPU) {
-		c.jumpAbsolute(c.isFlagSet(FlagZero))
-	})
-	DefineInstruction(0xCC, "CALL Z, nn", func(c *CPU) {
-		c.call(c.isFlagSet(FlagZero))
-	})
-	DefineInstruction(0xCD, "CALL nn", func(c *CPU) {
-		c.call(true)
-	})
-	DefineInstruction(0xD0, "RET NC", func(c *CPU) { c.s.Tick(4); c.ret(!c.isFlagSet(FlagCarry)) })
-	DefineInstruction(0xD2, "JP NC, nn", func(c *CPU) {
-		c.jumpAbsolute(!c.isFlagSet(FlagCarry))
-	})
-	DefineInstruction(0xD4, "CALL NC, nn", func(c *CPU) {
-		c.call(!c.isFlagSet(FlagCarry))
-	})
-	DefineInstruction(0xD8, "RET C", func(c *CPU) { c.s.Tick(4); c.ret(c.isFlagSet(FlagCarry)) })
-	DefineInstruction(0xD9, "RETI", func(c *CPU) { c.ime = true; c.ret(true) })
-	DefineInstruction(0xDA, "JP C, nn", func(c *CPU) {
-		c.jumpAbsolute(c.isFlagSet(FlagCarry))
-	})
-	DefineInstruction(0xDC, "CALL C, nn", func(c *CPU) {
-		c.call(c.isFlagSet(FlagCarry))
-	})
-	DefineInstruction(0xe9, "JP HL", func(c *CPU) {
-		c.PC = c.HL.Uint16()
-	})
-}
-
-// generateRSTInstructions generates the 8 RST instructions.
-func generateRSTInstructions() {
-	for i := uint8(0); i < 8; i++ {
-		address := uint16(i * 8)
-		DefineInstruction(0xC7+i*8, fmt.Sprintf("RST %02Xh", address), func(c *CPU) {
-			c.s.Tick(4)
-			c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
-			c.PC = address
-		})
-	}
+func (c *CPU) rst(address uint16) {
+	c.s.Tick(4)
+	c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
+	c.PC = address
 }
