@@ -1,4 +1,4 @@
-package cpu
+package types
 
 // Register represents a GB Register which is used to hold an 8-bit value.
 // The CPU has 8 registers: A, B, C, D, E, H, L, and F. The F register is
