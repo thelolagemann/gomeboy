@@ -90,14 +90,14 @@ func (s *State) Set(v uint8) {
 // Press presses a button.
 func (s *State) Press(button Button) {
 	// reset the button bit in the state (0 = pressed)
-	s.State = utils.Reset(s.State, button)
+	s.State = utils.Reset(s.State, types.Bit0<<button)
 	s.irq.Request(interrupts.JoypadFlag)
 }
 
 // Release releases a button.
 func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
-	s.State = utils.Set(s.State, button)
+	s.State = utils.Set(s.State, types.Bit0<<button)
 }
 
 var _ types.Stater = (*State)(nil)

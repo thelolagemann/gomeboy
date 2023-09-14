@@ -4,11 +4,8 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/interrupts"
 	"github.com/thelolagemann/gomeboy/internal/mmu"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"sort"
-	"time"
 )
 
 // CPU represents the Gameboy CPU. It is responsible for executing instructions.
@@ -18,7 +15,7 @@ type CPU struct {
 	// SP is the stack pointer, it points to the top of the stack.
 	SP uint16
 	// Registers contains the 8-bit registers, as well as the 16-bit register pairs.
-	Registers
+	types.Registers
 	Debug           bool
 	DebugBreakpoint bool
 
@@ -28,8 +25,6 @@ type CPU struct {
 
 	mmu *mmu.MMU
 	irq *interrupts.Service
-
-	registerSlice [8]*uint8
 
 	instructions   [256]func(cpu *CPU)
 	instructionsCB [256]func(cpu *CPU)
@@ -58,7 +53,7 @@ func (c *CPU) AttachIO(io *[65536]*types.Address) {
 // The MMU is used to read and write to the memory.
 func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c := &CPU{
-		Registers: Registers{},
+		Registers: types.Registers{},
 		mmu:       mmu,
 		irq:       irq,
 		isMBC1:    mmu.IsMBC1,
@@ -68,13 +63,10 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, p
 	}
 
 	// create register pairs
-	c.BC = &RegisterPair{&c.B, &c.C}
-	c.DE = &RegisterPair{&c.D, &c.E}
-	c.HL = &RegisterPair{&c.H, &c.L}
-	c.AF = &RegisterPair{&c.A, &c.F}
-
-	var n uint8
-	c.registerSlice = [8]*uint8{&c.B, &c.C, &c.D, &c.E, &c.H, &c.L, &n, &c.A}
+	c.BC = &types.RegisterPair{High: &c.B, Low: &c.C}
+	c.DE = &types.RegisterPair{High: &c.D, Low: &c.E}
+	c.HL = &types.RegisterPair{High: &c.H, Low: &c.L}
+	c.AF = &types.RegisterPair{High: &c.A, Low: &c.F}
 
 	// embed the instruction set
 	c.instructions = [256]func(*CPU){}
@@ -110,59 +102,11 @@ func (c *CPU) skipHALT() {
 	}
 }
 
-// doHALTBug is called when the CPU is in HALT mode and
-// the IME is disabled. It will execute the next instruction
-// and then return to the HALT instruction.
-func (c *CPU) doHALTBug() {
-	// read the next instruction
-	instr := c.readOpcode()
-
-	// decrement the PC to execute the instruction again
-	c.PC--
-
-	// execute the instruction
-	c.instructions[instr](c)
-
-	// did we get an interrupt?
-	if c.irq.Flag&c.irq.Enable != 0 {
-		c.executeInterrupt()
-	}
-}
-
-// registerIndex returns a Register pointer for the given index.
-func (c *CPU) registerIndex(index uint8) Register {
-	return *c.registerSlice[index]
-}
-
-// registerPointer returns a Register pointer for the given index.
-func (c *CPU) registerPointer(index uint8) *Register {
-	return c.registerSlice[index]
-}
-
-func (c *CPU) handleOAMCorruption(pos uint16) {
-	if c.model == types.CGBABC || c.model == types.CGB0 {
-		return // no corruption on CGB
-	}
-	if pos >= 0xFE00 && pos < 0xFEFF {
-		if (c.ppu.Mode == lcd.OAM ||
-			c.s.Until(scheduler.PPUContinueOAMSearch) == 4) &&
-			c.s.Until(scheduler.PPUEndOAMSearch) != 8 {
-			// TODO
-			// get the current cycle of mode 2 that the PPU is in
-			// the oam is split into 20 rows of 8 bytes each, with
-			// each row taking 1 M-cycle to read
-			// so we need to figure out which row we're in
-			// and then perform the oam corruption
-			c.ppu.WriteCorruptionOAM()
-		}
-	}
-}
-
 // Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
 	for !c.hasFrame && !c.DebugBreakpoint {
 		// execute the instruction
-		c.instructions[c.readOpcode()](c)
+		c.instructions[c.readOperand()](c)
 
 		// did we get an interrupt?
 		if c.ime && c.irq.Enable&c.irq.Flag != 0 {
@@ -173,15 +117,7 @@ func (c *CPU) Frame() {
 	c.hasFrame = false
 }
 
-// readOpcode reads the next instruction from memory.
-func (c *CPU) readOpcode() uint8 {
-	value := c.readByte(c.PC)
-	c.PC++
-	return value
-}
-
-// readOperand reads the next operand from memory. The same as
-// readOpcode, but will allow future optimizations.
+// readOperand reads the next operand from memory.
 func (c *CPU) readOperand() uint8 {
 	value := c.readByte(c.PC)
 	c.PC++
@@ -222,48 +158,6 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 	c.mmu.Write(addr, val)
 }
 
-// LogUsedInstructions sorts the used instructions by the number of times they have
-// been executed, and logs them in a human-readable format, in descending order.
-func (c *CPU) LogUsedInstructions() {
-	// c.mmu.Log.Infof("Instruction\t Count\t Time")
-	type instructionResult struct {
-		instruction string
-		count       uint64
-		time        time.Duration
-	}
-	results := make([]instructionResult, 512)
-	/*for i := 0; i < 256; i++ {
-		if c.usedInstructions[i] > 10 {
-			results = append(results, instructionResult{
-				instruction: InstructionSet[i].name,
-				count:       c.usedInstructions[i],
-				time:        c.usedInstructionsTime[i],
-			})
-		}
-		if c.usedInstructions[i+256] > 10 {
-			results = append(results, instructionResult{
-				instruction: InstructionSetCB[i].name,
-				count:       c.usedInstructions[i+256],
-				time:        c.usedInstructionsTime[i+256],
-			})
-		}
-	}*/
-
-	// sort the instructions by time taken
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].time > results[j].time
-	})
-
-	for i := 0; i < 256; i++ {
-		if results[i].count > 10 {
-			c.mmu.Log.Infof("%16s\t %d\t %s", results[i].instruction, results[i].count, results[i].time.String())
-		}
-		if results[i+256].count > 10 {
-			c.mmu.Log.Infof("%16s\t %d\t %s", results[i].instruction, results[i].count, results[i].time.String())
-		}
-	}
-}
-
 func (c *CPU) executeInterrupt() {
 	if c.ime {
 		// save the high byte of the PC
@@ -297,6 +191,39 @@ func (c *CPU) executeInterrupt() {
 		c.s.Tick(4)
 		c.s.Tick(4)
 	}
+}
+
+// clearFlag clears the given flag in the F register,
+// leaving all other flags unchanged. If the flag
+// is already cleared, this function does nothing. To
+// set a flag, use setFlag.
+func (c *CPU) clearFlag(flag types.Flag) {
+	c.F &^= flag
+}
+
+// setFlags sets all the flags in the F register,
+// as specified by the given arguments.
+func (c *CPU) setFlags(Z bool, N bool, H bool, C bool) {
+	v := uint8(0)
+	if Z {
+		v |= types.FlagZero
+	}
+	if N {
+		v |= types.FlagSubtract
+	}
+	if H {
+		v |= types.FlagHalfCarry
+	}
+	if C {
+		v |= types.FlagCarry
+	}
+	c.F = v
+}
+
+// isFlagSet returns true if the given flag is set,
+// false otherwise.
+func (c *CPU) isFlagSet(flag types.Flag) bool {
+	return c.F&flag == flag
 }
 
 var _ types.Stater = (*CPU)(nil)
