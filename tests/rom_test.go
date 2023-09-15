@@ -189,6 +189,8 @@ func Test_Regressions(t *testing.T) {
 	if err := cmd.Run(); errors.As(err, &exitError) {
 		if exitError.ExitCode() > 1 {
 			t.Error(err)
+		} else {
+			fmt.Println(err)
 		}
 	} else {
 		t.Error(err)
