@@ -168,7 +168,7 @@ func Test_Regressions(t *testing.T) {
 	cmd := exec.Command("go", "test", "-tags", "test", "-v",
 		"acid2_test.go",
 		"age_test.go",
-		"blarrg_test.go",
+		"blargg_test.go",
 		"bully_test.go",
 		"image_test.go",
 		"input_test.go",
