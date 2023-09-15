@@ -152,7 +152,7 @@ type blarrgTest struct {
 	model   types.Model
 }
 
-func newBlargTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
+func newBlarggTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
 	romDir := filepath.Join(blarggROMPath, dir, "individual")
 	// check if individual exists, otherwise check if rom-singles exists
 	if _, err := os.Stat(romDir); os.IsNotExist(err) {
@@ -202,7 +202,7 @@ func testBlarrg(table *TestTable) {
 	tS.NewTestCollection("cgb_sound").AddTests(cgbSoundTests()...)
 
 	// cpu_instrs
-	newBlargTestCollectionFromDir(tS, "cpu_instrs")
+	newBlarggTestCollectionFromDir(tS, "cpu_instrs")
 	// dmg_sound
 	tS.NewTestCollection("dmg_sound").AddTests(dmgSoundTests()...)
 	// halt_bug
@@ -212,7 +212,7 @@ func testBlarrg(table *TestTable) {
 	// interrupt_time (DMG)
 	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests()[3], blarggImageTests()[4])
 	// mem_timing
-	newBlargTestCollectionFromDir(tS, "mem_timing")
+	newBlarggTestCollectionFromDir(tS, "mem_timing")
 }
 
 // testBlarggROM tests a blarrg ROM. A passing test will write

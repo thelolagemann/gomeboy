@@ -168,7 +168,7 @@ func Test_Regressions(t *testing.T) {
 	cmd := exec.Command("go", "test", "-tags", "test", "-v",
 		"acid2_test.go",
 		"age_test.go",
-		"blarrg_test.go",
+		"blargg_test.go",
 		"bully_test.go",
 		"image_test.go",
 		"input_test.go",
@@ -189,6 +189,8 @@ func Test_Regressions(t *testing.T) {
 	if err := cmd.Run(); errors.As(err, &exitError) {
 		if exitError.ExitCode() > 1 {
 			t.Error(err)
+		} else {
+			fmt.Println(err, out.String())
 		}
 	} else {
 		t.Error(err)
