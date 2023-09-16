@@ -128,7 +128,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 		}
 	case DMGABC:
 		return map[HardwareAddress]interface{}{
-			P1:   uint8(0xCF),
+			P1:   uint8(0xC0),
 			DIV:  uint16(0xABC9),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
@@ -156,7 +156,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 		}
 	case CGBABC:
 		return map[HardwareAddress]interface{}{
-			P1:   uint8(0xFF),
+			P1:   uint8(0xF0),
 			DIV:  uint16(0x2675),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
