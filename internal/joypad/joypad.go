@@ -44,9 +44,7 @@ const (
 //	Bit 1 - P11 Input Left  or Button B (0=Pressed) (Read Only)
 //	Bit 0 - P10 Input Right or Button A (0=Pressed) (Read Only)
 type State struct {
-	// Register is the joypad register. It is used to select
-	// either the action or direction buttons.
-	Register uint8
+	p14, p15 bool // select action or direction keys
 	// State is the current state of the joypad. It is used to
 	// hold the state of the buttons, the lower 4 bits are
 	// used for the action buttons, and the upper 4 bits are
@@ -59,8 +57,7 @@ type State struct {
 // New returns a new joypad state.
 func New(irq *interrupts.Service) *State {
 	s := &State{
-		irq:   irq,
-		State: 0xFF,
+		irq: irq,
 	}
 	// set up the register
 	types.RegisterHardware(
@@ -68,46 +65,55 @@ func New(irq *interrupts.Service) *State {
 		s.Set,
 		s.Get,
 		types.WithSet(func(v interface{}) {
-			s.Register = v.(uint8)
+			s.p14 = v.(uint8)&types.Bit4 != types.Bit4
+			s.p15 = v.(uint8)&types.Bit5 != types.Bit5
 		}),
 	)
 	return s
 }
 
 func (s *State) Get() uint8 {
-	if !utils.Test(s.Register, 4) {
-		return (s.Register | s.State>>4) | 0xC0
-	} else if !utils.Test(s.Register, 5) {
-		return (s.Register | s.State&0b0000_1111) | 0xC0
+	data := uint8(0xC0)
+	if !s.p14 {
+		data |= s.State >> 4 & 0xf
+		data |= types.Bit4
 	}
-	return s.Register
+	if !s.p15 {
+		data |= s.State & 0xf
+		data |= types.Bit5
+	}
+	data ^= 0xf
+	return data
 }
 
 func (s *State) Set(v uint8) {
-	s.Register = v | 0b1100_0000
+	s.p14 = v&types.Bit4 == types.Bit4
+	s.p15 = v&types.Bit5 == types.Bit5
 }
 
 // Press presses a button.
 func (s *State) Press(button Button) {
 	// reset the button bit in the state (0 = pressed)
-	s.State = utils.Reset(s.State, types.Bit0<<button)
+	s.State = utils.Set(s.State, types.Bit0<<button)
 	s.irq.Request(interrupts.JoypadFlag)
 }
 
 // Release releases a button.
 func (s *State) Release(button Button) {
 	// set the button bit in the state (1 = released)
-	s.State = utils.Set(s.State, types.Bit0<<button)
+	s.State = utils.Reset(s.State, types.Bit0<<button)
 }
 
 var _ types.Stater = (*State)(nil)
 
 func (s *State) Load(st *types.State) {
-	s.Register = st.Read8()
+	s.p14 = st.ReadBool()
+	s.p15 = st.ReadBool()
 	s.State = st.Read8()
 }
 
 func (s *State) Save(st *types.State) {
-	st.Write8(s.Register)
+	st.WriteBool(s.p14)
+	st.WriteBool(s.p15)
 	st.Write8(s.State)
 }
