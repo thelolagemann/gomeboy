@@ -589,6 +589,17 @@ func (g *GameBoy) initializeCPU() {
 		g.MMU.Set(uint16(k), hwRegisters[uint16(k)])
 	}
 
+	events := g.model.Events()
+	if len(events) > 0 {
+		for i := scheduler.APUFrameSequencer; i <= scheduler.JoypadDownRelease; i++ {
+			g.Scheduler.DescheduleEvent(i)
+		}
+		// set starting events for scheduler
+		for _, e := range events {
+			g.Scheduler.ScheduleEvent(e.Type, e.Cycle)
+		}
+	}
+
 }
 
 func avgTime(t []time.Duration) time.Duration {
