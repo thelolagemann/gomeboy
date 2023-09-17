@@ -195,8 +195,17 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 		}
 	case SGB:
 		return map[HardwareAddress]interface{}{
-			P1:  uint8(0xFF),
-			DIV: uint16(0xD85F),
+			P1:   uint8(0xFF),
+			DIV:  uint16(0xD85F),
+			NR11: uint8(0xBF),
+			NR12: uint8(0xF3),
+			NR50: uint8(0x77),
+			NR51: uint8(0xF3),
+			LCDC: uint8(0x91),
+			STAT: uint8(0x85),
+			LY:   uint8(0x00),
+			BGP:  uint8(0xFC),
+			IF:   uint8(0xE1),
 		}
 	case SGB2:
 		return map[HardwareAddress]interface{}{
@@ -249,6 +258,13 @@ func (m Model) Events() []Event {
 			{Type: scheduler.PPUStartVBlank, Cycle: 252},
 			{Type: scheduler.APUFrameSequencer, Cycle: 984},
 			{Type: scheduler.APUChannel3, Cycle: 984},
+		}
+	case SGB:
+		return []Event{
+			{Type: scheduler.APUSample, Cycle: 64},
+			{Type: scheduler.PPUHBlank, Cycle: 196},
+			{Type: scheduler.APUFrameSequencer, Cycle: 952},
+			{Type: scheduler.APUChannel3, Cycle: 952},
 		}
 	default:
 		return []Event{}
