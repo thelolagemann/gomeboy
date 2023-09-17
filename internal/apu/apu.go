@@ -224,6 +224,7 @@ func (a *APU) SetModel(model types.Model) {
 func NewAPU(s *scheduler.Scheduler) *APU {
 	a := &APU{
 		playing:            false,
+		enabled:            true,
 		frameSequencerStep: 0,
 		buffer:             make([]byte, bufferSize),
 		s:                  s,
@@ -359,15 +360,11 @@ func (a *APU) Write(address uint16, value uint8) {
 // Pause pauses the APU.
 func (a *APU) Pause() {
 	a.playing = false
-	a.enabled = false
-	// sdl.PauseAudioDevice(audioDeviceID, true)
 }
 
 // Play resumes the APU.
 func (a *APU) Play() {
 	a.playing = true
-	a.enabled = true
-	// sdl.PauseAudioDevice(a.audioDeviceID, false)
 }
 
 func (a *APU) AttachPlayback(playback func([]byte)) {
