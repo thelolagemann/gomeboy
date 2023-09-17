@@ -58,6 +58,8 @@ type State struct {
 func New(irq *interrupts.Service) *State {
 	s := &State{
 		irq: irq,
+		p14: true,
+		p15: true,
 	}
 	// set up the register
 	types.RegisterHardware(

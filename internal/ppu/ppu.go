@@ -182,10 +182,10 @@ func (p *PPU) init() {
 			p.statUpdate()
 		},
 		func() uint8 {
-			return p.status | p.Mode
+			return p.status | p.Mode | types.Bit7
 		},
 		types.WithSet(func(v interface{}) {
-			p.status = v.(uint8)&0b0111_1000 | types.Bit7
+			p.status = v.(uint8) & 0b0111_1100
 			p.Mode = v.(uint8) & 0b11
 		}))
 	types.RegisterHardware(
@@ -223,6 +223,7 @@ func (p *PPU) init() {
 		},
 		types.WithSet(func(v interface{}) {
 			p.CurrentScanline = v.(uint8)
+			p.currentLine = v.(uint8)
 		}),
 	)
 	types.RegisterHardware(
@@ -234,7 +235,6 @@ func (p *PPU) init() {
 
 			}
 			p.statUpdate()
-
 		},
 		func() uint8 {
 			return p.lyCompare

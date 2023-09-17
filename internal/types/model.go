@@ -1,5 +1,7 @@
 package types
 
+import "github.com/thelolagemann/gomeboy/internal/scheduler"
+
 // Model represents a model of the Game Boy. This is
 // used to determine how the emulator should behave,
 // in regard to the model-specific quirks. As a most
@@ -101,6 +103,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 	switch m {
 	case DMG0:
 		return map[HardwareAddress]interface{}{
+			P1:   uint8(0xC0),
 			DIV:  uint16(0x182F),
 			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
@@ -119,9 +122,9 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			NR50: uint8(0x77),
 			NR51: uint8(0xF3),
 			NR52: uint8(0xF1),
-			LY:   uint8(0x91),
+			LY:   uint8(0x92),
 			LCDC: uint8(0x91),
-			STAT: uint8(0x88),
+			STAT: uint8(0x81),
 			BGP:  uint8(0xFC),
 			BDIS: uint8(0x01),
 			IF:   uint8(0xE1),
@@ -228,5 +231,26 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			BGP:  uint8(0xFC),
 			BDIS: uint8(0x01),
 		}
+	}
+}
+
+type Event struct {
+	Type  scheduler.EventType
+	Cycle uint64
+}
+
+// Events returns the starting events when PC is at 0x100.
+func (m Model) Events() []Event {
+	switch m {
+	case DMG0:
+		return []Event{
+			{Type: scheduler.APUChannel1, Cycle: 48},
+			{Type: scheduler.APUSample, Cycle: 93},
+			{Type: scheduler.PPUStartVBlank, Cycle: 252},
+			{Type: scheduler.APUFrameSequencer, Cycle: 984},
+			{Type: scheduler.APUChannel3, Cycle: 984},
+		}
+	default:
+		return []Event{}
 	}
 }
