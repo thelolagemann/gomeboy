@@ -2,16 +2,16 @@ package main
 
 import (
 	"flag"
-	"fyne.io/fyne/v2/app"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/audio"
-	"github.com/thelolagemann/gomeboy/pkg/display/fyne"
-	"github.com/thelolagemann/gomeboy/pkg/display/views"
-	"github.com/thelolagemann/gomeboy/pkg/display/web"
+	"github.com/thelolagemann/gomeboy/pkg/display"
+	_ "github.com/thelolagemann/gomeboy/pkg/display/glfw"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
+
 	"net/http"
 	_ "net/http/pprof"
 	"strings"
@@ -28,17 +28,19 @@ func main() {
 
 	var logger = log.New()
 
+	if len(display.InstalledDrivers) == 0 {
+		logger.Fatal("No display drivers installed. Please compile with at least one display driver")
+	}
+
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
 	// saveFolder := flag.String("save", "", "The folder to ")
 	state := flag.String("state", "", "The state file to load") // TODO determine state file from ROM file
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
-	debugViews := flag.Bool("debug", false, "Show debug views")
-	activeDebugViews := flag.String("active-debug", "vram", "Comma separated list of debug views to show")
-	dualView := flag.Bool("dual", false, "Show dual view")
 	printer := flag.Bool("printer", false, "enable printer")
+	displayDriver := flag.String("driver", "auto", "The display driver to use. Can be auto, glfw, fyne or web")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
-	webUI := flag.Bool("web", false, "Start the webUI server")
+
 	flag.Parse()
 
 	var rom []byte
@@ -110,55 +112,25 @@ func main() {
 		gb.AttachAudioListener(audio.PlaySDL)
 	}
 
-	if *webUI {
-		var opts []web.HubOpt
-		if len(rom) > 0 {
-			opts = append(opts, web.WithROM(rom))
-		}
-		h := web.NewHub(opts...)
-		h.Run()
-	} else {
-		a := fyne.NewApplication(app.NewWithID("com.thelolagemann.gomeboy"), gb)
+	driver := display.GetDriver(*displayDriver)
 
-		if *debugViews {
-			for _, view := range strings.Split(*activeDebugViews, ",") {
-				switch view {
-				case "cpu":
-					a.NewWindow("CPU", views.NewCPU(gb.CPU))
-				case "ppu":
-					a.NewWindow("PPU", views.NewPPU(gb.PPU))
-				case "mmu":
-					a.NewWindow("MMU", views.NewMMU(gb.MMU))
-				case "vram":
-					a.NewWindow("Tiles", &views.Tiles{PPU: gb.PPU})
-				case "logger":
-					l := &views.Log{}
-					gb.Logger = logger
-					a.NewWindow("Log", l)
-				case "system":
-					a.NewWindow("System", &views.System{})
-				case "render":
-					a.NewWindow("Render", &views.Render{Video: gb.PPU})
-				}
-			}
-		}
-
-		if *printer {
-			a.NewWindow("Printer", &views.Printer{Printer: gb.Printer, DrawMode: 1})
-		}
-
-		if *dualView {
-			opts = append(opts, gameboy.SerialConnection(gb))
-			// create a new gameboy
-			gb2 := gameboy.NewGameBoy(rom, opts...)
-			a.AddGameBoy(gb2)
-		}
-
-		if err := a.Run(); err != nil {
-			panic(err)
-		}
+	// check to make sure the driver is valid
+	if driver == nil {
+		logger.Fatal("invalid display driver")
 	}
 
-	logger.Infof("Loaded rom %s", *romFile)
+	// create framebuffer
+	fb := make(chan []byte, 60)
 
+	// create various channels
+	events := make(chan display.Event, 60)
+	pressed := make(chan joypad.Button, 10)
+	released := make(chan joypad.Button, 10)
+
+	// start gameboy in a goroutine
+	go gb.Start(fb, events, pressed, released)
+
+	if err := driver.Start(fb, events, pressed, released); err != nil {
+		logger.Fatal(err.Error())
+	}
 }
