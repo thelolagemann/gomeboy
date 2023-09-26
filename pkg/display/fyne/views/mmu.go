@@ -7,13 +7,9 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/cartridge"
 	"github.com/thelolagemann/gomeboy/internal/mmu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"strconv"
 	"strings"
-)
-
-var (
-	_ display.View = (*MMU)(nil)
 )
 
 // MMU is a view that displays the memory map of the gameboy
@@ -25,7 +21,7 @@ func (M *MMU) Title() string {
 	return "MMU"
 }
 
-func (M *MMU) Run(w fyne.Window, events <-chan display.Event) error {
+func (M *MMU) Run(w fyne.Window, events <-chan event.Event) error {
 	// create the base grid
 	grid := container.NewVBox()
 
@@ -91,7 +87,7 @@ Destination	` + M.Cart.Header().Destination() + `
 
 	go func() {
 		for {
-			<-events // MMU view does not react to events (yet)
+			<-events // MMU view does not react to event (yet)
 		}
 	}()
 

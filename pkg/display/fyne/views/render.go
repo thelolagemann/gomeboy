@@ -6,7 +6,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image"
 	"image/color"
 )
@@ -19,7 +19,7 @@ func (r Render) Title() string {
 	return "Render"
 }
 
-func (r Render) Run(w fyne.Window, events <-chan display.Event) error {
+func (r Render) Run(w fyne.Window, events <-chan event.Event) error {
 	// create the base image
 	img := image.NewRGBA(image.Rect(0, 0, 160, 144))
 
@@ -90,13 +90,13 @@ func (r Render) Run(w fyne.Window, events <-chan display.Event) error {
 			e := <-events
 
 			// check if the event is a frame event
-			if e.Type == display.EventTypeFrame {
+			if e.Type == event.FrameTime {
 				// update the image
 				r.Video.DumpRender(img)
 
 				// redraw the canvas
 				c.Refresh()
-			} else if e.Type == display.EventTypeQuit {
+			} else if e.Type == event.Quit {
 				return
 			}
 		}

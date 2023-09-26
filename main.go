@@ -8,6 +8,8 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/audio"
 	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
+	_ "github.com/thelolagemann/gomeboy/pkg/display/fyne"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/glfw"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
@@ -119,11 +121,14 @@ func main() {
 		logger.Fatal("invalid display driver")
 	}
 
+	// attach gameboy to driver
+	driver.Attach(gb)
+
 	// create framebuffer
 	fb := make(chan []byte, 60)
 
 	// create various channels
-	events := make(chan display.Event, 60)
+	events := make(chan event.Event, 60)
 	pressed := make(chan joypad.Button, 10)
 	released := make(chan joypad.Button, 10)
 

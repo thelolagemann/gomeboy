@@ -8,7 +8,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"sync"
 )
 
@@ -89,7 +89,7 @@ func (p *Player) Start() {
 	fb := make(chan []byte, 144)
 
 	// setup events
-	events := make(chan display.Event, 144)
+	events := make(chan event.Event, 144)
 	go func() {
 		for {
 			<-events // TODO handle events
@@ -112,7 +112,7 @@ func (p *Player) Start() {
 
 	var frameSkipBuf = make([]byte, 4)
 	var cacheBuf = make([]byte, 2)
-	var event = Frame
+	var e = Frame
 	var buffer, output []byte
 
 	// start gameboy in a goroutine
@@ -155,7 +155,7 @@ func (p *Player) Start() {
 				// determine if we should patch the framebuffer
 				if dirtiedPixelCount < (p.hub.FramePatchRatio*4608) && p.hub.FramePatching {
 					buffer = dirtiedPixels
-					event = FramePatch
+					e = FramePatch
 				} else {
 					buffer = p.currentFrame
 				}
@@ -178,7 +178,7 @@ func (p *Player) Start() {
 				hash := xxhash.Sum64(output)
 
 				// is this patch?
-				if event == FramePatch {
+				if e == FramePatch {
 					p.patchCache.Lock()
 					// does this patch exist in the cache?
 					if idx := p.patchCache.index(hash); idx != -1 { // yes
@@ -210,7 +210,7 @@ func (p *Player) Start() {
 			// reset various flags
 			dirtied = false
 			dirtiedPixelCount = 0
-			event = Frame
+			e = Frame
 			copy(dirtiedPixels, emptyDirtiedPixels)
 		case <-p.clientClose:
 			p.c = nil

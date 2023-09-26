@@ -3,8 +3,10 @@ package glfw
 import (
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"runtime"
 )
@@ -44,8 +46,12 @@ var (
 type glfwDriver struct {
 }
 
+func (g *glfwDriver) Attach(gb *gameboy.GameBoy) {
+	// no-op for glfw
+}
+
 // Start starts the display driver.
-func (g *glfwDriver) Start(frames <-chan []byte, events <-chan display.Event, pressed, released chan<- joypad.Button) error {
+func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, pressed, released chan<- joypad.Button) error {
 	// create window
 	window, err := glfw.CreateWindow(160, 144, "GomeBoy", nil, nil)
 	if err != nil {
@@ -106,9 +112,9 @@ func (g *glfwDriver) Start(frames <-chan []byte, events <-chan display.Event, pr
 
 			window.SwapBuffers()
 			glfw.PollEvents()
-		case e := <-events:
+		case e := <-evts:
 			switch e.Type {
-			case display.EventTypeTitle:
+			case event.Title:
 				window.SetTitle(e.Data.(string))
 			}
 		}

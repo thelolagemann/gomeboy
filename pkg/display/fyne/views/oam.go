@@ -3,12 +3,11 @@ package views
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 )
 
 var (
-	_ display.View = &OAM{}
-	_ fyne.Layout  = &sprite{}
+	_ fyne.Layout = &sprite{}
 )
 
 type OAM struct {
@@ -32,7 +31,7 @@ func (s sprite) MinSize(_ []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(8*4, 8*4)
 }
 
-func (o *OAM) Run(window fyne.Window, events <-chan display.Event) error {
+func (o *OAM) Run(window fyne.Window, events <-chan event.Event) error {
 	// create the grid (40 sprites, 10 sprites per row)
 	grid := container.NewGridWithRows(4)
 
@@ -48,12 +47,12 @@ func (o *OAM) Run(window fyne.Window, events <-chan display.Event) error {
 		grid.Add(s)
 	}
 
-	// handle events
+	// handle event
 	go func() {
 		for {
 			select {
 			case <-events:
-				//TODO handle events
+				//TODO handle event
 			}
 		}
 	}()

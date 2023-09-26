@@ -7,13 +7,9 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image/color"
 	"strconv"
-)
-
-var (
-	_ display.View = (*PPU)(nil)
 )
 
 type PPU struct {
@@ -30,7 +26,7 @@ func (p *PPU) Title() string {
 	return "PPU"
 }
 
-func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
+func (p *PPU) Run(w fyne.Window, events <-chan event.Event) error {
 	// create the base grid and set it as the content of the window
 	grid := container.New(layout.NewVBoxLayout())
 	w.SetContent(grid)
@@ -104,9 +100,9 @@ func (p *PPU) Run(w fyne.Window, events <-chan display.Event) error {
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeFrame:
+				case event.FrameTime:
 					// set the colors
 					for i := uint8(0); i < 12; i++ {
 						if i < 4 {

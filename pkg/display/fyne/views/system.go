@@ -5,12 +5,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"runtime"
-)
-
-var (
-	_ display.View = &System{}
 )
 
 type System struct {
@@ -20,7 +16,7 @@ func (s *System) Title() string {
 	return "System"
 }
 
-func (s *System) Run(window fyne.Window, events <-chan display.Event) error {
+func (s *System) Run(window fyne.Window, events <-chan event.Event) error {
 	box := container.NewVBox()
 	window.SetContent(box)
 
@@ -36,7 +32,7 @@ func (s *System) Run(window fyne.Window, events <-chan display.Event) error {
 	cpuUsage := widget.NewLabel("0%")
 	box.Add(cpuUsage)
 
-	// handle events
+	// handle event
 	go func() {
 		for {
 			select {

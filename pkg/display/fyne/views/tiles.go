@@ -8,16 +8,12 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image"
 	"image/color"
 	"strconv"
 	"strings"
-)
-
-var (
-	_ display.View = &Tiles{}
 )
 
 type Tiles struct {
@@ -28,7 +24,7 @@ func (v *Tiles) Title() string {
 	return "Tiles"
 }
 
-func (v *Tiles) Run(window fyne.Window, events <-chan display.Event) error {
+func (v *Tiles) Run(window fyne.Window, events <-chan event.Event) error {
 	// create main container
 	main := container.NewHBox()
 
@@ -539,15 +535,15 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 		window.Resize(main.MinSize())
 	}
 
-	// handle events
+	// handle event
 	go func() {
 		for {
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeFrame:
+				case event.FrameTime:
 					for i, img := range tileImages {
 						if i < 384 {
 							if v.PPU.TileChanged[0][i] {

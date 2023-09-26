@@ -8,7 +8,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/cheats"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image/color"
 )
 
@@ -124,7 +124,7 @@ func WithGameShark(shark *cheats.GameShark) CheatManagerOption {
 	}
 }
 
-func (cm *CheatManager) Run(window fyne.Window, events <-chan display.Event) error {
+func (cm *CheatManager) Run(window fyne.Window, events <-chan event.Event) error {
 	/*// create a grid for the lists
 	cheatGrid := container.NewVBox()
 
@@ -432,13 +432,13 @@ func (cm *CheatManager) Run(window fyne.Window, events <-chan display.Event) err
 	return nil
 }
 
-func runUntilQuit(events <-chan display.Event, onQuit func()) {
+func runUntilQuit(evts <-chan event.Event, onQuit func()) {
 	go func() {
 		for {
 			select {
-			case e := <-events:
+			case e := <-evts:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					onQuit()
 					return
 				}

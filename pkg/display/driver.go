@@ -1,14 +1,18 @@
 package display
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 )
 
 // Driver is the interface that wraps the basic methods for a
 // display driver.
 type Driver interface {
+	// Attach attaches the Game Boy to the display driver.
+	Attach(gb *gameboy.GameBoy)
 	// Start the display driver.
-	Start(fb <-chan []byte, events <-chan Event, pressed, released chan<- joypad.Button) error
+	Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- joypad.Button) error
 	// Stop the display driver.
 	Stop() error
 }

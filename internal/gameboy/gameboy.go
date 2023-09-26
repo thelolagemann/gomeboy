@@ -17,7 +17,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/timer"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emu"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"math/rand"
@@ -80,11 +80,11 @@ func (g *GameBoy) AttachAudioListener(player func([]byte)) {
 
 func (g *GameBoy) StartLinked(
 	frames1 chan<- []byte,
-	events1 chan<- display.Event,
+	events1 chan<- event.Event,
 	pressed1 <-chan joypad.Button,
 	released1 <-chan joypad.Button,
 	frames2 chan<- []byte,
-	events2 chan<- display.Event,
+	events2 chan<- event.Event,
 	pressed2 <-chan joypad.Button,
 	released2 <-chan joypad.Button,
 ) {
@@ -148,7 +148,7 @@ func (g *GameBoy) StartLinked(
 
 				totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
+				event <- display.Event{Type: display.Title, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
 				g.frames = 0
 				start = time.Now()
 
@@ -157,26 +157,6 @@ func (g *GameBoy) StartLinked(
 					avgRenderTimes = avgRenderTimes[1:]
 				}
 			}*/
-
-			// send frame events
-			events1 <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
-				Registers struct {
-					AF uint16
-					BC uint16
-					DE uint16
-					HL uint16
-					SP uint16
-					PC uint16
-				}
-			}{Registers: struct {
-				AF uint16
-				BC uint16
-				DE uint16
-				HL uint16
-				SP uint16
-				PC uint16
-			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
-			events2 <- display.Event{Type: display.EventTypeFrame}
 
 			// send frames
 			frames1 <- frameBuffer1
@@ -188,7 +168,7 @@ func (g *GameBoy) StartLinked(
 	}
 }
 
-func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
+func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
 	g.running = true
 	// setup fps counter
 	g.frames = 0
@@ -233,7 +213,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
 
 	// update window title
-	events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy (%s)", g.MMU.Cart.Header().Title)}
+	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.MMU.Cart.Header().Title)}
 
 	// create event handlers for input
 	for i := joypad.ButtonA; i <= joypad.ButtonDown; i++ {
@@ -315,8 +295,8 @@ emuLoop:
 
 					totalAvgRenderTime := avgTime(avgRenderTimes)
 
-					events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
-					events <- display.Event{Type: display.EventTypeFrameTime, Data: avgRenderTimes}
+					events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
+					events <- event.Event{Type: event.FrameTime, Data: avgRenderTimes}
 					g.frames = 0
 					start = time.Now()
 
@@ -326,18 +306,15 @@ emuLoop:
 					}
 
 					// send sample data
-					events <- display.Event{Type: display.EventTypeSample, Data: g.APU.Samples}
+					events <- event.Event{Type: event.Sample, Data: g.APU.Samples}
 				}
-
-				// send frame events
-				events <- display.Event{Type: display.EventTypeFrame}
 
 				// send frame
 				frames <- frameBuffer
 
 				// check printer for queued data
 				if g.Printer != nil && g.Printer.HasPrintJob() {
-					events <- display.Event{Type: display.EventTypePrint, Data: g.Printer.GetPrintJob()}
+					events <- event.Event{Type: event.Print, Data: g.Printer.GetPrintJob()}
 				}
 			}
 
@@ -594,7 +571,7 @@ func (g *GameBoy) initializeCPU() {
 		for i := scheduler.APUFrameSequencer; i <= scheduler.JoypadDownRelease; i++ {
 			g.Scheduler.DescheduleEvent(i)
 		}
-		// set starting events for scheduler
+		// set starting event for scheduler
 		for _, e := range events {
 			g.Scheduler.ScheduleEvent(e.Type, e.Cycle)
 		}

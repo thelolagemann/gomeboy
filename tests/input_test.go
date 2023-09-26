@@ -5,7 +5,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"golang.org/x/image/draw"
 	"image"
@@ -59,7 +59,7 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)
-		events := make(chan display.Event, 144)
+		events := make(chan event.Event, 144)
 		pressed := make(chan joypad.Button, 10)
 		released := make(chan joypad.Button, 10)
 

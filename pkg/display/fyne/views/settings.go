@@ -6,7 +6,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
@@ -39,7 +39,7 @@ func (s *Settings) Title() string {
 	return "Settings"
 }
 
-func (s *Settings) Run(window fyne.Window, events <-chan display.Event) error {
+func (s *Settings) Run(window fyne.Window, events <-chan event.Event) error {
 	// create the settings view
 	settingsView := container.NewVBox()
 

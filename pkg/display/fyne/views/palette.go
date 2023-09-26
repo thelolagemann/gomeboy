@@ -8,7 +8,7 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image/color"
 	"reflect"
 )
@@ -21,7 +21,7 @@ func (p Palette) Title() string {
 	return "Palette"
 }
 
-func (p Palette) Run(window fyne.Window, events <-chan display.Event) error {
+func (p Palette) Run(window fyne.Window, events <-chan event.Event) error {
 	// set non-resizable
 	window.SetFixedSize(true)
 
@@ -138,9 +138,9 @@ func (p Palette) Run(window fyne.Window, events <-chan display.Event) error {
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeFrame:
+				case event.FrameTime:
 					for i := uint8(0); i < 8; i++ {
 						for j := uint8(0); j < 4; j++ {
 							// get the color from the paletteView
