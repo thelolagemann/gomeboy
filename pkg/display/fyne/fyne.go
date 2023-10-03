@@ -18,6 +18,7 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/display"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	views2 "github.com/thelolagemann/gomeboy/pkg/display/fyne/views"
+	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"image"
 	"image/color"
 	"image/png"
@@ -27,19 +28,39 @@ import (
 )
 
 func init() {
-	display.Install("fyne", &fyneDriver{})
+	driver := &fyneDriver{}
+	display.Install("fyne", driver, []display.DriverOption{
+		{
+			Name:        "fullscreen",
+			Type:        "bool",
+			Default:     false,
+			Description: "Run in fullscreen mode",
+			Value:       &driver.fullscreen,
+		},
+		{
+			Name:        "scale",
+			Type:        "float",
+			Default:     4.0,
+			Description: "Scale factor for the display",
+			Value:       &driver.scale,
+		},
+	})
 }
 
 type fyneDriver struct {
 	app        fyne.App
 	mainMenu   *fyne.MainMenu
 	mainWindow fyne.Window
-	gb         *gameboy.GameBoy
+	//gb         *gameboy.GameBoy
+	gb display.Emulator
 
 	windows []*fyneWindow
+
+	fullscreen bool
+	scale      float64
 }
 
-func (f *fyneDriver) Attach(gb *gameboy.GameBoy) {
+func (f *fyneDriver) Initialize(gb display.Emulator) {
 	f.gb = gb
 }
 
@@ -156,8 +177,11 @@ func (f *fyneDriver) toggleMainMenu() {
 		f.mainWindow.Resize(fyne.NewSize(w, h+26))
 		f.mainWindow.Resize(fyne.NewSize(w, h+25)) // TODO why is this needed?
 
-		f.gb.Unpause()
+		f.gb.SendCommand(display.Resume)
 	} else {
+		// get reference to underlying gb (for now, this should be handled by display.Emulator in the future)
+		gb := f.gb.(*gameboy.GameBoy)
+
 		// create main menu
 		// create submenus
 		menuItemOpenROM := fyne.NewMenuItem("Open ROM", func() {
@@ -168,14 +192,14 @@ func (f *fyneDriver) toggleMainMenu() {
 				return
 			}
 			// close the current gameboy if it's running
-			if !f.gb.IsPaused() {
-				f.gb.Lock()
+			if f.gb.Status() == emulator.Running {
 				// close the current gameboy
-				f.gb.Close <- struct{}{}
-				f.gb.Unlock()
+				f.gb.SendCommand(display.Close)
 			}
-			// load the ROM
-			f.gb = gameboy.NewGameBoy(rom, f.gb.Options...)
+			if res := f.gb.SendCommand(emulator.CommandPacket{Command: emulator.CommandLoadROM, Data: rom}); res.Error != nil {
+				// TODO handle error
+				return
+			}
 
 			// TODO recreate gameboy
 			// hide the main menu
@@ -229,7 +253,7 @@ func (f *fyneDriver) toggleMainMenu() {
 		})
 
 		emuCheats := fyne.NewMenuItem("Cheats", func() {
-			f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(f.gb.MMU.GameShark), views2.WithGameGenie(f.gb.MMU.GameGenie))) // TODO determine which cheats are enabled
+			f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(gb.MMU.GameShark), views2.WithGameGenie(gb.MMU.GameGenie))) // TODO determine which cheats are enabled
 		})
 
 		emuMenu := fyne.NewMenu("Emulation",
@@ -282,23 +306,23 @@ func (f *fyneDriver) toggleMainMenu() {
 		})
 		videoLayers.ChildMenu = fyne.NewMenu("",
 			fyne.NewMenuItem("Background", func() {
-				f.gb.PPU.Debug.BackgroundDisabled = !f.gb.PPU.Debug.BackgroundDisabled
-				videoLayers.ChildMenu.Items[0].Checked = !f.gb.PPU.Debug.BackgroundDisabled
+				gb.PPU.Debug.BackgroundDisabled = !gb.PPU.Debug.BackgroundDisabled
+				videoLayers.ChildMenu.Items[0].Checked = !gb.PPU.Debug.BackgroundDisabled
 			}),
 			fyne.NewMenuItem("Window", func() {
-				f.gb.PPU.Debug.WindowDisabled = !f.gb.PPU.Debug.WindowDisabled
-				videoLayers.ChildMenu.Items[1].Checked = !f.gb.PPU.Debug.WindowDisabled
+				gb.PPU.Debug.WindowDisabled = !gb.PPU.Debug.WindowDisabled
+				videoLayers.ChildMenu.Items[1].Checked = !gb.PPU.Debug.WindowDisabled
 			}),
 			fyne.NewMenuItem("Sprites", func() {
-				f.gb.PPU.Debug.SpritesDisabled = !f.gb.PPU.Debug.SpritesDisabled
-				videoLayers.ChildMenu.Items[2].Checked = !f.gb.PPU.Debug.SpritesDisabled
+				gb.PPU.Debug.SpritesDisabled = !gb.PPU.Debug.SpritesDisabled
+				videoLayers.ChildMenu.Items[2].Checked = !gb.PPU.Debug.SpritesDisabled
 			}),
 		)
 
 		// mark layers that are currently enabled
-		videoLayers.ChildMenu.Items[0].Checked = !f.gb.PPU.Debug.BackgroundDisabled
-		videoLayers.ChildMenu.Items[1].Checked = !f.gb.PPU.Debug.WindowDisabled
-		videoLayers.ChildMenu.Items[2].Checked = !f.gb.PPU.Debug.SpritesDisabled
+		videoLayers.ChildMenu.Items[0].Checked = !gb.PPU.Debug.BackgroundDisabled
+		videoLayers.ChildMenu.Items[1].Checked = !gb.PPU.Debug.WindowDisabled
+		videoLayers.ChildMenu.Items[2].Checked = !gb.PPU.Debug.SpritesDisabled
 
 		videoTakeScreenshot := fyne.NewMenuItem("Take Screenshot", func() {
 			// get the current time
@@ -322,7 +346,7 @@ func (f *fyneDriver) toggleMainMenu() {
 			img := image.NewRGBA(image.Rect(0, 0, 160, 144))
 			for y := 0; y < 144; y++ {
 				for x := 0; x < 160; x++ {
-					img.Set(x, y, color.RGBA{R: f.gb.PPU.PreparedFrame[y][x][0], G: f.gb.PPU.PreparedFrame[y][x][1], B: f.gb.PPU.PreparedFrame[y][x][2], A: 255})
+					img.Set(x, y, color.RGBA{R: gb.PPU.PreparedFrame[y][x][0], G: gb.PPU.PreparedFrame[y][x][1], B: gb.PPU.PreparedFrame[y][x][2], A: 255})
 				}
 			}
 
@@ -366,15 +390,15 @@ func (f *fyneDriver) toggleMainMenu() {
 			debugViews.ChildMenu.Items = append(debugViews.ChildMenu.Items, fyne.NewMenuItem(view, func() {
 				switch newView {
 				case "Palette Viewer":
-					f.openWindowIfNotOpen(views2.Palette{PPU: f.gb.PPU})
+					f.openWindowIfNotOpen(views2.Palette{PPU: gb.PPU})
 				case "Frame Renderer":
-					f.openWindowIfNotOpen(&views2.Render{Video: f.gb.PPU})
+					f.openWindowIfNotOpen(&views2.Render{Video: gb.PPU})
 				case "Tile Viewer":
-					f.openWindowIfNotOpen(&views2.Tiles{PPU: f.gb.PPU})
+					f.openWindowIfNotOpen(&views2.Tiles{PPU: gb.PPU})
 				case "Tilemap Viewer":
-					f.openWindowIfNotOpen(&views2.Tilemaps{PPU: f.gb.PPU})
+					f.openWindowIfNotOpen(&views2.Tilemaps{PPU: gb.PPU})
 				case "Cartridge Info":
-					f.openWindowIfNotOpen(&views2.Cartridge{C: f.gb.MMU.Cart})
+					f.openWindowIfNotOpen(&views2.Cartridge{C: gb.MMU.Cart})
 				}
 			}))
 		}
@@ -403,7 +427,7 @@ func (f *fyneDriver) toggleMainMenu() {
 		f.mainMenu = mainMenu
 
 		// pause the gameboy
-		f.gb.Pause()
+		f.gb.SendCommand(display.Pause)
 	}
 }
 

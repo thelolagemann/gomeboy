@@ -11,12 +11,17 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/fyne"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/glfw"
+	//_ "github.com/thelolagemann/gomeboy/pkg/display/web"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 
 	"net/http"
 	_ "net/http/pprof"
 	"strings"
+)
+
+var (
+	_ display.Emulator = &gameboy.GameBoy{}
 )
 
 func main() {
@@ -43,6 +48,7 @@ func main() {
 	displayDriver := flag.String("driver", "auto", "The display driver to use. Can be auto, glfw, fyne or web")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
 
+	display.RegisterFlags()
 	flag.Parse()
 
 	var rom []byte
@@ -122,7 +128,7 @@ func main() {
 	}
 
 	// attach gameboy to driver
-	driver.Attach(gb)
+	driver.Initialize(gb)
 
 	// create framebuffer
 	fb := make(chan []byte, 60)
