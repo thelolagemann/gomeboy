@@ -17,7 +17,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/timer"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/audio"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -250,11 +249,9 @@ emuLoop:
 			case emulator.CommandPause:
 				g.paused = true
 				g.APU.Pause()
-				audio.Pause()
 			case emulator.CommandResume:
 				g.paused = false
 				g.APU.Play()
-				audio.Play()
 			case emulator.CommandClose:
 				// once the gameboy is closed, stop the ticker
 				ticker.Stop()
