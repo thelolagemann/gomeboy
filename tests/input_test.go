@@ -15,6 +15,7 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"time"
 )
 
 type inputTest struct {
@@ -79,13 +80,23 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 			lastCycle = adjustedCycle + 72240
 		}
 
-		done := make(chan struct{})
+		done := make(chan struct{}, 2)
 		go func() {
 			// wait for the cycle
 			for gb.Scheduler.Cycle() < lastCycle {
+				time.Sleep(time.Millisecond * 10)
 			}
 			done <- struct{}{}
 			done <- struct{}{}
+		}()
+
+		// empty event channel
+		go func() {
+			for {
+				select {
+				case <-events:
+				}
+			}
 		}()
 
 		go func() {
@@ -93,9 +104,7 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 				select {
 				case <-done:
 					return
-				default:
-					<-frames
-					<-events
+				case <-frames:
 				}
 			}
 		}()
@@ -107,13 +116,10 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 
 		// wait for the test to finish
 		<-done
-
 		// wait an additional 5 seconds (60 * 5) frames to wait for test completion
 		for frame := 0; frame < 60*5; frame++ {
 			// get the next frame
 			<-frames
-			// empty the event channel
-			<-events
 		}
 
 		// close the channels
