@@ -5,7 +5,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"golang.org/x/image/draw"
 	"image"
@@ -15,6 +15,7 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"time"
 )
 
 type inputTest struct {
@@ -59,7 +60,7 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)
-		events := make(chan display.Event, 144)
+		events := make(chan event.Event, 144)
 		pressed := make(chan joypad.Button, 10)
 		released := make(chan joypad.Button, 10)
 
@@ -79,13 +80,23 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 			lastCycle = adjustedCycle + 72240
 		}
 
-		done := make(chan struct{})
+		done := make(chan struct{}, 2)
 		go func() {
 			// wait for the cycle
 			for gb.Scheduler.Cycle() < lastCycle {
+				time.Sleep(time.Millisecond * 10)
 			}
 			done <- struct{}{}
 			done <- struct{}{}
+		}()
+
+		// empty event channel
+		go func() {
+			for {
+				select {
+				case <-events:
+				}
+			}
 		}()
 
 		go func() {
@@ -93,9 +104,7 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 				select {
 				case <-done:
 					return
-				default:
-					<-frames
-					<-events
+				case <-frames:
 				}
 			}
 		}()
@@ -107,13 +116,10 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 
 		// wait for the test to finish
 		<-done
-
 		// wait an additional 5 seconds (60 * 5) frames to wait for test completion
 		for frame := 0; frame < 60*5; frame++ {
 			// get the next frame
 			<-frames
-			// empty the event channel
-			<-events
 		}
 
 		// close the channels

@@ -5,7 +5,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg/draw"
@@ -21,7 +21,7 @@ func (p *Performance) Title() string {
 	return "Performance"
 }
 
-func (p *Performance) Run(window fyne.Window, events <-chan display.Event) error {
+func (p *Performance) Run(window fyne.Window, events <-chan event.Event) error {
 	// create the base view
 	grid := container.NewVBox()
 	window.SetContent(grid)
@@ -55,9 +55,9 @@ func (p *Performance) Run(window fyne.Window, events <-chan display.Event) error
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeFrameTime:
+				case event.FrameTime:
 					// get the list of frame times from the event
 					frameTimes := e.Data.([]time.Duration)
 

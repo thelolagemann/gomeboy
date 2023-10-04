@@ -5,14 +5,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/thelolagemann/gomeboy/pkg/display"
-	"github.com/thelolagemann/gomeboy/pkg/log"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"sync"
-)
-
-var (
-	_ display.View = &Log{}
-	_ log.Logger   = &Log{}
 )
 
 type Log struct {
@@ -46,14 +40,14 @@ func (l *Log) Debugf(format string, args ...interface{}) {
 	l.entries = append(l.entries, "[DEBUG]"+fmt.Sprintf(format, args...))
 }
 
-func (l *Log) Run(window fyne.Window, events <-chan display.Event) error {
+func (l *Log) Run(window fyne.Window, events <-chan event.Event) error {
 	// create a log view
 	view := container.NewVBox()
 
 	// set the content of the window
 	window.SetContent(view)
 
-	// handle events
+	// handle event
 	go func() {
 		for {
 			select {

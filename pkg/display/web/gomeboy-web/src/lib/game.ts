@@ -460,7 +460,7 @@ class Game {
                     let [...results] = new TextDecoder().decode(eventData).split(`\n`);
                     results.forEach(result => {
                         let [remoteAddr, userAgent, userName, id] = result.split(`\x00`)
-                        console.log(id)
+                        console.log(new TextEncoder().encode(result))
                         this.clients.update(clients => {
                             clients.set(remoteAddr, new UserClient(remoteAddr, userAgent, userName, new DataView(new TextEncoder().encode(id).buffer).getUint8(0)))
 
@@ -701,6 +701,6 @@ function padToUint32(b: Uint8Array) {
     return new Uint32Array(buffer)[0]
 }
 
-export default new Game("ws://192.168.1.22:8090/")
+export default new Game("ws://192.168.1.154:8090/")
 
 export let adminView = writable(true);

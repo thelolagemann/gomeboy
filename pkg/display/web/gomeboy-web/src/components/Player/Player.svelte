@@ -89,8 +89,7 @@
 				}
 			})
 
-			paused = player.paused
-			running = player.isRunning
+
 
 		})
 	}

@@ -7,13 +7,9 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image"
 	"time"
-)
-
-var (
-	_ display.View = &Printer{}
 )
 
 type printerLayout struct {
@@ -55,7 +51,7 @@ const (
 	DrawModePixel
 )
 
-func (p *Printer) Run(window fyne.Window, events <-chan display.Event) error {
+func (p *Printer) Run(window fyne.Window, events <-chan event.Event) error {
 	p.image = image.NewRGBA(image.Rect(0, 0, 160, 10))
 	window.SetPadded(false)
 
@@ -96,9 +92,9 @@ func (p *Printer) Run(window fyne.Window, events <-chan display.Event) error {
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypePrint:
+				case event.Print:
 					// process the print job
 					job := e.Data.(image.Image)
 

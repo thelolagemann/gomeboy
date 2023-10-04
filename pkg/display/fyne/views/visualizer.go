@@ -5,7 +5,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"github.com/thelolagemann/gomeboy/internal/apu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg/draw"
@@ -21,7 +21,7 @@ func (v *Visualizer) Title() string {
 	return "Visualizer"
 }
 
-func (v *Visualizer) Run(window fyne.Window, events <-chan display.Event) error {
+func (v *Visualizer) Run(window fyne.Window, events <-chan event.Event) error {
 	// create a grid
 	grid := container.NewVBox()
 	window.SetContent(grid)
@@ -53,9 +53,9 @@ func (v *Visualizer) Run(window fyne.Window, events <-chan display.Event) error 
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeSample:
+				case event.Sample:
 					// get the samples from event
 					samples := e.Data.(apu.Samples)
 					// update the plot

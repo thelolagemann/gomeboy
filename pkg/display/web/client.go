@@ -10,7 +10,7 @@ import (
 
 type Client struct {
 	mu       sync.RWMutex
-	hub      *Hub
+	hub      *hub
 	conn     *websocket.Conn
 	Send     chan []byte
 	ID       uint8
@@ -49,13 +49,13 @@ read:
 
 			switch message[1] {
 			case Compression:
-				c.hub.Compression = message[2] == 1
+				c.hub.compression = message[2] == 1
 			case CompressionLevel:
-				c.hub.CompressionLevel = int(message[2])
+				c.hub.compressionLevel = int(message[2])
 			case FramePatching:
-				c.hub.FramePatching = message[2] == 1
+				c.hub.framePatching = message[2] == 1
 			case FrameSkipping:
-				c.hub.FrameSkipping = message[2] == 1
+				c.hub.frameSkipping = message[2] == 1
 			case FrameCaching:
 			// TODO implement
 			case RegisterUsername:
@@ -84,9 +84,10 @@ read:
 
 				fmt.Println("upgrading player 2")
 
+				/* TODO reimplement this
 				if !c.hub.player2.gb.IsRunning() {
 					go c.hub.player2.Start()
-				}
+				}*/
 
 				c.hub.player2.clientConnect <- c
 			}

@@ -17,12 +17,11 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/timer"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/display"
-	"github.com/thelolagemann/gomeboy/pkg/emu"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
+	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"math/rand"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -45,11 +44,12 @@ var (
 type GameBoy struct {
 	sync.RWMutex
 	CPU             *cpu.CPU
-	Close           chan struct{}
 	MMU             *mmu.MMU
 	PPU             *ppu.PPU
 	model           types.Model
 	loadedFromState bool
+
+	cmdChannel chan emulator.CommandPacket
 
 	APU        *apu.APU
 	Joypad     *joypad.State
@@ -59,19 +59,30 @@ type GameBoy struct {
 
 	log.Logger
 
-	currentCycle uint
-
 	paused, running bool
 	frames          int
 	previousFrame   [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
-	frameQueue      bool
 	attachedGameBoy *GameBoy
 	speed           float64
 	Printer         *accessories.Printer
-	save            *emu.Save
+	save            *emulator.Save
 	Scheduler       *scheduler.Scheduler
+}
 
-	Options []GameBoyOpt
+func (g *GameBoy) State() emulator.State {
+	if g.paused {
+		return emulator.Paused
+	}
+	if !g.running {
+		return emulator.Stopped
+	}
+
+	return emulator.Running
+}
+
+func (g *GameBoy) SendCommand(command emulator.CommandPacket) emulator.ResponsePacket {
+	g.cmdChannel <- command
+	return emulator.ResponsePacket{}
 }
 
 func (g *GameBoy) AttachAudioListener(player func([]byte)) {
@@ -80,11 +91,11 @@ func (g *GameBoy) AttachAudioListener(player func([]byte)) {
 
 func (g *GameBoy) StartLinked(
 	frames1 chan<- []byte,
-	events1 chan<- display.Event,
+	events1 chan<- event.Event,
 	pressed1 <-chan joypad.Button,
 	released1 <-chan joypad.Button,
 	frames2 chan<- []byte,
-	events2 chan<- display.Event,
+	events2 chan<- event.Event,
 	pressed2 <-chan joypad.Button,
 	released2 <-chan joypad.Button,
 ) {
@@ -100,8 +111,6 @@ func (g *GameBoy) StartLinked(
 
 	for {
 		select {
-		case <-g.Close:
-			return
 		case p := <-pressed1:
 			g.Joypad.Press(p)
 		case r := <-released1:
@@ -148,7 +157,7 @@ func (g *GameBoy) StartLinked(
 
 				totalAvgRenderTime := avgTime(avgRenderTimes)
 
-				events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
+				event <- display.Event{Type: display.Title, Data: fmt.Sprintf("Render: %s (AVG:%s) + Frame: %v | FPS: (%v:%s)", avgRenderTime.String(), totalAvgRenderTime.String(), avgFrameTime.String(), g.frames, total.String())}
 				g.frames = 0
 				start = time.Now()
 
@@ -157,26 +166,6 @@ func (g *GameBoy) StartLinked(
 					avgRenderTimes = avgRenderTimes[1:]
 				}
 			}*/
-
-			// send frame events
-			events1 <- display.Event{Type: display.EventTypeFrame, State: struct{ CPU display.CPUState }{CPU: struct {
-				Registers struct {
-					AF uint16
-					BC uint16
-					DE uint16
-					HL uint16
-					SP uint16
-					PC uint16
-				}
-			}{Registers: struct {
-				AF uint16
-				BC uint16
-				DE uint16
-				HL uint16
-				SP uint16
-				PC uint16
-			}{AF: g.CPU.AF.Uint16(), BC: g.CPU.Registers.BC.Uint16(), DE: g.CPU.Registers.DE.Uint16(), HL: g.CPU.Registers.HL.Uint16(), SP: g.CPU.SP, PC: g.CPU.PC}}}}
-			events2 <- display.Event{Type: display.EventTypeFrame}
 
 			// send frames
 			frames1 <- frameBuffer1
@@ -188,7 +177,7 @@ func (g *GameBoy) StartLinked(
 	}
 }
 
-func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
+func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
 	g.running = true
 	// setup fps counter
 	g.frames = 0
@@ -201,7 +190,6 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	var saveTicker *time.Ticker
 	var ram cartridge.RAMController
 	if r, ok := g.MMU.Cart.MemoryBankController.(cartridge.RAMController); ok && g.MMU.Cart.Header().RAMSize > 0 {
-
 		// start a ticker
 		saveTicker = time.NewTicker(time.Second * 3)
 		ram = r
@@ -233,7 +221,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
 
 	// update window title
-	events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy (%s)", g.MMU.Cart.Header().Title)}
+	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.MMU.Cart.Header().Title)}
 
 	// create event handlers for input
 	for i := joypad.ButtonA; i <= joypad.ButtonDown; i++ {
@@ -246,48 +234,49 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- display.Event, press
 		})
 	}
 
-	// create a goroutine to handle the input
-	go func() {
-		for {
-			select {
-			case b := <-pressed:
-				// press button with some entropy by pressing at a random cycle in the future
-				g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadA)+b), uint64(1024+rand.Intn(4192)*4))
-			case b := <-released:
-				until := g.Scheduler.Until(scheduler.JoypadA + scheduler.EventType(b))
-				g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadARelease)+b), until+uint64(1024+rand.Intn(1024)*4))
-			case <-g.Close:
-				return
-			}
-		}
-	}()
-
 emuLoop:
 	for {
 		select {
-		case <-g.Close:
-			// once the gameboy is closed, stop the ticker
-			ticker.Stop()
+		case b := <-pressed:
+			// press button with some entropy by pressing at a random cycle in the future
+			g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadA)+b), uint64(1024+rand.Intn(4192)*4))
+		case b := <-released:
+			until := g.Scheduler.Until(scheduler.JoypadA + scheduler.EventType(b))
+			g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadARelease)+b), until+uint64(1024+rand.Intn(1024)*4))
+		case cmd := <-g.cmdChannel:
+			g.Lock()
+			switch cmd.Command {
+			case emulator.CommandPause:
+				g.paused = true
+				g.APU.Pause()
+			case emulator.CommandResume:
+				g.paused = false
+				g.APU.Play()
+			case emulator.CommandClose:
+				// once the gameboy is closed, stop the ticker
+				ticker.Stop()
 
-			// close the save file
-			if g.save != nil {
-				b := ram.SaveRAM()
-				if err := g.save.SetBytes(b); err != nil {
-					g.Logger.Errorf("error saving emu: %v", err)
+				// close the save file
+				if g.save != nil {
+					b := ram.SaveRAM()
+					if err := g.save.SetBytes(b); err != nil {
+						g.Logger.Errorf("error saving emulator: %v", err)
+					}
+					if err := g.save.Close(); err != nil {
+						g.Logger.Errorf("error closing save file: %v", err)
+					}
 				}
-				if err := g.save.Close(); err != nil {
-					g.Logger.Errorf("error closing save file: %v", err)
-				}
+				g.running = false
+				break emuLoop
 			}
-			g.running = false
-			break emuLoop
+			g.Unlock()
 		case <-saveTicker.C:
 			g.Lock()
 			// get the data from the RAM
 			data := ram.SaveRAM()
 			// write the data to the save
 			if err := g.save.SetBytes(data); err != nil {
-				g.Logger.Errorf("error saving emu: %v", err)
+				g.Logger.Errorf("error saving emulator: %v", err)
 				g.Unlock()
 			}
 			g.Unlock()
@@ -315,8 +304,8 @@ emuLoop:
 
 					totalAvgRenderTime := avgTime(avgRenderTimes)
 
-					events <- display.Event{Type: display.EventTypeTitle, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
-					events <- display.Event{Type: display.EventTypeFrameTime, Data: avgRenderTimes}
+					events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy: %s (AVG:%s) | FPS: %v", avgRenderTime.String(), totalAvgRenderTime.String(), g.frames)}
+					events <- event.Event{Type: event.FrameTime, Data: avgRenderTimes}
 					g.frames = 0
 					start = time.Now()
 
@@ -326,18 +315,15 @@ emuLoop:
 					}
 
 					// send sample data
-					events <- display.Event{Type: display.EventTypeSample, Data: g.APU.Samples}
+					events <- event.Event{Type: event.Sample, Data: g.APU.Samples}
 				}
-
-				// send frame events
-				events <- display.Event{Type: display.EventTypeFrame}
 
 				// send frame
 				frames <- frameBuffer
 
 				// check printer for queued data
 				if g.Printer != nil && g.Printer.HasPrintJob() {
-					events <- display.Event{Type: display.EventTypePrint, Data: g.Printer.GetPrintJob()}
+					events <- event.Event{Type: event.Print, Data: g.Printer.GetPrintJob()}
 				}
 			}
 
@@ -346,120 +332,15 @@ emuLoop:
 		}
 	}
 
-	<-g.Close
-
 	g.running = false
-}
-
-func (g *GameBoy) Pause() {
-	g.paused = true
-}
-
-func (g *GameBoy) Unpause() {
-	g.paused = false
 }
 
 func (g *GameBoy) TogglePause() {
 	g.paused = !g.paused
 }
 
-type GameBoyOpt func(gb *GameBoy)
-
-func Debug() GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.CPU.Debug = true
-	}
-}
-
-func NoAudio() GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.APU.Pause()
-	}
-}
-
-func SerialDebugger(output *string) GameBoyOpt {
-	return func(gb *GameBoy) {
-		// used to intercept serial output and store it in a string
-		types.RegisterHardware(types.SB, func(v uint8) {
-			*output += string(v)
-			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
-				gb.CPU.DebugBreakpoint = true
-			}
-		}, func() uint8 {
-			return 0
-		})
-	}
-}
-
-func AsModel(m types.Model) func(gb *GameBoy) {
-	return func(gb *GameBoy) {
-		gb.SetModel(m)
-	}
-}
-
-func SerialConnection(gbFrom *GameBoy) GameBoyOpt {
-	return func(gbTo *GameBoy) {
-		gbTo.Serial.Attach(gbFrom.Serial)
-		gbFrom.Serial.Attach(gbTo.Serial)
-
-		gbFrom.attachedGameBoy = gbTo
-	}
-}
-
-func WithLogger(log log.Logger) GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.Logger = log
-		gb.MMU.Log = log
-	}
-}
-
-func WithState(b []byte) GameBoyOpt {
-	return func(gb *GameBoy) {
-		// get state from bytes
-		state := types.StateFromBytes(b)
-		gb.Load(state)
-		gb.loadedFromState = true
-	}
-}
-
-// WithBootROM sets the boot ROM for the emulator.
-func WithBootROM(rom []byte) GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.MMU.SetBootROM(rom)
-
-		// if we have a boot ROM, we need to reset the CPU
-		// otherwise the emulator will start at 0x100 with
-		// the registers set to the values upon completion
-		// of the boot ROM
-		gb.CPU.PC = 0x0000
-		gb.CPU.SP = 0x0000
-		gb.CPU.A = 0x00
-		gb.CPU.F = 0x00
-		gb.CPU.B = 0x00
-		gb.CPU.C = 0x00
-		gb.CPU.D = 0x00
-		gb.CPU.E = 0x00
-		gb.CPU.H = 0x00
-		gb.CPU.L = 0x0
-
-	}
-}
-
-func WithPrinter(printer *accessories.Printer) GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.Printer = printer
-		gb.Serial.Attach(printer)
-	}
-}
-
-func Speed(speed float64) GameBoyOpt {
-	return func(gb *GameBoy) {
-		gb.speed = speed
-	}
-}
-
 // NewGameBoy returns a new GameBoy.
-func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
+func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	types.Lock.Lock()
 	defer types.Lock.Unlock()
 
@@ -494,8 +375,8 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 		Serial:     serialCtl,
 		model:      types.Unset, // default to DMGABC
 		speed:      1.0,
-		Close:      make(chan struct{}, 2),
 		Scheduler:  sched,
+		cmdChannel: make(chan emulator.CommandPacket, 10),
 	}
 
 	// apply options
@@ -530,7 +411,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	// does the cartridge have RAM? (and therefore a save file)
 	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok && cart.Header().RAMSize > 0 {
 		// try to load the save file
-		saveFiles, err := emu.LoadSaves(g.MMU.Cart.Title())
+		saveFiles, err := emulator.LoadSaves(g.MMU.Cart.Title())
 
 		if err != nil {
 			// was there an error loading the save files?
@@ -540,7 +421,7 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 			if saveFiles == nil || len(saveFiles) == 0 {
 				g.Logger.Debugf("no save file found for %s", g.MMU.Cart.Title())
 
-				g.save, err = emu.NewSave(g.MMU.Cart.Title(), g.MMU.Cart.Header().RAMSize)
+				g.save, err = emulator.NewSave(g.MMU.Cart.Title(), g.MMU.Cart.Header().RAMSize)
 				if err != nil {
 					g.Logger.Errorf("error creating save file: %s", err)
 				} else {
@@ -556,8 +437,6 @@ func NewGameBoy(rom []byte, opts ...GameBoyOpt) *GameBoy {
 	}
 
 	// try to load cheats using filename of rom
-
-	g.Options = opts
 
 	return g
 }
@@ -594,7 +473,7 @@ func (g *GameBoy) initializeCPU() {
 		for i := scheduler.APUFrameSequencer; i <= scheduler.JoypadDownRelease; i++ {
 			g.Scheduler.DescheduleEvent(i)
 		}
-		// set starting events for scheduler
+		// set starting event for scheduler
 		for _, e := range events {
 			g.Scheduler.ScheduleEvent(e.Type, e.Cycle)
 		}
@@ -665,12 +544,4 @@ func (g *GameBoy) Save(s *types.State) {
 	g.Timer.Save(s)
 	g.Joypad.Save(s)
 	g.Serial.Save(s)
-}
-
-func (g *GameBoy) IsRunning() bool {
-	return g.running
-}
-
-func (g *GameBoy) IsPaused() bool {
-	return g.paused
 }

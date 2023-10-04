@@ -1,19 +1,14 @@
 package views
 
 import (
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image/color"
-)
-
-var (
-	_ display.View = (*CPU)(nil)
 )
 
 type CPU struct {
@@ -26,7 +21,7 @@ func (c *CPU) Title() string {
 	return "CPU"
 }
 
-func (c *CPU) Run(window fyne.Window, events <-chan display.Event) error {
+func (c *CPU) Run(window fyne.Window, events <-chan event.Event) error {
 	grid := container.NewVBox()
 	// set the content of the window
 	window.SetContent(grid)
@@ -57,26 +52,14 @@ func (c *CPU) Run(window fyne.Window, events <-chan display.Event) error {
 	// add the grid to the window
 	grid.Add(registerGrid)
 
-	// handle events
+	// handle event
 	go func() {
 		for {
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeFrame:
-					registers := e.State.CPU.Registers
-
-					// update bindings
-					af.Text = fmt.Sprintf("%04X", registers.AF)
-					bc.Text = fmt.Sprintf("%04X", registers.BC)
-					de.Text = fmt.Sprintf("%04X", registers.DE)
-					hl.Text = fmt.Sprintf("%04X", registers.HL)
-					sp.Text = fmt.Sprintf("%04X", registers.SP)
-					pc.Text = fmt.Sprintf("%04X", registers.PC)
-
-					registerGrid.Refresh()
 				}
 			}
 		}

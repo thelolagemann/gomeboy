@@ -5,7 +5,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/cartridge"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"strconv"
 )
 
@@ -17,7 +17,7 @@ func (c *Cartridge) Title() string {
 	return "Cartridge"
 }
 
-func (c *Cartridge) Run(window fyne.Window, events <-chan display.Event) error {
+func (c *Cartridge) Run(window fyne.Window, events <-chan event.Event) error {
 	// create main container
 	main := container.NewVBox()
 

@@ -9,18 +9,66 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"sync"
 )
 
+func init() {
+	h := &hub{
+		clients: make(map[*Client]bool),
+		player1: nil,
+		player2: nil,
+
+		broadcast:  make(chan []byte),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+
+		compression:      true,
+		compressionLevel: 2,
+		framePatching:    true,
+		frameSkipping:    true,
+		framePatchRatio:  1,
+	}
+	p1 := &Player{
+		hub:           h,
+		clientClose:   make(chan struct{}, 10),
+		clientConnect: make(chan *Client, 10),
+		clientSync:    make(chan *Client, 10),
+		patchCache:    newCache(16384),
+		frameCache:    newCache(1024),
+		currentFrame:  make([]byte, 92160),
+	}
+	p2 := &Player{
+		hub:           h,
+		clientClose:   make(chan struct{}),
+		clientConnect: make(chan *Client, 10),
+		clientSync:    make(chan *Client, 10),
+		patchCache:    newCache(16384),
+		frameCache:    newCache(1024),
+		currentFrame:  make([]byte, 92160),
+	}
+
+	display.Install("web", p1, []display.DriverOption{})
+	h.player1 = p1
+	h.player2 = p2
+
+	go func() {
+		err := h.run()
+		if err != nil {
+			panic(err)
+		}
+	}()
+}
+
 type Player struct {
 	c             *Client
-	hub           *Hub
+	hub           *hub
 	clientClose   chan struct{}
 	clientConnect chan *Client
 	clientSync    chan *Client
 
-	gb                     *gameboy.GameBoy
-	pressed, release       chan joypad.Button
+	gb                     display.Emulator
+	pressed, release       chan<- joypad.Button
 	patchCache, frameCache *cache
 	currentFrame           []byte
 
@@ -29,67 +77,18 @@ type Player struct {
 	mu sync.Mutex
 }
 
-func (p *Player) ReadPump(from <-chan []byte) {
-	for {
-		select {
-		case message, ok := <-from:
-			// check if the client has been closed
-			if !ok {
-				return
-			}
+func (p *Player) Initialize(emu display.Emulator) {}
 
-			// handle special case of pause/play
-			if len(message) == 1 {
-				if message[0] == 0 {
-					p.gb.Pause()
-					p.hub.sendAllButClient(p.c, p.createMessage(PlayerInfo, []byte{PausePlay, 0}))
-				} else {
-					p.gb.Unpause()
-					p.hub.sendAllButClient(p.c, p.createMessage(PlayerInfo, []byte{PausePlay, 1}))
-				}
-
-				continue // skip further processing
-			}
-
-			switch message[0] {
-			case 9: // PPU related control
-				switch message[1] {
-				case 0: // background
-					p.gb.PPU.Debug.BackgroundDisabled = message[2] == 0
-					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, BackgroundDisabled, message[2]})
-				case 1: // window
-					p.gb.PPU.Debug.WindowDisabled = message[2] == 0
-					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, WindowDisabled, message[2]})
-				case 2: // sprites
-					p.gb.PPU.Debug.SpritesDisabled = message[2] == 0
-					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, SpritesDisabled, message[2]})
-				}
-
-				continue // skip further processing
-			default:
-				button := message[0]
-				state := message[1]
-
-				if state == 0 {
-					p.release <- button
-				} else {
-					p.pressed <- button
-				}
-			}
-		}
-	}
+func (p *Player) Attach(gb *gameboy.GameBoy) {
+	p.gb = gb
 }
 
-// Start starts the Game Boy of the Player. This
-// should be called after the Player has been
-// configured by the user, either via configuration
-// or manual setup.
-func (p *Player) Start() {
-	// setup a framebuffer for the gameboy
-	fb := make(chan []byte, 144)
+func (p *Player) Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- joypad.Button) error {
+	// setup keys
+	p.pressed = pressed
+	p.release = released
 
-	// setup events
-	events := make(chan display.Event, 144)
+	// handle events
 	go func() {
 		for {
 			<-events // TODO handle events
@@ -105,25 +104,22 @@ func (p *Player) Start() {
 	}
 	p.playerByte = playerByte
 
+	// setup vars
 	var dirtied = false
 	var dirtiedPixelCount, framesSkipped = 0, 0
-	dirtiedPixels := make([]byte, ppu.ScreenHeight*ppu.ScreenWidth*4)
-	emptyDirtiedPixels := make([]byte, ppu.ScreenHeight*ppu.ScreenWidth*4)
+	dirtiedPixels := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*4)
+	emptyDirtiedPixels := make([]byte, ppu.ScreenWidth*ppu.ScreenHeight*4)
 
 	var frameSkipBuf = make([]byte, 4)
 	var cacheBuf = make([]byte, 2)
-	var event = Frame
+	var e = Frame
 	var buffer, output []byte
-
-	// start gameboy in a goroutine
-	go p.gb.Start(fb, events, p.pressed, p.release)
 
 	for {
 		select {
 		case f := <-fb:
 			// process incoming framebuffer
-			for i := 0; i < ppu.ScreenHeight*ppu.ScreenWidth; i++ {
-				// track dirty pixel count to determine appropriate update (patch vs full frame)
+			for i := 0; i < ppu.ScreenWidth*ppu.ScreenHeight; i++ {
 				r, g, b := f[i*3], f[i*3+1], f[i*3+2]
 				if p.currentFrame[i*4] != r || p.currentFrame[i*4+1] != g || p.currentFrame[i*4+2] != b {
 					dirtied = true
@@ -132,6 +128,7 @@ func (p *Player) Start() {
 					dirtiedPixels[i*4+1] = g
 					dirtiedPixels[i*4+2] = b
 					dirtiedPixels[i*4+3] = 255
+
 					dirtiedPixelCount++
 				}
 
@@ -141,83 +138,84 @@ func (p *Player) Start() {
 				p.currentFrame[i*4+3] = 255
 			}
 
-			// was the framebuffer dirtied (or has the hub disabled FrameSkipping)
-			if dirtied || !p.hub.FrameSkipping {
-				// handle frame skipping
-				if framesSkipped > 0 && p.hub.FrameSkipping {
+			// did the framebuffer get dirtied (or has the hub disabled frameSkipping)
+			if dirtied || !p.hub.frameSkipping {
+				// handle frame skips
+				if framesSkipped > 0 && p.hub.frameSkipping {
 					binary.LittleEndian.PutUint32(frameSkipBuf, uint32(framesSkipped))
 
-					// send skip update to all clients
-					p.hub.SendAll(p.createMessage(FrameSkip, bytes.TrimRight(frameSkipBuf, "\x00")))
-					framesSkipped = 0
+					// send frames skipped to clients
+					p.hub.broadcast <- p.createMessage(FrameSkip, bytes.TrimRight(frameSkipBuf, "\x00"))
 				}
 
-				// determine if we should patch the framebuffer
-				if dirtiedPixelCount < (p.hub.FramePatchRatio*4608) && p.hub.FramePatching {
+				// can we patch the framebuffer?
+				if dirtiedPixelCount < (p.hub.framePatchRatio*4608) && p.hub.framePatching {
 					buffer = dirtiedPixels
-					event = FramePatch
+					e = FramePatch
 				} else {
 					buffer = p.currentFrame
 				}
 
 				// handle compression (if enabled)
-				if p.hub.Compression {
+				if p.hub.compression {
 					var err error
 					output, err = cbrotli.Encode(buffer, cbrotli.WriterOptions{
-						Quality: 7,
+						Quality: p.hub.compressionLevel,
 					})
 					if err != nil {
-						// TODO: handle error
-						continue
+						// TODO handle error
+						panic(err)
 					}
 				} else {
 					output = buffer
 				}
 
-				// calculate the hash of the data
+				// calculate the hash of the data to see if it exists in cache
 				hash := xxhash.Sum64(output)
 
-				// is this patch?
-				if event == FramePatch {
+				// should we be looking in frame of patch cache
+				if e == FramePatch {
 					p.patchCache.Lock()
-					// does this patch exist in the cache?
-					if idx := p.patchCache.index(hash); idx != -1 { // yes
+
+					if idx := p.patchCache.index(hash); idx != -1 { // found in cache
 						binary.LittleEndian.PutUint16(cacheBuf, uint16(idx))
-						p.hub.SendAll(p.createMessage(PatchCache, bytes.TrimRight(cacheBuf, "\x00")))
-					} else { // no
+						p.hub.broadcast <- p.createMessage(PatchCache, bytes.TrimRight(cacheBuf, "\x00"))
+					} else { // not found in cache
 						p.patchCache.add(hash, output)
 						binary.LittleEndian.PutUint16(cacheBuf, uint16(p.patchCache.index(hash)))
-						p.hub.SendAll(p.createMessage(FramePatch, append(cacheBuf, output...)))
+						p.hub.broadcast <- p.createMessage(FramePatch, append(cacheBuf, output...))
 					}
+
 					p.patchCache.Unlock()
 				} else { // full frame
 					p.frameCache.Lock()
-					// does this frame exist in the cache?
-					if idx := p.frameCache.index(hash); idx != -1 { // yes
+
+					if idx := p.frameCache.index(hash); idx != -1 { // found in cache
 						binary.LittleEndian.PutUint16(cacheBuf, uint16(idx))
-						p.hub.SendAll(p.createMessage(FrameCache, bytes.TrimRight(cacheBuf, "\x00")))
-					} else { // no
+						p.hub.broadcast <- p.createMessage(FrameCache, bytes.TrimRight(cacheBuf, "\x00"))
+					} else { // not found in cache
 						p.frameCache.add(hash, output)
 						binary.LittleEndian.PutUint16(cacheBuf, uint16(p.frameCache.index(hash)))
-						p.hub.SendAll(p.createMessage(Frame, append(cacheBuf, output...)))
+						p.hub.broadcast <- p.createMessage(Frame, append(cacheBuf, output...))
 					}
+
 					p.frameCache.Unlock()
-				} // end patch check
-			} else if p.hub.FrameSkipping { // if FrameSkipping is enabled however, update the frames skipped
+				}
+			} else if p.hub.frameSkipping { // if not dirtied, but frame skipping is enabled, increment count
 				framesSkipped++
 			}
 
 			// reset various flags
 			dirtied = false
 			dirtiedPixelCount = 0
-			event = Frame
+			e = Frame
 			copy(dirtiedPixels, emptyDirtiedPixels)
 		case <-p.clientClose:
 			p.c = nil
 		case c := <-p.clientConnect:
-			// if there is already a client attached or the
-			// client is the one connecting, continue
-			if p.c != nil || p.c == c {
+			// is there is already a client attached, or the client
+			// is the one connecting, then ignore
+			if p.c != nil || c == p.c {
 				continue
 			}
 
@@ -226,6 +224,64 @@ func (p *Player) Start() {
 			go p.ReadPump(c.player)
 		case c := <-p.clientSync:
 			p.Sync(c)
+		}
+	}
+}
+
+func (p *Player) Stop() error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (p *Player) ReadPump(from <-chan []byte) {
+	for {
+		select {
+		case message, ok := <-from:
+			// check if the client has been closed
+			if !ok {
+				return
+			}
+
+			// handle special case of pause/play
+			if len(message) == 1 {
+				if message[0] == 0 {
+					p.gb.SendCommand(display.Pause)
+					p.hub.sendAllButClient(p.c, p.createMessage(PlayerInfo, []byte{PausePlay, 0}))
+				} else {
+					p.gb.SendCommand(display.Resume)
+					p.hub.sendAllButClient(p.c, p.createMessage(PlayerInfo, []byte{PausePlay, 1}))
+				}
+
+				continue // skip further processing
+			}
+
+			switch message[0] {
+			case 9: // PPU related control
+				// assert gb (todo find better solution)
+				gb := p.gb.(*gameboy.GameBoy)
+				switch message[1] {
+				case 0: // background
+					gb.PPU.Debug.BackgroundDisabled = message[2] == 0
+					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, BackgroundDisabled, message[2]})
+				case 1: // window
+					gb.PPU.Debug.WindowDisabled = message[2] == 0
+					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, WindowDisabled, message[2]})
+				case 2: // sprites
+					gb.PPU.Debug.SpritesDisabled = message[2] == 0
+					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, SpritesDisabled, message[2]})
+				}
+
+				continue // skip further processing
+			default:
+				button := message[0]
+				state := message[1]
+
+				if state == 0 {
+					p.release <- button
+				} else {
+					p.pressed <- button
+				}
+			}
 		}
 	}
 }
@@ -283,14 +339,6 @@ func (p *Player) Sync(c *Client) {
 	}
 
 	c.Send <- p.createMessage(FrameCacheSync, data)
-}
-
-func (p *Player) isPlayer1() bool {
-	return p == p.c.hub.player1
-}
-
-func (p *Player) isPlayer2() bool {
-	return p == p.c.hub.player2
 }
 
 func (p *Player) createMessage(messageType Type, data []byte) []byte {

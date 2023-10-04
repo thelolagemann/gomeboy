@@ -3,6 +3,9 @@ package log
 // nullLogger is a logger that does nothing.
 type nullLogger struct{}
 
+func (n nullLogger) Fatal(str string) {
+}
+
 func (n nullLogger) Infof(format string, args ...interface{}) {
 }
 

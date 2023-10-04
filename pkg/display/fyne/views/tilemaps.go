@@ -7,7 +7,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image"
 )
 
@@ -19,7 +19,7 @@ func (t *Tilemaps) Title() string {
 	return "Tilemaps"
 }
 
-func (t *Tilemaps) Run(window fyne.Window, events <-chan display.Event) error {
+func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 	// create main container
 	main := container.NewHBox()
 
@@ -180,9 +180,9 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan display.Event) error {
 			select {
 			case e := <-events:
 				switch e.Type {
-				case display.EventTypeQuit:
+				case event.Quit:
 					return
-				case display.EventTypeFrame:
+				case event.FrameTime:
 					// update tilemap 0
 					t.PPU.DumpTileMaps(tilemap0Image, tilemap1Image, segmentTiles)
 					tilemap0ImageCanvas.Refresh()
