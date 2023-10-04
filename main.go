@@ -11,20 +11,18 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/fyne"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/glfw"
-	//_ "github.com/thelolagemann/gomeboy/pkg/display/web"
+	_ "github.com/thelolagemann/gomeboy/pkg/display/web"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 
 	"net/http"
 	_ "net/http/pprof"
-	"strings"
-)
-
-var (
-	_ display.Emulator = &gameboy.GameBoy{}
 )
 
 func main() {
+	// init display package
+	display.Init()
+
 	// start pprof
 	go func() {
 		err := http.ListenAndServe("localhost:6060", nil)
@@ -35,10 +33,6 @@ func main() {
 
 	var logger = log.New()
 
-	if len(display.InstalledDrivers) == 0 {
-		logger.Fatal("No display drivers installed. Please compile with at least one display driver")
-	}
-
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
 	// saveFolder := flag.String("save", "", "The folder to ")
@@ -48,7 +42,6 @@ func main() {
 	displayDriver := flag.String("driver", "auto", "The display driver to use. Can be auto, glfw, fyne or web")
 	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
 
-	display.RegisterFlags()
 	flag.Parse()
 
 	var rom []byte
@@ -61,11 +54,9 @@ func main() {
 		}
 	}
 
-	var opts []gameboy.GameBoyOpt
-	// open the boot rom file
-	var boot []byte
+	var opts []gameboy.Opt
 	if *bootROM != "" {
-		boot, err = utils.LoadFile(*bootROM)
+		boot, err := utils.LoadFile(*bootROM)
 		if err != nil {
 			panic(err)
 		}
@@ -86,31 +77,15 @@ func main() {
 		opts = append(opts, gameboy.WithState(state))
 	}
 
-	switch strings.ToLower(*asModel) {
-	case "auto":
-		// no-op
-		break
-	case "dmg":
-		opts = append(opts, gameboy.AsModel(types.DMGABC))
-	case "dmg0":
-		opts = append(opts, gameboy.AsModel(types.DMG0))
-	case "mgb":
-		opts = append(opts, gameboy.AsModel(types.MGB))
-	case "cgb":
-		opts = append(opts, gameboy.AsModel(types.CGBABC))
-	case "cgb0":
-		opts = append(opts, gameboy.AsModel(types.CGB0))
-	case "sgb":
-		opts = append(opts, gameboy.AsModel(types.SGB))
-	case "sgb2":
-		opts = append(opts, gameboy.AsModel(types.SGB2))
-	case "agb":
-		opts = append(opts, gameboy.AsModel(types.AGB))
+	// has model been set?
+	if *asModel != "auto" {
+		opts = append(opts, gameboy.AsModel(types.StringToModel(*asModel)))
 	}
+
 	// opts = append(opts, gameboy.SaveEvery(time.Second*10))
 	opts = append(opts, gameboy.Speed(*speed))
 	// create a new gameboy
-	opts = append(opts, gameboy.WithLogger(log.NewNullLogger()))
+	opts = append(opts, gameboy.WithLogger(logger))
 	opts = append(opts, gameboy.Debug())
 	gb := gameboy.NewGameBoy(rom, opts...)
 

@@ -1,6 +1,9 @@
 package types
 
-import "github.com/thelolagemann/gomeboy/internal/scheduler"
+import (
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"strings"
+)
 
 // Model represents a model of the Game Boy. This is
 // used to determine how the emulator should behave,
@@ -31,27 +34,38 @@ const (
 	AGB
 )
 
+var (
+	ModelNames = map[Model]string{
+		DMG0:   "DMG0",
+		DMGABC: "DMGABC",
+		CGB0:   "CGB0",
+		CGBABC: "CGBABC",
+		MGB:    "MGB",
+		SGB:    "SGB",
+		SGB2:   "SGB2",
+		AGB:    "AGB",
+		Unset:  "Unset",
+	}
+)
+
+// StringToModel converts a string to a Model. The
+// string is converted to lowercase before comparison,
+// so the comparison is case-insensitive. If no Model
+// matches, Unset is returned.
+func StringToModel(s string) Model {
+	s = strings.ToLower(s)
+	for m, n := range ModelNames {
+		if n == s {
+			return m
+		}
+	}
+
+	return Unset
+}
+
 // String returns the string representation of the model.
 func (m Model) String() string {
-	switch m {
-	case DMG0:
-		return "DMG0"
-	case DMGABC:
-		return "DMGABC"
-	case CGB0:
-		return "CGB0"
-	case CGBABC:
-		return "CGBABC"
-	case MGB:
-		return "MGB"
-	case SGB:
-		return "SGB"
-	case SGB2:
-		return "SGB2"
-	case AGB:
-		return "AGB"
-	}
-	return "Unknown"
+	return ModelNames[m]
 }
 
 // Registers returns the starting CPU IO when PC is

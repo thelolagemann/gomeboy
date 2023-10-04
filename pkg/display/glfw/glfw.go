@@ -8,6 +8,7 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"runtime"
+	"time"
 )
 
 const (
@@ -28,6 +29,8 @@ func init() {
 		log.Fatal(err.Error())
 	}
 
+	mon = glfw.GetPrimaryMonitor()
+
 	// register display driver
 	driver := &glfwDriver{}
 	display.Install("glfw", driver, []display.DriverOption{
@@ -45,29 +48,41 @@ func init() {
 			Type:        "float",
 			Description: "Scale the window by this factor",
 		},
+		{
+			Name:        "maintain-aspect-ratio",
+			Default:     false,
+			Value:       &driver.maintainAspectRatio,
+			Type:        "bool",
+			Description: "Force the window to maintain the correct aspect ratio",
+		},
 	})
 }
 
 var (
 	joypadKeys = map[glfw.Key]joypad.Button{
-		glfw.KeyA:      joypad.ButtonA,
-		glfw.KeyB:      joypad.ButtonB,
-		glfw.KeyDown:   joypad.ButtonDown,
-		glfw.KeyUp:     joypad.ButtonUp,
-		glfw.KeyLeft:   joypad.ButtonLeft,
-		glfw.KeyRight:  joypad.ButtonRight,
-		glfw.KeyEnter:  joypad.ButtonStart,
-		glfw.KeyEscape: joypad.ButtonSelect,
+		glfw.KeyA:         joypad.ButtonA,
+		glfw.KeyB:         joypad.ButtonB,
+		glfw.KeyDown:      joypad.ButtonDown,
+		glfw.KeyUp:        joypad.ButtonUp,
+		glfw.KeyLeft:      joypad.ButtonLeft,
+		glfw.KeyRight:     joypad.ButtonRight,
+		glfw.KeyEnter:     joypad.ButtonStart,
+		glfw.KeyBackspace: joypad.ButtonSelect,
 	}
+)
+
+var (
+	mon *glfw.Monitor
 )
 
 // glfwDriver implements a barebones display driver using GLFW
 // and the OpenGL API.
 type glfwDriver struct {
-	fullscreen bool
-	scale      float64
-	test       bool
-	fillmode   string
+	fullscreen          bool
+	scale               float64
+	maintainAspectRatio bool
+
+	emu display.Emulator
 
 	windowSettings struct {
 		width      int
@@ -76,22 +91,22 @@ type glfwDriver struct {
 	}
 }
 
-func (g *glfwDriver) Initialize(_ display.Emulator) {}
+func (g *glfwDriver) Initialize(e display.Emulator) {
+	g.emu = e
+}
 
 // Start starts the display driver.
 func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, pressed, released chan<- joypad.Button) error {
-	// handle fullscreen
-	var mon *glfw.Monitor
-	if g.fullscreen {
-		mon = glfw.GetPrimaryMonitor()
-	}
-
 	// create window
 	window, err := glfw.CreateWindow(int(160*g.scale), int(144*g.scale), "GomeBoy", nil, nil)
 	if err != nil {
 		return err
 	}
 
+	if g.maintainAspectRatio {
+		window.SetAspectRatio(10, 9)
+	}
+	// fullscreen
 	if g.fullscreen {
 		bestMode := getBestMode()
 		window.SetMonitor(mon, 0, 0, bestMode.Width, bestMode.Height, bestMode.RefreshRate)
@@ -100,13 +115,8 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 	window.MakeContextCurrent()
 
 	// initialize window settings
-	width, height := window.GetSize()
-	xPos, yPos := window.GetPos()
-	g.windowSettings = struct {
-		width      int
-		height     int
-		xPos, yPos int
-	}{width, height, xPos, yPos}
+	g.windowSettings.width, g.windowSettings.height = window.GetSize()
+	g.windowSettings.xPos, g.windowSettings.yPos = window.GetPos()
 
 	var texture uint32
 	{
@@ -142,12 +152,17 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 					g.windowSettings.width, g.windowSettings.height = window.GetSize()
 					g.windowSettings.xPos, g.windowSettings.yPos = window.GetPos()
 
-					mon = glfw.GetPrimaryMonitor()
 					bestMode := getBestMode()
 					window.SetMonitor(mon, 0, 0, bestMode.Width, bestMode.Height, bestMode.RefreshRate)
 				}
 
 				g.fullscreen = !g.fullscreen
+			case glfw.KeyEscape, glfw.KeyPause:
+				if g.emu.State().IsRunning() {
+					g.emu.SendCommand(display.Pause)
+				} else if g.emu.State().IsPaused() {
+					g.emu.SendCommand(display.Resume)
+				}
 			}
 		}
 	})
@@ -180,10 +195,12 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 		offsetY = (int32(h) - targetHeight) / 2
 	})
 
+	pollTicker := time.NewTicker(time.Millisecond * 100) // to handle when paused
 	// draw loop
 	for {
 		select {
 		case f := <-frames:
+			glfw.PollEvents()
 			if window.ShouldClose() {
 				return nil
 			}
@@ -195,12 +212,13 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 			gl.BlitFramebuffer(0, 0, 160, 144, offsetX, offsetY+targetHeight, offsetX+targetWidth, offsetY, gl.COLOR_BUFFER_BIT, gl.NEAREST)
 
 			window.SwapBuffers()
-			glfw.PollEvents()
 		case e := <-evts:
 			switch e.Type {
 			case event.Title:
 				window.SetTitle(e.Data.(string))
 			}
+		case <-pollTicker.C:
+			glfw.PollEvents()
 		}
 	}
 
@@ -218,7 +236,6 @@ func (g *glfwDriver) Stop() error {
 // the native aspect ratio of the monitor. This should provide a
 // reasonable default for most monitors.
 func getBestMode() *glfw.VidMode {
-	mon := glfw.GetPrimaryMonitor()
 	sizeX, sizeY := mon.GetPhysicalSize()
 	monAspectRatio := float32(sizeX) / float32(sizeY)
 	closestMatch := float32(0)

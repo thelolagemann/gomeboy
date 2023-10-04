@@ -2,9 +2,8 @@ package web
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/gorilla/websocket"
-	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"golang.org/x/sys/unix"
 	"log"
@@ -14,233 +13,223 @@ import (
 	"time"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024 * 16,
-	WriteBufferSize: 1024 * 16,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
+type hub struct {
+	clients          map[*Client]bool
+	player1, player2 *Player
 
-type Hub struct {
-	Clients    map[*Client]bool
-	player1    *Player
-	player2    *Player
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	activeROM  []byte
+	broadcast            chan []byte
+	register, unregister chan *Client
 
-	Compression      bool
-	CompressionLevel int
-	FramePatching    bool
-	FramePatchRatio  int // 0-20
-	FrameSkipping    bool
-	CurrentID        uint8
+	compression      bool
+	compressionLevel int
+	framePatching    bool
+	framePatchRatio  int
+	frameSkipping    bool
+	currentID        uint8
 
 	mu sync.Mutex
 }
 
-func NewHub(opts ...HubOpt) *Hub {
-	h := &Hub{
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		Clients:    make(map[*Client]bool),
-		CurrentID:  0,
-
-		Compression:      true,
-		CompressionLevel: 2,
-		FramePatching:    true,
-		FrameSkipping:    true,
-		FramePatchRatio:  1,
-	}
-
-	for _, opt := range opts {
-		opt(h)
-	}
-
-	return h
-}
-
-type HubOpt func(*Hub)
-
-func WithROM(rom []byte) HubOpt {
-	return func(h *Hub) {
-		h.activeROM = rom
-	}
-}
-
-func (h *Hub) Info() byte {
-	info := uint8(0)
-	if h.player1.gb.IsRunning() {
-		info |= types.Bit1
-	}
-	if h.player2.gb.IsRunning() {
-		info |= types.Bit2
-	}
-	if h.Compression {
-		info |= types.Bit3
-	}
-	if h.FramePatching {
-		info |= types.Bit4
-	}
-	if h.FrameSkipping {
-		info |= types.Bit5
-	}
-	if h.player1.gb.IsPaused() {
-		info |= types.Bit6
-	}
-	if h.player2.gb.IsPaused() {
-		info |= types.Bit7
-	}
-	return info
-}
-
-// Run the hub, listening for new connections and
-// broadcasting messages to connected clients.
-func (h *Hub) Run() {
-	// create and start the 2 players
-	h.player1 = NewPlayer(h.activeROM, h)
-	h.player2 = NewPlayer(h.activeROM, h)
-	go h.player1.Start()
-
-	// create http handler to listen for incoming connections
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+func (w *hub) run() error {
+	// create http handler for client connections
+	http.HandleFunc("/", func(wr http.ResponseWriter, r *http.Request) {
+		wr.Header().Set("Access-Control-Allow-Origin", "*")
 
 		// upgrade the connection to a websocket connection
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := upgrader.Upgrade(wr, r, nil)
 		if err != nil {
-			// TODO: handle error
+			// TODO handle err
 			return
 		}
 
-		client := h.NewClient(conn, r)
+		// create new client
+		c := w.newClient(conn, r)
 
-		// spawn goroutines for read/write pump
-		go client.ReadPump()
-		go client.WritePump()
+		// spawn read/write pumps
+		go c.ReadPump()
+		go c.WritePump()
 
-		// send the client hub information  TODO add per client info bg, window, sprite disable cache/run status)
-		client.Send <- []byte{ClientInfo, ClientStatus, h.Info(), uint8(h.CompressionLevel), uint8(h.FramePatchRatio)}
+		// send initial data information
+		c.Send <- []byte{ClientInfo, ClientStatus, w.info(), uint8(w.compressionLevel), uint8(w.framePatchRatio)}
 
-		// synchronize the players
-		h.player1.clientSync <- client
-		if h.player2.c != nil {
-			h.player2.clientSync <- client
+		// inform players of the new clients
+		w.player1.clientSync <- c
+		if w.player2.c != nil {
+			w.player2.clientSync <- c
 		}
 
-		// synchronize connected clients
+		// synchronize clients to connecting client
 		var data []byte
-		for c := range h.Clients {
-			if c == client { // skip self
-				continue
+		for cl := range w.clients {
+			if c == cl {
+				continue // skip self
 			}
 
 			data = append(data, c.Metadata.RemoteAddr...)
 			data = append(data, 0)
-			data = append(data, c.Metadata.UserAgent...)
+			data = append(data, cl.Metadata.UserAgent...)
 			data = append(data, 0)
-			data = append(data, c.Metadata.Username...)
+			data = append(data, cl.Metadata.Username...)
 			data = append(data, 0)
-			data = append(data, c.ID)
+			data = append(data, cl.ID)
 			data = append(data, byte('\n'))
 		}
 
 		if len(data) > 0 {
-			data = data[:len(data)-1] // remove last newline
+			// remove last newline to avoid issues with JS
+			data = data[:len(data)-1]
 		}
 
-		client.Send <- append([]byte{ClientListSync}, data...)
-
+		c.Send <- append([]byte{ClientListSync}, data...)
 	})
 
-	// setup goroutine to handle incoming web requests
+	// setup goroutines
+
+	// web server
 	go func() {
-		log.Fatal(http.ListenAndServe("192.168.1.22:8090", nil))
+		log.Fatal(http.ListenAndServe("192.168.1.154:8090", nil))
 	}()
 
-	// set up a goroutine to periodically Send information
-	// updates to all connected clients
+	// periodic info updates
 	go func() {
 		t := time.NewTicker(time.Second * 1)
 		for {
 			select {
 			case <-t.C:
+				// build information
 				var data []byte
-				for c := range h.Clients {
+				for c := range w.clients {
 					latencyBuf := make([]byte, 2)
 					binary.LittleEndian.PutUint16(latencyBuf, c.avgLatency)
 					data = append(data, c.ID)
 					data = append(data, latencyBuf...)
 				}
 
-				h.broadcast <- append([]byte{ServerInfo}, data...)
+				// broadcast information
+				w.broadcast <- append([]byte{ServerInfo}, data...)
 			}
 		}
 	}()
+
+	// handle broadcasting
 	for {
 		select {
-		case client := <-h.register:
-			h.Clients[client] = true
-
-		case client := <-h.unregister:
-			h.player1.mu.Lock()
-			if _, ok := h.Clients[client]; ok {
-				// check if this was one of the players
-				if h.player1 != nil && client == h.player1.c {
-					h.player1.clientClose <- struct{}{}
+		case c := <-w.register:
+			w.clients[c] = true
+		case c := <-w.unregister:
+			w.player1.mu.Lock()
+			// is this client still registered
+			if _, ok := w.clients[c]; ok {
+				// was it one of the players?
+				if w.player1 != nil && c == w.player1.c {
+					w.player1.clientClose <- struct{}{}
 				}
-				if h.player2 != nil && client == h.player2.c {
-					h.player2.clientClose <- struct{}{}
+				if w.player2 != nil && c == w.player2.c {
+					w.player2.clientClose <- struct{}{}
 				}
 
-				id := client.Metadata.RemoteAddr
-				delete(h.Clients, client)
-				close(client.Send)
+				id := c.Metadata.RemoteAddr
+				delete(w.clients, c)
 
-				// notify clients that this client is closing
-				for c := range h.Clients {
+				// notify connected clients that this client has disconnected
+				for c := range w.clients {
 					select {
-					case c.Send <- append([]byte{ClientClosing}, []byte(id)...):
+					case c.Send <- append([]byte{ClientClosing}, id...):
 					default:
 					}
 				}
 
-				// notify the next client that it can join
-				// if there is one available
-				newClient := h.nextClient()
-				if newClient != nil {
-					h.player1.clientConnect <- newClient
+				// notify the next client that it can join if there is one available
+				if next := w.nextPlayer(); next != nil {
+					w.player1.clientConnect <- next
 				}
 			}
-			h.player1.mu.Unlock()
-		case message := <-h.broadcast:
-			for client := range h.Clients {
+			w.player1.mu.Unlock()
+		case msg := <-w.broadcast:
+			for c := range w.clients {
 				select {
-				case client.Send <- message:
+				case c.Send <- msg:
 				default:
-					close(client.Send)
-					delete(h.Clients, client)
+					close(c.Send)
+					delete(w.clients, c)
 				}
 			}
 		}
 	}
 }
 
-// NewClient creates a new client registered to the hub
-// and returns it.
-func (h *Hub) NewClient(conn *websocket.Conn, r *http.Request) *Client {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.CurrentID++
+// info returns a byte of information containing the various
+// hub settings. The byte is constructed as follows:
+//
+//	Bit 0: Running status of player 1
+//	Bit 1: Running status of player 2
+//	Bit 2: Compression enabled
+//	Bit 3: Frame patching enabled
+//	Bit 4: Frame skipping enabled
+//	Bit 5: Player 1 paused
+//	Bit 6: Player 2 paused
+func (w *hub) info() byte {
+	info := uint8(0)
+	if w.player1.gb != nil {
+		if w.player1.gb.State().IsRunning() {
+			info |= types.Bit0
+		}
+		if w.player1.gb.State().IsPaused() {
+			info |= types.Bit5
+		}
+	}
 
-	client := &Client{
-		hub:    h,
+	if w.player2.gb != nil {
+		if w.player2.gb.State().IsRunning() {
+			info |= types.Bit1
+		}
+		if w.player2.gb.State().IsPaused() {
+			info |= types.Bit6
+		}
+	}
+
+	if w.compression {
+		info |= types.Bit2
+	}
+	if w.framePatching {
+		info |= types.Bit3
+	}
+	if w.frameSkipping {
+		info |= types.Bit4
+	}
+
+	fmt.Printf("%08b\n", info)
+
+	return info
+}
+
+// nextPlayer returns the next client in the list awaiting
+// player upgrade by comparing the value of each connectedAt
+// field. Used when a player disconnects and a new player
+// is able to take over.
+func (w *hub) nextPlayer() *Client {
+	var next *Client
+	for c := range w.clients {
+		if next == nil || c.connectedAt.Before(next.connectedAt) {
+			next = c
+		}
+	}
+
+	return next
+}
+
+// newClient creates a new client and registers it to the hub
+func (w *hub) newClient(conn *websocket.Conn, r *http.Request) *Client {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.currentID++
+
+	c := &Client{
+		hub:    w,
 		conn:   conn,
 		Send:   make(chan []byte, 256),
-		ID:     h.CurrentID,
+		ID:     w.currentID,
 		player: make(chan []byte, 256),
 		Metadata: struct {
 			RemoteAddr string
@@ -249,60 +238,29 @@ func (h *Hub) NewClient(conn *websocket.Conn, r *http.Request) *Client {
 		}{RemoteAddr: r.RemoteAddr, UserAgent: r.Header.Get("User-Agent")},
 		connectedAt: time.Now(),
 	}
-	h.register <- client
-	return client
+	w.register <- c
+	return c
 }
 
-// NewPlayer upgrades a Client to a Player and returns it.
-func NewPlayer(rom []byte, hub *Hub) *Player {
-	// create a new Game Boy instance
-	g := gameboy.NewGameBoy(rom)
-
-	return &Player{nil, hub, make(chan struct{}, 10), make(chan *Client, 10), make(chan *Client, 10),
-		g,
-		make(chan joypad.Button, 10),
-		make(chan joypad.Button, 10),
-		newCache(16384),
-		newCache(1024),
-		make([]byte, 92160),
-		0, sync.Mutex{},
-	}
-}
-
-// SendAll sends a message to all connected clients
-func (h *Hub) SendAll(message []byte) {
-	h.broadcast <- message
-}
-
-func (h *Hub) send(client *Client, message []byte) {
-	select {
-	case client.Send <- message:
-		// sent
-		return
-	}
-}
-
-func (h *Hub) sendAllButClient(client *Client, message []byte) {
-	for c := range h.Clients {
-		if c != client {
-			h.send(c, message)
+// sendAllButClient sends a message to all connected clients except
+// the one specified. Used for events such as username registration,
+// where the client is the one that initiated the event, so is already
+// aware of the registered username.
+func (w *hub) sendAllButClient(client *Client, message []byte) {
+	for c := range w.clients {
+		if c == client {
+			continue
 		}
+		c.Send <- message
 	}
 }
 
-// nextClient returns the next client in the list awaiting
-// player upgrade by comparing the value of each connectedAt
-// field. Used when the original player disconnects and a new
-// one is needed.
-func (h *Hub) nextClient() *Client {
-	var next *Client
-	for c := range h.Clients {
-		if next == nil || c.connectedAt.Before(next.connectedAt) {
-			next = c
-		}
-	}
-
-	return next
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024 * 16,
+	WriteBufferSize: 1024 * 16,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func tcpInfo(conn *net.TCPConn) (*unix.TCPInfo, error) {

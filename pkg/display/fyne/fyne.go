@@ -191,8 +191,9 @@ func (f *fyneDriver) toggleMainMenu() {
 				// TODO handle error
 				return
 			}
-			// close the current gameboy if it's running
-			if f.gb.Status() == emulator.Running {
+			// close the current gamebo
+			//y if it's running
+			if f.gb.State().IsRunning() {
 				// close the current gameboy
 				f.gb.SendCommand(display.Close)
 			}

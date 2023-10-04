@@ -111,15 +111,17 @@ const (
 )
 
 func PlaySDL(data []byte) {
-	if !disabled {
+	if !paused {
 		buffer.write(data)
 	}
 }
 
 func Pause() {
 	paused = true
+	sdl.PauseAudioDevice(audioDeviceID, true)
 }
 
 func Play() {
 	paused = false
+	sdl.PauseAudioDevice(audioDeviceID, false)
 }

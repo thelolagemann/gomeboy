@@ -6,8 +6,21 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
+	"github.com/thelolagemann/gomeboy/pkg/log"
 	"strconv"
 )
+
+// Init initializes the display drivers and ensures
+// at least one has been installed.
+func Init() {
+	// make sure at least 1 driver is installed
+	if len(InstalledDrivers) == 0 {
+		log.Fatal("No display drivers installed. Please compile with at least one display driver")
+	}
+
+	// register flags for each driver
+	RegisterFlags()
+}
 
 // Driver is the interface that wraps the basic methods for a
 // display driver.
@@ -29,10 +42,8 @@ type Driver interface {
 type Emulator interface {
 	// SendCommand sends a command packet to the emulator.
 	SendCommand(command emulator.CommandPacket) emulator.ResponsePacket
-	// Speed returns the speed of the emulator.
-	Speed() float64
-	// Status returns the status of the emulator.
-	Status() emulator.Status
+	// State returns the state of the emulator.
+	State() emulator.State
 }
 
 var (
