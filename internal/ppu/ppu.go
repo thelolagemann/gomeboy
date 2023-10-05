@@ -7,7 +7,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/mmu"
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
-	"github.com/thelolagemann/gomeboy/internal/ram"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
@@ -53,7 +52,7 @@ type PPU struct {
 	vRAMBank uint8
 
 	oam                 *OAM
-	vRAM                [2]*ram.RAM // Second bank only exists on CGB
+	vRAM                [2][0x2000]uint8 // Second bank only exists on CGB
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
 
@@ -457,14 +456,11 @@ func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
 	p := &PPU{
 		TileData: [2][384]Tile{},
 
-		bus: mmu,
-		irq: irq,
-		oam: oam,
-		vRAM: [2]*ram.RAM{
-			ram.NewRAM(8192),
-			ram.NewRAM(8192),
-		},
-		s: s,
+		bus:  mmu,
+		irq:  irq,
+		oam:  oam,
+		vRAM: [2][0x2000]uint8{},
+		s:    s,
 	}
 	p.DMA = NewDMA(mmu, oam, s, p)
 	p.hdma = NewHDMA(mmu, p, s)
@@ -867,7 +863,7 @@ func (p *PPU) Read(address uint16) uint8 {
 	// read from VRAM
 	if address >= 0x8000 && address <= 0x9FFF {
 		if !p.vramReadBlocked {
-			return p.vRAM[p.vRAMBank].Read(address - 0x8000)
+			return p.vRAM[p.vRAMBank][address-0x8000]
 		} else {
 			return 0xFF
 		}
@@ -915,7 +911,7 @@ func (p *PPU) colorPaletteUnlocked() bool {
 func (p *PPU) writeVRAM(address uint16, value uint8) {
 	if address <= 0x2000 {
 		// write to the current VRAM bank
-		p.vRAM[p.vRAMBank].Write(address, value)
+		p.vRAM[p.vRAMBank][address] = value
 
 		// are we writing to the tile data?
 		if address <= 0x17FF {
@@ -999,7 +995,7 @@ func (p *PPU) updateTileMap(address uint16, tilemapIndex uint8) {
 	x := address & 0x1F
 
 	// update the tilemap
-	p.TileMaps[tilemapIndex][y][x].id = uint16(p.vRAM[0].Read(address))
+	p.TileMaps[tilemapIndex][y][x].id = uint16(p.vRAM[0][address])
 
 	p.dirtyBackground(tileMap)
 }
@@ -1484,9 +1480,9 @@ func (p *PPU) Save(s *types.State) {
 	s.Write8(p.windowX)         // 1 byte
 	s.Write8(p.windowY)         // 1 byte
 	s.Write8(p.windowInternal)  // 1 byte
-	p.vRAM[0].Save(s)           // 8192 bytes
-	p.vRAM[1].Save(s)           // 8192 bytes
-	s.Write8(p.vRAMBank)        // 1 byte
+	s.WriteData(p.vRAM[0][:])
+	s.WriteData(p.vRAM[1][:])
+	s.Write8(p.vRAMBank) // 1 byte
 	p.DMA.Save(s)
 	s.WriteBool(p.RefreshScreen)
 	s.WriteBool(p.statInterruptDelay)
