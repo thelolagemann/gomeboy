@@ -128,6 +128,21 @@ func (d *DMA) doTransfer() {
 	}
 }
 
+// IsConflicting returns true if the given address is conflicting with
+// the current bus that the DMA transfer is reading data from.
+func (d *DMA) IsConflicting(addr uint16) bool {
+	// is source on VRAM bus?
+	if d.source >= 0x8000 && d.source <= 0x9FFF {
+		return addr >= 0x8000 && addr <= 0x9FFF
+	}
+	// is source on ROM+WRAM+SRAM bus?
+	if d.source <= 0x7FFF || (d.source >= 0xA000 && d.source <= 0xFEFF) {
+		return addr <= 0x7FFF || (addr >= 0xA000 && addr <= 0xFEFF)
+	}
+
+	return false
+}
+
 func (d *DMA) IsTransferring() bool {
 	return d.active || d.restarting
 }
