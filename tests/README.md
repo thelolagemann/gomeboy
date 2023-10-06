@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/92/?scale=100&title=passing%20167,%20failing%2014&width=500)
+![progress](https://progress-bar.dev/92/?scale=100&title=passing%20168,%20failing%2014&width=500)
 
-#### This document was automatically generated from commit 4e5e4ca6
+#### This document was automatically generated from commit 9ab5679f
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -33,7 +33,7 @@ is compared against a reference image from a known good emulator.
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
 | acid2 | 75% | 3 | 1 | 4 |
-| bully | 0% | 0 | 1 | 1 |
+| bully | 50% | 1 | 1 | 2 |
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 97% | 111 | 3 | 114 |
@@ -99,11 +99,12 @@ Explore the individual tests for each suite using the table of contents below.
 | cgb-acid2 | ✅ |
 | cgb-acid-hell | ❌ |
 # bully
-![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%201&width=500)
+![progress](https://progress-bar.dev/50/?scale=100&title=passing%201,%20failing%201&width=500)
 
 | Test | Passing |
 | ---- | ------- |
-| bully | ❌ |
+| bully | ✅ |
+| bully-cgb | ❌ |
 # blarrg
 ![progress](https://progress-bar.dev/100/?scale=100&title=passing%2043,%20failing%200&width=500)
 ## cgb_sound

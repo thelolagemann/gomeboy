@@ -56,12 +56,12 @@ varying degrees of success.
 # Automated Test Results
 
 
-![progress](https://progress-bar.dev/92/?scale=100&title=passing%20167,%20failing%2014&width=500)
+![progress](https://progress-bar.dev/92/?scale=100&title=passing%20168,%20failing%2014&width=500)
 
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
 | acid2 | 75% | 3 | 1 | 4 |
-| bully | 0% | 0 | 1 | 1 |
+| bully | 50% | 1 | 1 | 2 |
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 97% | 111 | 3 | 114 |
