@@ -8,17 +8,20 @@ import (
 
 // DMA (Direct Memory Access) is used to transfer data from
 // the CPU's memory to the PPU's OAM (Object Attribute Memory).
-// It is used as a fast alternative to the CPU writing to the
-// OAM directly.
 //
-// The DMA transfer is done in 160 cycles, and the CPU is
-// halted during this time. The CPU is also halted for 4 cycles
-// after the DMA transfer is done.
+// The CPU is unable to directly access the PPU's OAM whilst the
+// display is being updated; as this is most of the time, DMA
+// transfers are used instead.
+//
+// A DMA transfer copies data from ROM or RAM to the OAM, taking
+// 160 M-cycles to complete. The source address is specified by
+// the CPU's DMA register.
 type DMA struct {
 	source      uint16
 	destination uint8
 	value       uint8
 	remaining   uint8 // 40 * 4 = 160
+	lastByte    uint8
 
 	active     bool
 	enabled    bool
@@ -107,8 +110,10 @@ func (d *DMA) doTransfer() {
 		currentSource -= 0x2000
 	}
 
+	d.lastByte = d.bus.Read(currentSource)
+
 	// transfer a byte from the source to the destination
-	d.oam.Write(uint16(d.destination), d.bus.Read(currentSource))
+	d.oam.Write(uint16(d.destination), d.lastByte)
 
 	// increment source and destination
 	d.source++
@@ -125,6 +130,10 @@ func (d *DMA) doTransfer() {
 
 func (d *DMA) IsTransferring() bool {
 	return d.active || d.restarting
+}
+
+func (d *DMA) LastByte() uint8 {
+	return d.lastByte
 }
 
 var _ types.Stater = (*DMA)(nil)

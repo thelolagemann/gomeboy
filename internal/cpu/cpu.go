@@ -134,6 +134,11 @@ func (c *CPU) readByte(addr uint16) uint8 {
 	c.s.Tick(4)
 
 	switch {
+	case c.ppu.DMA.IsTransferring():
+		if addr >= 0xFF80 && addr <= 0xFFFE {
+			return c.mmu.Read(addr)
+		}
+		return c.ppu.DMA.LastByte()
 	case c.mmu.BootROM != nil && !c.mmu.IsBootROMDone():
 		if addr < 0x100 {
 			return c.mmu.BootROM.Read(addr)
@@ -155,6 +160,11 @@ func (c *CPU) readByte(addr uint16) uint8 {
 // writeByte writes the given value to the given address.
 func (c *CPU) writeByte(addr uint16, val uint8) {
 	c.s.Tick(4)
+
+	if c.ppu.DMA.IsTransferring() && addr <= 0xFF7F {
+		// TODO ^^ this is incorrect but enough to pass most anti-drm checks
+		return
+	}
 	c.mmu.Write(addr, val)
 }
 
