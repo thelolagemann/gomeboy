@@ -69,8 +69,12 @@ func NewCartridge(rom []byte) *Cartridge {
 
 // NewEmptyCartridge returns an empty cartridge.
 func NewEmptyCartridge() *Cartridge {
+	r := NewROMCartridge(make([]byte, 65536)) // default to blank 64KB ROM
+	for i := range r.rom {
+		r.rom[i] = 0xFF // empty cart should read 0xFF
+	}
 	return &Cartridge{
-		MemoryBankController: NewROMCartridge(make([]byte, 65536)), // default to blank 64KB ROM
+		MemoryBankController: r,
 		header:               &Header{},
 	}
 }
