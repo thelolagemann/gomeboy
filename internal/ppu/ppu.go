@@ -177,6 +177,12 @@ func (p *PPU) init() {
 	types.RegisterHardware(
 		types.STAT,
 		func(v uint8) {
+			// silly road rash bug, only present on DMG
+			if !p.isGBC {
+				p.status = 0xFF
+				p.statUpdate()
+			}
+
 			p.status = v&0b0111_1000 | types.Bit7
 			p.statUpdate()
 		},
