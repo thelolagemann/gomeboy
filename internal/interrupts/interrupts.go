@@ -86,18 +86,17 @@ func (s *Service) Request(flag uint8) {
 // or 0 if no interrupt is being serviced. This function
 // will also clear the corresponding bit in the Flag
 // register.
-func (s *Service) Vector() uint16 {
-	if s.Enable&s.Flag == 0 {
-		return 0
-	}
+func (s *Service) Vector(from uint8) uint16 {
 	for i := uint8(0); i < 5; i++ {
 		// get the flag for the current interrupt
 		flag := uint8(1 << i)
 
 		// check if the interrupt is requested and enabled
-		if s.Flag&(flag) != 0 && s.Enable&(flag) != 0 {
-			// clear the interrupt flag and return the vector
-			s.Flag = s.Flag ^ flag
+		if from&s.Flag&flag == flag {
+			// clear the flag
+			s.Flag &= ^flag
+
+			// return vector
 			return uint16(0x0040 + i*8)
 		}
 	}
