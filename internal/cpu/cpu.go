@@ -166,38 +166,27 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 }
 
 func (c *CPU) executeInterrupt() {
-	if c.ime {
-		// save the high byte of the PC
-		c.SP--
-		c.writeByte(c.SP, uint8(c.PC>>8))
+	// disable interrupts
+	c.ime = false
 
-		vector := c.irq.Vector()
+	// 8 cycles
+	c.s.Tick(4)
+	c.s.Tick(4)
 
-		// gameshark is applied on vblank interrupt
-		if vector == 0x40 {
-			// handle game shark TODO (emulate CPU time stolen by GameShark)
-			if c.mmu.GameShark != nil {
-				for _, code := range c.mmu.GameShark.Codes {
-					if code.Enabled {
-						c.mmu.Write(code.Address, code.NewData)
-					}
-				}
-			}
-		}
+	// save PC to stack
+	c.SP--
+	c.writeByte(c.SP, uint8(c.PC>>8))
 
-		// save the low byte of the PC
-		c.SP--
-		c.writeByte(c.SP, uint8(c.PC&0xFF))
+	irq := c.irq.Enable // IRQ check saved for later
 
-		// jump to the interrupt vector and disable IME
-		c.PC = vector
-		c.ime = false
+	c.SP--
+	c.writeByte(c.SP, uint8(c.PC&0xFF))
 
-		// tick 12 times
-		c.s.Tick(4)
-		c.s.Tick(4)
-		c.s.Tick(4)
-	}
+	// get vector from IRQ
+	c.PC = c.irq.Vector(irq)
+
+	// final 4 cycles
+	c.s.Tick(4)
 }
 
 // clearFlag clears the given flag in the F register,

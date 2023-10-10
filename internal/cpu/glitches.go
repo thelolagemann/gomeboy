@@ -18,11 +18,6 @@ func (c *CPU) doHALTBug() {
 
 	// execute the instruction
 	c.instructions[instr](c)
-
-	// did we get an interrupt?
-	if c.irq.Flag&c.irq.Enable != 0 {
-		c.executeInterrupt()
-	}
 }
 
 // handleOAMCorruption is called when the CPU encounters
