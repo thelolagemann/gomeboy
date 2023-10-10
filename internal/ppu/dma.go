@@ -1,7 +1,7 @@
 package ppu
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/mmu"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -19,7 +19,6 @@ import (
 type DMA struct {
 	source      uint16
 	destination uint8
-	value       uint8
 	remaining   uint8 // 40 * 4 = 160
 	lastByte    uint8
 
@@ -27,16 +26,16 @@ type DMA struct {
 	enabled    bool
 	restarting bool
 
-	bus *mmu.MMU
+	b   *io.Bus
 	oam *OAM
 
 	s   *scheduler.Scheduler
 	ppu *PPU
 }
 
-func NewDMA(bus *mmu.MMU, oam *OAM, s *scheduler.Scheduler, ppu *PPU) *DMA {
+func NewDMA(b *io.Bus, oam *OAM, s *scheduler.Scheduler, ppu *PPU) *DMA {
 	d := &DMA{
-		bus: bus,
+		b:   b,
 		oam: oam,
 		s:   s,
 		ppu: ppu,
@@ -48,48 +47,38 @@ func NewDMA(bus *mmu.MMU, oam *OAM, s *scheduler.Scheduler, ppu *PPU) *DMA {
 		d.enabled = false
 	})
 
-	// setup register
-	types.RegisterHardware(
-		types.DMA,
-		func(v uint8) {
-			source := uint16(v) << 8
+	b.ReserveAddress(types.DMA, func(v byte) byte {
+		source := uint16(v) << 8
 
-			// set the value (reading DMA simply returns the last value written)
-			// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/oam_dma/reg_read.s
-			d.value = v
+		// mark DMA as inactive (it will be active in 1-M-cycle)
+		d.active = false
 
-			// mark DMA as inactive (it will be active in 1-M-cycle)
-			d.active = false
+		// handle restarting DMA
+		d.restarting = d.enabled
 
-			// handle restarting DMA
-			d.restarting = d.enabled
+		// update new source, destination and remaining bytes
+		d.source = source
+		d.destination = 0
+		d.remaining = 160
 
-			// update new source, destination and remaining bytes
-			d.source = source
-			d.destination = 0
-			d.remaining = 160
+		// reschedule any existing DMA
+		if d.restarting {
+			// d.s.DescheduleEvent(scheduler.DMATransfer)
+			d.s.DescheduleEvent(scheduler.DMAStartTransfer)
+			d.s.DescheduleEvent(scheduler.DMATransfer)
+			d.s.DescheduleEvent(scheduler.DMAEndTransfer)
+		}
 
-			// reschedule any existing DMA
-			if d.restarting {
-				// d.s.DescheduleEvent(scheduler.DMATransfer)
-				d.s.DescheduleEvent(scheduler.DMAStartTransfer)
-				d.s.DescheduleEvent(scheduler.DMATransfer)
-				d.s.DescheduleEvent(scheduler.DMAEndTransfer)
-			}
+		// mark DMA as enabled
+		d.enabled = true
 
-			// mark DMA as enabled
-			d.enabled = true
+		// schedule DMA start for 1-M-cycle
+		d.s.ScheduleEvent(scheduler.DMAStartTransfer, 8)
 
-			// schedule DMA start for 1-M-cycle
-			d.s.ScheduleEvent(scheduler.DMAStartTransfer, 8)
-
-			//d.s.ScheduleEvent(scheduler.DMATransfer, 8)
-
-		},
-		func() uint8 {
-			return d.value
-		},
-	)
+		// return the value written to the DMA register (for the CPU)
+		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/oam_dma/reg_read.s
+		return v
+	})
 
 	return d
 }
@@ -110,7 +99,7 @@ func (d *DMA) doTransfer() {
 		currentSource -= 0x2000
 	}
 
-	d.lastByte = d.bus.Read(currentSource)
+	d.lastByte = d.b.Get(currentSource)
 
 	// transfer a byte from the source to the destination
 	d.oam.Write(uint16(d.destination), d.lastByte)
@@ -155,12 +144,10 @@ var _ types.Stater = (*DMA)(nil)
 
 func (d *DMA) Load(s *types.State) {
 	d.source = s.Read16()
-	d.value = s.Read8()
 	d.oam.Load(s)
 }
 
 func (d *DMA) Save(s *types.State) {
 	s.Write16(d.source)
-	s.Write8(d.value)
 	d.oam.Save(s)
 }

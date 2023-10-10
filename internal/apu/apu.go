@@ -2,6 +2,7 @@ package apu
 
 import (
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/mmu"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -84,39 +85,40 @@ func (a *APU) AttachBus(bus mmu.IOBus) {
 	a.bus = bus
 }
 
-func (a *APU) init() {
-	// Channel control (NR50 - NR52)
-	types.RegisterHardware(types.NR50, func(v uint8) {
+func (a *APU) SetModel(model types.Model) {
+	a.model = model
+}
+
+// NewAPU returns a new APU.
+func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
+	a := &APU{
+		playing:            false,
+		enabled:            true,
+		frameSequencerStep: 0,
+		buffer:             make([]byte, bufferSize),
+		s:                  s,
+		Samples:            make(Samples, emulatedSampleRate/64),
+	}
+	b.ReserveAddress(types.NR50, func(v byte) byte {
 		if !a.enabled {
-			return
+			return b.Get(types.NR50)
 		}
-		// Channel control / ON-OFF / Volume
+
 		a.volumeRight = v & 0x7
 		a.volumeLeft = (v >> 4) & 0x7
 
 		a.vinRight = v&types.Bit3 != 0
 		a.vinLeft = v&types.Bit7 != 0
-	}, func() uint8 {
-		b := a.volumeRight | a.volumeLeft<<4
-		if a.vinRight {
-			b |= types.Bit3
-		}
-		if a.vinLeft {
-			b |= types.Bit7
-		}
-		return b
-	}, registerSetter(func(v interface{}) {
-		a.volumeRight = v.(uint8) & 0x7
-		a.volumeLeft = (v.(uint8) >> 4) & 0x7
 
-		a.vinRight = v.(uint8)&types.Bit3 != 0
-		a.vinLeft = v.(uint8)&types.Bit7 != 0
-	}))
-	types.RegisterHardware(types.NR51, func(v uint8) {
+		return v
+
+		// TODO onset
+	})
+	b.ReserveAddress(types.NR51, func(v byte) byte {
 		if !a.enabled {
-			return
+			return b.Get(types.NR51)
 		}
-		// Channel Left/Right enable
+
 		a.rightEnable[0] = v&types.Bit0 != 0
 		a.rightEnable[1] = v&types.Bit1 != 0
 		a.rightEnable[2] = v&types.Bit2 != 0
@@ -126,114 +128,44 @@ func (a *APU) init() {
 		a.leftEnable[1] = v&types.Bit5 != 0
 		a.leftEnable[2] = v&types.Bit6 != 0
 		a.leftEnable[3] = v&types.Bit7 != 0
-	}, func() uint8 {
-		if !a.enabled {
-			return 0
-		}
-		b := uint8(0)
-		for i := 0; i < 4; i++ {
-			if a.rightEnable[i] {
-				b |= 1 << i
-			}
-			if a.leftEnable[i] {
-				b |= 1 << (i + 4)
-			}
-		}
-		return b
-	}, registerSetter(func(v interface{}) {
-		a.rightEnable[0] = v.(uint8)&types.Bit0 != 0
-		a.rightEnable[1] = v.(uint8)&types.Bit1 != 0
-		a.rightEnable[2] = v.(uint8)&types.Bit2 != 0
-		a.rightEnable[3] = v.(uint8)&types.Bit3 != 0
 
-		a.leftEnable[0] = v.(uint8)&types.Bit4 != 0
-		a.leftEnable[1] = v.(uint8)&types.Bit5 != 0
-		a.leftEnable[2] = v.(uint8)&types.Bit6 != 0
-		a.leftEnable[3] = v.(uint8)&types.Bit7 != 0
-	}))
-	types.RegisterHardware(types.NR52, func(v uint8) {
+		return v
+
+		// TODO onset
+	})
+	b.ReserveAddress(types.NR52, func(v byte) byte {
 		if v&types.Bit7 == 0 && a.enabled {
 			for i := types.NR10; i <= types.NR51; i++ {
-				a.bus.Write(i, 0)
+				b.Set(i, 0)
 			}
 			a.enabled = false
+			b.ClearBit(types.NR52, types.Bit7)
 		} else if v&types.Bit7 != 0 && !a.enabled {
-			// Power on
+			// power on
 			a.enabled = true
 			a.frameSequencerStep = 0
-
-		}
-	}, func() uint8 {
-		b := uint8(0)
-		if a.enabled {
-			b |= types.Bit7
+			b.SetBit(types.NR52, types.Bit7)
 		}
 
-		if a.chan1.channel.enabled {
-			b |= types.Bit0
-		}
-		if a.chan2.channel.enabled {
-			b |= types.Bit1
-		}
-		if a.chan3.channel.enabled {
-			b |= types.Bit2
-		}
-		if a.chan4.channel.enabled {
-			b |= types.Bit3
-		}
+		return b.Get(types.NR52)
 
-		return b | 0x70
-	}, registerSetter(func(v interface{}) {
-		// if you are reading this, you may be wondering why this setter
-		// forces the channels on despite writes to NR52 just setting
-		// the enabled flag. this is because writes to NR52 do not actually
-		// control the channel enable flag, but rather the power state of the
-		// APU. the setter here provides a way for the APU to be automatically
-		// configured with a provided state, which is useful for both boot ROM
-		// and state loading.
-		a.enabled = v.(uint8)&types.Bit7 != 0
-		a.chan1.enabled = v.(uint8)&types.Bit0 != 0
-		a.chan2.enabled = v.(uint8)&types.Bit1 != 0
-		a.chan3.enabled = v.(uint8)&types.Bit2 != 0
-		a.chan4.enabled = v.(uint8)&types.Bit3 != 0
-	}))
-
-	types.RegisterHardware(types.PCM12, func(v uint8) {
-		// PCM12 is a read-only register that returns the current PCM12 value
-	}, func() uint8 {
+		// TODO onset
+	})
+	b.ReserveAddress(types.PCM12, func(v byte) byte {
 		if a.model == types.CGBABC || a.model == types.CGB0 {
 			return a.pcm12
 		}
 		return 0xFF
 	})
-	types.RegisterHardware(types.PCM34, func(v uint8) {
-		// PCM34 is a read-only register that returns the current PCM34 value
-	}, func() uint8 {
+	b.ReserveAddress(types.PCM34, func(v byte) byte {
 		if a.model == types.CGBABC || a.model == types.CGB0 {
 			return a.pcm34
 		}
 		return 0xFF
 	})
-}
-
-func (a *APU) SetModel(model types.Model) {
-	a.model = model
-}
-
-// NewAPU returns a new APU.
-func NewAPU(s *scheduler.Scheduler) *APU {
-	a := &APU{
-		playing:            false,
-		enabled:            true,
-		frameSequencerStep: 0,
-		buffer:             make([]byte, bufferSize),
-		s:                  s,
-		Samples:            make(Samples, emulatedSampleRate/64),
-	}
-	a.init()
 
 	// Initialize channels
-	a.chan1 = newChannel1(a)
+	a.chan1 = newChannel1(a, b)
 	a.chan2 = newChannel2(a)
 	a.chan3 = newChannel3(a)
 	a.chan4 = newChannel4(a)

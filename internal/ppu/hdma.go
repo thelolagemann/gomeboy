@@ -1,7 +1,7 @@
 package ppu
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/mmu"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -18,39 +18,42 @@ type HDMA struct {
 
 	s   *scheduler.Scheduler
 	ppu *PPU
-	bus *mmu.MMU
+	b   *io.Bus
 
 	hdmaPaused, hdmaComplete, gdmaComplete bool
 	hdmaRemaining                          uint8
 }
 
-func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
+func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 	h := &HDMA{
 		ppu: ppu,
 		s:   s,
-		bus: bus,
+		b:   b,
 	}
-
-	types.RegisterHardware(types.HDMA1, func(v uint8) {
+	b.ReserveAddress(types.HDMA1, func(v byte) byte {
 		h.source &= 0xF0
 		h.source |= uint16(v) << 8
 		if h.source >= 0xE000 {
 			h.source |= 0xF000
 		}
-	}, types.NoRead)
-	types.RegisterHardware(types.HDMA2, func(v uint8) {
+		return 0xFF
+	})
+	b.ReserveAddress(types.HDMA2, func(v byte) byte {
 		h.source &= 0xFF00
-		h.source |= uint16(v & 0xF0)
-	}, types.NoRead)
-	types.RegisterHardware(types.HDMA3, func(v uint8) {
+		h.source |= uint16(v)
+		return 0xFF
+	})
+	b.ReserveAddress(types.HDMA3, func(v byte) byte {
 		h.destination &= 0x00F0
 		h.destination |= (uint16(v) << 8) & 0xFF00
-	}, types.NoRead)
-	types.RegisterHardware(types.HDMA4, func(v uint8) {
+		return 0xFF
+	})
+	b.ReserveAddress(types.HDMA4, func(v byte) byte {
 		h.destination &= 0xFF00
 		h.destination |= uint16(v & 0xF0)
-	}, types.NoRead)
-	types.RegisterHardware(types.HDMA5, func(v uint8) {
+		return 0xFF
+	})
+	b.ReserveAddress(types.HDMA5, func(v byte) byte {
 		// update the length
 		h.length = (v & 0x7F) + 1
 
@@ -92,10 +95,6 @@ func NewHDMA(bus *mmu.MMU, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 			}
 		}
 
-	}, func() uint8 {
-		if !h.bus.IsGBC() {
-			return 0xFF
-		}
 		if h.hdmaComplete || h.gdmaComplete {
 			return 0xFF
 		} else {
@@ -121,7 +120,7 @@ func (h *HDMA) newDMA(length uint8) {
 			}
 
 			// perform the transfer
-			h.ppu.writeVRAM(h.destination&0x1FFF, h.bus.Read(h.source))
+			h.ppu.writeVRAM(h.destination&0x1FFF, h.b.Get(h.source))
 
 			// increment the source and destination
 			h.source++

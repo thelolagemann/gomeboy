@@ -3,6 +3,7 @@ package timer
 import (
 	"github.com/thelolagemann/gomeboy/internal/apu"
 	"github.com/thelolagemann/gomeboy/internal/interrupts"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -13,12 +14,8 @@ import (
 type Controller struct {
 	currentBit uint8 // the current bit of the DIV register that is used to increment the TIMA register
 
-	tima uint8 // types.TIMA
-	tma  uint8 // types.TMA
-	tac  uint8 // types.TAC
-
-	irq *interrupts.Service
-	s   *scheduler.Scheduler
+	s *scheduler.Scheduler
+	b *io.Bus
 
 	reloading     bool
 	reloadPending bool
@@ -27,10 +24,10 @@ type Controller struct {
 }
 
 // NewController returns a new timer controller.
-func NewController(irq *interrupts.Service, s *scheduler.Scheduler, a *apu.APU) *Controller {
+func NewController(b *io.Bus, s *scheduler.Scheduler, a *apu.APU) *Controller {
 	c := &Controller{
-		irq: irq,
-		s:   s,
+		b: b,
+		s: s,
 	}
 
 	// set up events
@@ -40,119 +37,102 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler, a *apu.APU) 
 		c.reloading = false
 	})
 
-	// set up registers
-	types.RegisterHardware(
-		types.DIV,
-		func(v uint8) {
-			// writing to DIV resets the counter to 0, so the TIMA
-			// could also be affected by a falling edge, if the selected bit
-			// of DIV is 1, as a falling edge would be detected as DIV gets
-			// reset to 0
+	b.ReserveAddress(types.DIV, func(b byte) byte {
+		// writing to DIV resets the counter to 0, so the TIMA
+		// could also be affected by a falling edge, if the selected bit
+		// of DIV is 1, as a falling edge would be detected as DIV gets
+		// reset to 0
 
-			// calculate internal div
-			internal := s.SysClock()
+		// calculate internal div
+		internal := s.SysClock()
 
-			// check for an abrupt increment caused by the div reset
-			if internal&timerBits[c.currentBit] != 0 && c.enabled { // we don't need to check the new value, because it's always 0
-				// visualization just in case you're still confused:
-				//
-				// Current Bit: 3 (0b1000) 16 cycles
-				//
-				// DIV 0b0000_1100 => 0b0000_0000
-				//            ^ ------------ ^ = falling edge
+		// check for an abrupt increment caused by the div reset
+		if internal&timerBits[c.currentBit] != 0 && c.enabled { // we don't need to check the new value, because it's always 0
+			// visualization just in case you're still confused:
+			//
+			// Current Bit: 3 (0b1000) 16 cycles
+			//
+			// DIV 0b0000_1100 => 0b0000_0000
+			//            ^ ------------ ^ = falling edge
+			c.abruptlyIncrementTIMA()
+		}
+
+		// update the last cycle
+		c.s.SysClockReset()
+		// TODO APU frame sequencer is tied to the DIV register
+		// in double speed, if bit 5 of DIV is 1, the APU frame sequencer
+		// will advance, in normal speed if bit 4 of DIV is 1 the APU frame
+		// sequencer will advance. again, we don't need to check the new value
+		// because it's always 0 so a falling edge will always be detected
+		// the frame sequencer should then be scheduled to advance again
+		// after 8192 cycles
+		if internal&0b1_0000 != 0 {
+			// TODO schedule APU frame sequencer
+			a.StepFrameSequencer()
+		}
+
+		// reschedule APU frame sequencer
+		s.DescheduleEvent(scheduler.APUFrameSequencer)
+		s.ScheduleEvent(scheduler.APUFrameSequencer, 8192)
+
+		// the internal timer uses the same clock as the DIV register
+		// so a write to DIV will also reset the internal timer, which
+		// means we to need to reschedule the timer increment event
+		// to prevent the timer from incrementing too fast
+		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/timer/div_write.s
+		s.DescheduleEvent(scheduler.TimerTIMAIncrement)
+		s.DescheduleEvent(scheduler.TimerTIMAReload)
+		s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
+		c.s.DescheduleEvent(scheduler.SerialBitTransfer)
+		c.s.ScheduleEvent(scheduler.SerialBitTransfer, 512)
+
+		s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
+
+		return 0 // any write to DIV resets it
+	})
+
+	b.ReserveAddress(types.TIMA, func(v byte) byte {
+		// handle reload
+		if c.reloadPending {
+			c.reloadCancel = true
+		}
+
+		// if you write to TIMA the same tick that it is reloading, TIMA
+		// will be set to the value of TMA
+		if !c.reloading {
+			return v
+		} else {
+			return b.Get(types.TMA)
+		}
+	})
+	b.ReserveAddress(types.TMA, func(v byte) byte {
+		// if you write to TMA the same tick that TIMA is reloading
+		// TIMA will be set to the new value of TMA
+		if c.reloading {
+			b.Set(types.TIMA, v)
+		}
+
+		return v
+	})
+	b.ReserveAddress(types.TAC, func(v byte) byte {
+		oldBit := c.currentBit
+		c.changeSpeed(v & 0b11)
+
+		// disabling the timer could cause an abrupt increment
+		// if the selected bit of DIV is 1, as disabling the timer
+		// will disconnect the DIV register from the timer, thus
+		// causing a falling edge to be detected
+		if c.enabled && v&types.Bit2 == 0 {
+			if c.s.SysClock()&timerBits[oldBit] != 0 {
 				c.abruptlyIncrementTIMA()
 			}
+		}
 
-			// update the last cycle
-			c.s.SysClockReset()
-			// TODO APU frame sequencer is tied to the DIV register
-			// in double speed, if bit 5 of DIV is 1, the APU frame sequencer
-			// will advance, in normal speed if bit 4 of DIV is 1 the APU frame
-			// sequencer will advance. again, we don't need to check the new value
-			// because it's always 0 so a falling edge will always be detected
-			// the frame sequencer should then be scheduled to advance again
-			// after 8192 cycles
-			if internal&0b1_0000 != 0 {
-				// TODO schedule APU frame sequencer
-				a.StepFrameSequencer()
-			}
+		// update enabled flag
+		c.enabled = v&types.Bit2 == types.Bit2
 
-			// reschedule APU frame sequencer
-			s.DescheduleEvent(scheduler.APUFrameSequencer)
-			s.ScheduleEvent(scheduler.APUFrameSequencer, 8192)
-
-			// the internal timer uses the same clock as the DIV register
-			// so a write to DIV will also reset the internal timer, which
-			// means we to need to reschedule the timer increment event
-			// to prevent the timer from incrementing too fast
-			// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/timer/div_write.s
-			s.DescheduleEvent(scheduler.TimerTIMAIncrement)
-			s.DescheduleEvent(scheduler.TimerTIMAReload)
-			s.DescheduleEvent(scheduler.TimerTIMAFinishReload)
-			c.s.DescheduleEvent(scheduler.SerialBitTransfer)
-			c.s.ScheduleEvent(scheduler.SerialBitTransfer, 512)
-
-			s.ScheduleEvent(scheduler.TimerTIMAIncrement, timaCycles[c.currentBit])
-		}, func() uint8 {
-			return uint8(c.s.SysClock() >> 8)
-		},
-		types.WithSet(func(v interface{}) {
-			s.OverrideDiv(v.(uint16))
-		}))
-
-	types.RegisterHardware(
-		types.TIMA,
-		func(v uint8) {
-			// if you write to TIMA the same tick that TIMA is reloading
-			// TIMA will be set to the value of TMA
-			if !c.reloading {
-				c.tima = v
-			} else {
-				c.tima = c.tma
-			}
-			if c.reloadPending {
-				c.reloadCancel = true
-			}
-		}, func() uint8 {
-			return c.tima
-		},
-	)
-	types.RegisterHardware(
-		types.TMA,
-		func(v uint8) {
-			c.tma = v
-
-			// if you write to TMA the same tick that TIMA is reloading
-			// TIMA will be set to the new value of TMA
-			if c.reloading {
-				c.tima = v
-			}
-		}, func() uint8 {
-			return c.tma
-		},
-	)
-	types.RegisterHardware(
-		types.TAC,
-		func(v uint8) {
-			oldBit := c.currentBit
-			c.changeSpeed(v & 0b11)
-
-			// disabling the timer could cause an abrupt increment
-			// if the selected bit of DIV is 1, as disabling the timer
-			// will disconnect the DIV register from the timer, thus
-			// causing a falling edge to be detected
-			if c.enabled && v&types.Bit2 == 0 {
-				if c.s.SysClock()&timerBits[oldBit] != 0 {
-					c.abruptlyIncrementTIMA()
-				}
-			}
-
-			// update enabled flag
-			c.enabled = v&types.Bit2 == types.Bit2
-		}, func() uint8 {
-			return c.tac | 0b11111000
-		},
-	)
+		return v | 0b11111000
+	})
 
 	return c
 }
@@ -172,8 +152,8 @@ func (c *Controller) reloadTIMA() {
 
 	// if the reload was not cancelled, set the timer to the new value
 	if !c.reloadCancel {
-		c.tima = c.tma
-		c.irq.Request(interrupts.TimerFlag)
+		c.b.Set(types.TIMA, c.b.Get(types.TMA))
+		c.b.Set(types.IF, interrupts.TimerFlag)
 		c.reloadCancel = false // reset cancel flag
 	}
 
@@ -185,13 +165,13 @@ func (c *Controller) reloadTIMA() {
 // abruptlyIncrementTIMA is called when conditions are met
 // that would cause an abrupt increment of the timer.
 func (c *Controller) abruptlyIncrementTIMA() {
-	c.tima++
+	c.b.Set(types.TIMA, c.b.Get(types.TIMA)+1)
 
 	// an abrupt increment that causes a reload is performed
 	// instantly, rather than being delayed by 1-M cycle
-	if c.tima == 0 {
-		c.tima = c.tma
-		c.irq.Request(interrupts.TimerFlag)
+	if c.b.Get(types.TIMA) == 0 {
+		c.b.Set(types.TIMA, c.b.Get(types.TMA))
+		c.b.Set(types.IF, interrupts.TimerFlag)
 	}
 }
 
@@ -199,10 +179,10 @@ func (c *Controller) abruptlyIncrementTIMA() {
 // should increment.
 func (c *Controller) scheduledTIMAIncrement() {
 	if c.enabled {
-		c.tima++
+		c.b.Set(types.TIMA, c.b.Get(types.TIMA)+1)
 
 		// if the timer overflows, reload it
-		if c.tima == 0 {
+		if c.b.Get(types.TIMA) == 0 {
 
 			// set reload pending
 			c.reloadPending = true
@@ -278,21 +258,4 @@ var timerBits = [4]uint16{
 	0b0010_0000,
 	// bit 7
 	0b1000_0000,
-}
-
-var _ types.Stater = (*Controller)(nil)
-
-// Load loads the state of the controller.
-func (c *Controller) Load(s *types.State) {
-	c.tima = s.Read8()
-	c.tma = s.Read8()
-	c.tac = s.Read8()
-
-}
-
-// Save saves the state of the controller.
-func (c *Controller) Save(s *types.State) {
-	s.Write8(c.tima)
-	s.Write8(c.tma)
-	s.Write8(c.tac)
 }

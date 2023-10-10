@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -25,7 +26,7 @@ func writeEnabled(a *APU, f func(v uint8)) func(v uint8) {
 	}
 }
 
-func newChannel1(a *APU) *channel1 {
+func newChannel1(a *APU, b *io.Bus) *channel1 {
 	// create the higher level channel
 	c := &channel1{}
 	c2 := newChannel()

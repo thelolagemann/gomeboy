@@ -37,9 +37,9 @@ const (
 var (
 	ModelNames = map[Model]string{
 		DMG0:   "DMG0",
-		DMGABC: "DMGABC",
+		DMGABC: "DMG",
 		CGB0:   "CGB0",
-		CGBABC: "CGBABC",
+		CGBABC: "CGB",
 		MGB:    "MGB",
 		SGB:    "SGB",
 		SGB2:   "SGB2",
@@ -53,7 +53,7 @@ var (
 // so the comparison is case-insensitive. If no Model
 // matches, Unset is returned.
 func StringToModel(s string) Model {
-	s = strings.ToLower(s)
+	s = strings.ToUpper(s)
 	for m, n := range ModelNames {
 		if n == s {
 			return m

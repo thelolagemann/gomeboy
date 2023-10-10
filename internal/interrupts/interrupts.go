@@ -1,6 +1,7 @@
 package interrupts
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -42,30 +43,20 @@ const (
 // The IME is set by the DI, EI and RETI instructions,
 // and it is used to disable and enable interrupts.
 type Service struct {
-	Flag   uint8 // interrupt Flag (types.IF)
-	Enable uint8 // interrupt Enable (types.IE)
+	b *io.Bus
 }
 
 // NewService returns a new Service.
-func NewService() *Service {
-	s := &Service{}
-	// setup registers
-	types.RegisterHardware(
-		types.IF,
-		func(v uint8) {
-			s.Flag = v & 0x1F // only the first 5 bits are used
-		}, func() uint8 {
-			return s.Flag | 0xE0 // the upper 3 bits are always set
-		},
-	)
-	types.RegisterHardware(
-		types.IE,
-		func(v uint8) {
-			s.Enable = v
-		}, func() uint8 {
-			return s.Enable
-		},
-	)
+func NewService(b *io.Bus) *Service {
+	s := &Service{
+		b: b,
+	}
+	b.ReserveAddress(types.IF, func(b byte) byte {
+		return b | 0xE0 // the upper 3 bits are always set
+	})
+	b.ReserveAddress(types.IE, func(b byte) byte {
+		return b | 0xE0 // the upper 3 bits are always set
+	})
 
 	return s
 }
@@ -73,13 +64,13 @@ func NewService() *Service {
 // HasInterrupts returns true if there are any interrupts
 // that are requested and enabled.
 func (s *Service) HasInterrupts() bool {
-	return s.Enable&s.Flag != 0
+	return s.b.Get(types.IF)&s.b.Get(types.IE) != 0
 }
 
 // Request requests the specified interrupt, by setting
 // the corresponding bit in the Flag register.
 func (s *Service) Request(flag uint8) {
-	s.Flag |= flag
+	s.b.SetBit(types.IF, flag)
 }
 
 // Vector returns the currently serviced interrupt vector,
@@ -92,9 +83,9 @@ func (s *Service) Vector(from uint8) uint16 {
 		flag := uint8(1 << i)
 
 		// check if the interrupt is requested and enabled
-		if from&s.Flag&flag == flag {
+		if from&s.b.Get(types.IF)&flag == flag {
 			// clear the flag
-			s.Flag &= ^flag
+			s.b.ClearBit(types.IF, flag)
 
 			// return vector
 			return uint16(0x0040 + i*8)
@@ -102,26 +93,4 @@ func (s *Service) Vector(from uint8) uint16 {
 	}
 
 	return 0
-}
-
-var _ types.Stater = (*Service)(nil)
-
-// Load implements the types.Stater interface.
-//
-// The values are loaded in the following order:
-//   - Flag (uint8)
-//   - Enable (uint8)
-func (s *Service) Load(st *types.State) {
-	s.Flag = st.Read8()
-	s.Enable = st.Read8()
-}
-
-// Save implements the types.Stater interface.
-//
-// The values are saved in the following order:
-//   - Flag (uint8)
-//   - Enable (uint8)
-func (s *Service) Save(st *types.State) {
-	st.Write8(s.Flag)
-	st.Write8(s.Enable)
 }

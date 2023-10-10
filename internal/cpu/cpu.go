@@ -109,7 +109,7 @@ func (c *CPU) Frame() {
 		c.instructions[c.readOperand()](c)
 
 		// did we get an interrupt?
-		if c.ime && c.irq.Enable&c.irq.Flag != 0 {
+		if c.ime && c.irq.HasInterrupts() {
 			c.executeInterrupt()
 		}
 
@@ -236,7 +236,6 @@ func (c *CPU) Load(s *types.State) {
 	c.SP = s.Read16()
 	c.PC = s.Read16()
 	c.doubleSpeed = s.ReadBool()
-	c.irq.Load(s)
 }
 
 func (c *CPU) Save(s *types.State) {
@@ -251,7 +250,6 @@ func (c *CPU) Save(s *types.State) {
 	s.Write16(c.SP)
 	s.Write16(c.PC)
 	s.WriteBool(c.doubleSpeed)
-	c.irq.Save(s)
 }
 
 func (c *CPU) HasFrame() {
