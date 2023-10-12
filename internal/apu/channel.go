@@ -16,12 +16,6 @@ type channel struct {
 	lengthCounterEnabled bool
 }
 
-func registerSetter(f func(v interface{})) types.HardwareOpt {
-	return types.WithSet(func(v interface{}) {
-		f(v)
-	})
-}
-
 type volumeChannel struct {
 	*channel
 
@@ -75,23 +69,6 @@ func (v *volumeChannel) setLength(length uint8) {
 func (v *volumeChannel) setNRx1(v1 uint8) {
 	v.lengthLoad = v1 & 0x3F
 	v.lengthCounter = 0x40 - uint(v.lengthLoad)
-}
-
-func (v *volumeChannel) getNRx1() uint8 {
-	return (v.duty << 6) | 0x3F
-}
-
-// setNRx1CGB is the same as setNRx1 but for CGB mode,
-// as the length is unable to be changed when disabled,
-// unlike DMG mode where it can be changed at any time.
-func (v *volumeChannel) setNRx1CGB(v1 uint8) {
-	if v.enabled {
-		v.duty = (v1 & 0xC0) >> 6
-
-		v.lengthLoad = v1 & 0x3F
-		v.lengthCounter = 0x40 - uint(v.lengthLoad)
-	}
-
 }
 
 func (v *volumeChannel) setNRx2(v2 uint8) {

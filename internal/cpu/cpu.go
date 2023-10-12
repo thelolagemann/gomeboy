@@ -1,8 +1,7 @@
 package cpu
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/interrupts"
-	"github.com/thelolagemann/gomeboy/internal/mmu"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -23,17 +22,11 @@ type CPU struct {
 
 	doubleSpeed bool
 
-	mmu *mmu.MMU
-	irq *interrupts.Service
+	b *io.Bus
 
 	instructions   [256]func(cpu *CPU)
 	instructionsCB [256]func(cpu *CPU)
 
-	cartFixedBank [0x4000]byte
-	io            *[65536]*types.Address
-
-	isGBC    bool
-	isMBC1   bool
 	hasFrame bool
 	s        *scheduler.Scheduler
 	model    types.Model
@@ -45,19 +38,12 @@ func (c *CPU) SetModel(model types.Model) {
 	c.model = model
 }
 
-func (c *CPU) AttachIO(io *[65536]*types.Address) {
-	c.io = io
-}
-
 // NewCPU creates a new CPU instance with the given MMU.
 // The MMU is used to read and write to the memory.
-func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
+func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c := &CPU{
 		Registers: types.Registers{},
-		mmu:       mmu,
-		irq:       irq,
-		isMBC1:    mmu.IsMBC1,
-		isGBC:     mmu.IsGBC(),
+		b:         b,
 		s:         sched,
 		ppu:       ppu,
 	}
@@ -76,11 +62,6 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, p
 		c.instructionsCB[i] = InstructionSetCB[i].fn
 	}
 
-	// read the fixed bank of the cartridge
-	for i := uint16(0); i < 0x4000; i++ {
-		c.cartFixedBank[i] = mmu.Cart.Read(i)
-	}
-
 	sched.RegisterEvent(scheduler.EIPending, func() {
 		c.ime = true
 	})
@@ -93,23 +74,55 @@ func NewCPU(mmu *mmu.MMU, irq *interrupts.Service, sched *scheduler.Scheduler, p
 	return c
 }
 
+// Boot emulates the boot process by setting the initial
+// register values and HW registers of the provided model.
+func (c *CPU) Boot(m types.Model) {
+	// PC, SP is the same across all models
+	c.PC = 0x100
+	c.SP = 0xFFFE
+
+	// get the CPU registers
+	startingRegs := m.Registers()
+	for i, reg := range []*uint8{&c.A, &c.F, &c.B, &c.C, &c.D, &c.E, &c.H, &c.L} {
+		*reg = startingRegs[i]
+	}
+
+	// get the IO registers
+	//ioRegs := m.IO()
+	/*
+		for i := 0xFF08; i < 0xFF80; i++ {
+			if reg, ok := ioRegs[types.HardwareAddress(i)]; ok {
+				switch reg.(type) {
+				case uint8:
+
+					c.b.Set(uint16(i), reg.(uint8))
+				case uint16:
+					// TODO handle uint16 values
+				}
+			} else {
+				c.b.Set(uint16(i), 0xFF)
+			}
+		}*/
+}
+
 // skipHALT invokes the scheduler to "skip" until the next
 // event triggering an interrupt occurs. This is used when
 // the CPU is in HALT mode and the IME is enabled.
 func (c *CPU) skipHALT() {
-	for !c.irq.HasInterrupts() {
+	for c.b.Get(types.IF)&c.b.Get(types.IE) == 0 {
 		c.s.Skip()
 	}
 }
 
-// Frame steps the CPU until the next frame is ready.
+// Frame steps the CPU until the next frame is rzeady.
 func (c *CPU) Frame() {
 	for !c.hasFrame && !c.DebugBreakpoint {
 		// execute the instruction
 		c.instructions[c.readOperand()](c)
 
+		//fmt.Println("Tick")
 		// did we get an interrupt?
-		if c.ime && c.irq.HasInterrupts() {
+		if c.ime && c.b.Get(types.IF)&c.b.Get(types.IE) != 0 {
 			c.executeInterrupt()
 		}
 
@@ -133,36 +146,22 @@ func (c *CPU) skipOperand() {
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.s.Tick(4)
 
-	switch {
-	case c.ppu.DMA.IsTransferring() && c.ppu.DMA.IsConflicting(addr):
-		return c.ppu.DMA.LastByte()
-	case c.mmu.BootROM != nil && !c.mmu.IsBootROMDone():
-		if addr < 0x100 {
-			return c.mmu.BootROM.Read(addr)
-		}
-		if addr >= 0x200 && addr < 0x900 {
-			return c.mmu.BootROM.Read(addr)
-		}
-	case addr < 0x4000 && !c.isMBC1:
-		// can we avoid the call to mmu? MBC1 is special
-		return c.cartFixedBank[addr]
-	case addr >= 0xFF00 && addr <= 0xFF7F:
-		// are we trying to read an IO register?
-		return c.io[addr].Read(addr)
-	}
-
-	return c.mmu.Read(addr)
+	//fmt.Printf("%04x -> %02x\n", addr, c.b.Read(addr))
+	//time.Sleep(time.Millisecond * 100)
+	return c.b.Read(addr)
 }
 
 // writeByte writes the given value to the given address.
 func (c *CPU) writeByte(addr uint16, val uint8) {
 	c.s.Tick(4)
+	//fmt.Printf("%04x <- %02x\n", addr, val)
+	//time.Sleep(time.Millisecond * 100)
 
 	if c.ppu.DMA.IsTransferring() && c.ppu.DMA.IsConflicting(addr) {
-		// TODO ^^ this is incorrect but enough to pass most anti-drm checks
+		// TODO ^^ this is incorrect but enough to pass most anti-emulator checks
 		return
 	}
-	c.mmu.Write(addr, val)
+	c.b.Write(addr, val)
 }
 
 func (c *CPU) executeInterrupt() {
@@ -177,13 +176,13 @@ func (c *CPU) executeInterrupt() {
 	c.SP--
 	c.writeByte(c.SP, uint8(c.PC>>8))
 
-	irq := c.irq.Enable // IRQ check saved for later
+	irq := c.b.Get(types.IE) // IRQ check saved for later
 
 	c.SP--
 	c.writeByte(c.SP, uint8(c.PC&0xFF))
 
 	// get vector from IRQ
-	c.PC = c.irq.Vector(irq)
+	c.PC = c.b.IRQVector(irq)
 
 	// final 4 cycles
 	c.s.Tick(4)

@@ -3,7 +3,6 @@ package apu
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/mmu"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"math"
@@ -55,8 +54,6 @@ type APU struct {
 
 	pcm12, pcm34 uint8
 
-	bus mmu.IOBus
-
 	Debug struct {
 		ChannelEnabled [4]bool
 	}
@@ -67,6 +64,7 @@ type APU struct {
 
 	lastUpdate uint64
 	s          *scheduler.Scheduler
+	b          *io.Bus
 
 	playBack func([]byte)
 }
@@ -81,10 +79,6 @@ func (a *APU) highPass(channel int, in uint8, dacEnabled bool) uint8 {
 	return out
 }
 
-func (a *APU) AttachBus(bus mmu.IOBus) {
-	a.bus = bus
-}
-
 func (a *APU) SetModel(model types.Model) {
 	a.model = model
 }
@@ -97,6 +91,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		frameSequencerStep: 0,
 		buffer:             make([]byte, bufferSize),
 		s:                  s,
+		b:                  b,
 		Samples:            make(Samples, emulatedSampleRate/64),
 	}
 	b.ReserveAddress(types.NR50, func(v byte) byte {
@@ -147,7 +142,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			b.SetBit(types.NR52, types.Bit7)
 		}
 
-		return b.Get(types.NR52)
+		return 0x70
 
 		// TODO onset
 	})
@@ -164,11 +159,19 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		return 0xFF
 	})
 
+	for i := 0xFF30; i < 0xFF3F; i++ {
+		b.ReserveAddress(uint16(i), func(v byte) byte {
+			a.chan3.writeWaveRAM(uint16(i), v)
+
+			return v
+		})
+	}
+
 	// Initialize channels
 	a.chan1 = newChannel1(a, b)
-	a.chan2 = newChannel2(a)
-	a.chan3 = newChannel3(a)
-	a.chan4 = newChannel4(a)
+	a.chan2 = newChannel2(a, b)
+	a.chan3 = newChannel3(a, b)
+	a.chan4 = newChannel4(a, b)
 
 	// initialize audio
 

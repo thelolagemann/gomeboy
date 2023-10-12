@@ -28,8 +28,7 @@ type dirtyEvent struct {
 
 func (p *PPU) dirtyBackground(cause dirtyCause) {
 	p.dirtiedLog[p.lastDirty] = dirtyEvent{
-		cause:   cause,
-		atCycle: p.CurrentCycle,
+		cause: cause,
 	}
 	p.lastDirty++
 	p.backgroundDirty = true

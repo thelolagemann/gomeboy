@@ -254,7 +254,7 @@ func (f *fyneDriver) toggleMainMenu() {
 		})
 
 		emuCheats := fyne.NewMenuItem("Cheats", func() {
-			f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(gb.MMU.GameShark), views2.WithGameGenie(gb.MMU.GameGenie))) // TODO determine which cheats are enabled
+			//f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(gb.MMU.GameShark), views2.WithGameGenie(gb.MMU.GameGenie))) // TODO determine which cheats are enabled
 		})
 
 		emuMenu := fyne.NewMenu("Emulation",
@@ -399,7 +399,7 @@ func (f *fyneDriver) toggleMainMenu() {
 				case "Tilemap Viewer":
 					f.openWindowIfNotOpen(&views2.Tilemaps{PPU: gb.PPU})
 				case "Cartridge Info":
-					f.openWindowIfNotOpen(&views2.Cartridge{C: gb.MMU.Cart})
+					//f.openWindowIfNotOpen(&views2.Cartridge{C: gb.MMU.Cart})
 				}
 			}))
 		}
@@ -519,10 +519,10 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 		// print the size of all the various components of the gameboy struct
 		fmt.Printf("CPU: %d\n", unsafe.Sizeof(*gb.CPU))
 		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
-		fmt.Printf("MMU: %d\n", unsafe.Sizeof(*gb.MMU))
+		//fmt.Printf("MMU: %d\n", unsafe.Sizeof(*gb.MMU))
 		fmt.Printf("APU: %d\n", unsafe.Sizeof(*gb.APU))
 		fmt.Printf("Timer: %d\n", unsafe.Sizeof(gb.Timer))
-		fmt.Printf("Cartridge: %d\n", unsafe.Sizeof(*gb.MMU.Cart))
+		//fmt.Printf("Cartridge: %d\n", unsafe.Sizeof(*gb.MMU.Cart))
 		fmt.Printf("Joypad: %d\n", unsafe.Sizeof(*gb.Joypad))
 		fmt.Printf("GameBoy: %d\n", unsafe.Sizeof(*gb))
 

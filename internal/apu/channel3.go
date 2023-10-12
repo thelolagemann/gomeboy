@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -28,57 +29,40 @@ type channel3 struct {
 	apu *APU
 }
 
-func newChannel3(a *APU) *channel3 {
+func newChannel3(a *APU, b *io.Bus) *channel3 {
 	c := &channel3{
 		channel: newChannel(),
 		apu:     a,
 	}
-
-	a.s.RegisterEvent(scheduler.APUChannel3, func() {
-		if c.enabled && c.dacEnabled {
-			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
-
-			c.waveRAMLastRead = a.s.Cycle()
-			c.waveRAMLastPosition = c.waveRAMPosition >> 1
-			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
-		} else {
-			c.waveRAMSampleBuffer = 0
+	b.ReserveAddress(types.NR30, func(v byte) byte {
+		if !a.enabled {
+			return b.Get(types.NR30)
 		}
 
-		inCycles := uint64((2048 - c.frequency) * 2)
-		a.s.ScheduleEvent(scheduler.APUChannel3, inCycles)
-	})
-
-	types.RegisterHardware(types.NR30, writeEnabled(a, func(v uint8) {
 		c.dacEnabled = v&types.Bit7 != 0
 		if !c.dacEnabled {
 			c.enabled = false
+
+			return 0x7F
 		}
-	}), func() uint8 {
-		b := uint8(0)
-		if c.channel.dacEnabled {
-			b |= types.Bit7
-		}
-		return b | 0x7F
+
+		return 0xFF
 	})
-	types.RegisterHardware(types.NR31, func(v uint8) {
+	b.ReserveAddress(types.NR31, func(v byte) byte {
 		switch a.model {
-		case types.CGBABC:
+		case types.CGBABC, types.CGB0:
 			if a.enabled {
 				c.lengthLoad = v
 				c.lengthCounter = 0x100 - uint(c.lengthLoad)
 			}
-		case types.DMGABC, types.DMG0:
-			c.lengthLoad = v
-			c.lengthCounter = 0x100 - uint(c.lengthLoad)
 		default:
 			c.lengthLoad = v
 			c.lengthCounter = 0x100 - uint(c.lengthLoad)
 		}
-	}, func() uint8 {
+
 		return 0xFF // write only
 	})
-	types.RegisterHardware(types.NR32, writeEnabled(a, func(v uint8) {
+	b.ReserveAddress(types.NR32, func(v byte) byte {
 		c.volumeCode = (v & 0x60) >> 5
 		switch c.volumeCode {
 		case 0b00:
@@ -90,15 +74,15 @@ func newChannel3(a *APU) *channel3 {
 		case 0b11:
 			c.volumeCodeShift = 2
 		}
-	}), func() uint8 {
-		return c.volumeCode<<5 | 0x9F
+
+		return v | 0x9F
 	})
-	types.RegisterHardware(types.NR33, writeEnabled(a, func(v uint8) {
+	b.ReserveAddress(types.NR33, func(v byte) byte {
 		c.frequency = (c.frequency & 0x700) | uint16(v)
-	}), func() uint8 {
+
 		return 0xFF // write only
 	})
-	types.RegisterHardware(types.NR34, writeEnabled(a, func(v uint8) {
+	b.ReserveAddress(types.NR34, func(v byte) byte {
 		c.frequency = (c.frequency & 0x00FF) | (uint16(v&0x7) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
@@ -139,12 +123,26 @@ func newChannel3(a *APU) *channel3 {
 			a.s.ScheduleEvent(scheduler.APUChannel3, uint64((2048-c.frequency)*2)+6)
 		}
 
-	}), func() uint8 {
-		b := uint8(0)
 		if c.lengthCounterEnabled {
-			b |= types.Bit6
+			return 0xFF
 		}
-		return b | 0xBF
+
+		return 0xBF
+	})
+
+	a.s.RegisterEvent(scheduler.APUChannel3, func() {
+		if c.enabled && c.dacEnabled {
+			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
+
+			c.waveRAMLastRead = a.s.Cycle()
+			c.waveRAMLastPosition = c.waveRAMPosition >> 1
+			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
+		} else {
+			c.waveRAMSampleBuffer = 0
+		}
+
+		inCycles := uint64((2048 - c.frequency) * 2)
+		a.s.ScheduleEvent(scheduler.APUChannel3, inCycles)
 	})
 
 	return c

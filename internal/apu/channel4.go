@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -21,44 +22,36 @@ type channel4 struct {
 	isScheduled bool
 }
 
-func newChannel4(a *APU) *channel4 {
+func newChannel4(a *APU, b *io.Bus) *channel4 {
 	c := &channel4{
 		lfsr: 0x7FFF,
 	}
 	c2 := newChannel()
-
-	c.volumeChannel = newVolumeChannel(c2)
-	c.frequencyTimer = 8 // TODO figure out correct starting value (good enough for now)
-	a.s.RegisterEvent(scheduler.APUChannel4, func() {
-		// step the LFSR
-		newBit := (c.lfsr & 0b01) ^ ((c.lfsr & 0b10) >> 1)
-		c.lfsr >>= 1
-		c.lfsr |= newBit << 14
-		if c.widthMode {
-			c.lfsr &^= 1 << 6
-			c.lfsr |= newBit << 6
-		}
-
-		a.s.ScheduleEvent(scheduler.APUChannel4, c.frequencyTimer)
+	b.ReserveAddress(0xFF1F, func(v byte) byte {
+		return 0xFF // unused
 	})
-
-	types.RegisterHardware(0xFF1F, types.NoWrite, types.NoRead)
-	types.RegisterHardware(types.NR41, func(v uint8) {
+	b.ReserveAddress(types.NR41, func(v byte) byte {
 		switch a.model {
-		case types.CGBABC:
+		case types.CGBABC, types.CGB0:
 			if a.enabled {
 				c.lengthLoad = v & 0x3F
 				c.lengthCounter = 0x40 - uint(c.lengthLoad)
 			}
-		case types.DMGABC, types.DMG0:
+		default:
 			c.lengthLoad = v & 0x3F
 			c.lengthCounter = 0x40 - uint(c.lengthLoad)
 		}
-	}, func() uint8 {
-		return 0xFF // write only
+
+		return 0xFF // write-only
 	})
-	types.RegisterHardware(types.NR42, writeEnabled(a, c.setNRx2), c.getNRx2)
-	types.RegisterHardware(types.NR43, writeEnabled(a, func(v uint8) {
+	b.ReserveAddress(types.NR42, func(v byte) byte {
+		if !a.enabled {
+			return b.Get(types.NR42)
+		}
+		c.setNRx2(v)
+		return c.getNRx2()
+	})
+	b.ReserveAddress(types.NR43, func(v byte) byte {
 		c.clockShift = v >> 4
 		c.widthMode = v&types.Bit3 != 0
 		c.divisorCode = v & 0x7
@@ -68,15 +61,10 @@ func newChannel4(a *APU) *channel4 {
 		} else {
 			c.frequencyTimer = uint64(c.divisorCode<<4) << c.clockShift
 		}
-	}), func() uint8 {
-		v := uint8(0)
-		v |= c.clockShift<<4 | c.divisorCode
-		if c.widthMode {
-			v |= types.Bit3
-		}
+
 		return v
 	})
-	types.RegisterHardware(types.NR44, writeEnabled(a, func(v uint8) {
+	b.ReserveAddress(types.NR44, func(v byte) byte {
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
 			c.lengthCounter--
@@ -101,13 +89,29 @@ func newChannel4(a *APU) *channel4 {
 			// reset LFSR
 			c.lfsr = 0x7FFF
 		}
-	}), func() uint8 {
-		b := uint8(0)
+
 		if c.lengthCounterEnabled {
-			b |= types.Bit6
+			return 0xff
 		}
-		return b | 0xBF
+
+		return 0xBF
 	})
+
+	c.volumeChannel = newVolumeChannel(c2)
+	c.frequencyTimer = 8 // TODO figure out correct starting value (good enough for now)
+	a.s.RegisterEvent(scheduler.APUChannel4, func() {
+		// step the LFSR
+		newBit := (c.lfsr & 0b01) ^ ((c.lfsr & 0b10) >> 1)
+		c.lfsr >>= 1
+		c.lfsr |= newBit << 14
+		if c.widthMode {
+			c.lfsr &^= 1 << 6
+			c.lfsr |= newBit << 6
+		}
+
+		a.s.ScheduleEvent(scheduler.APUChannel4, c.frequencyTimer)
+	})
+
 	return c
 }
 

@@ -205,6 +205,7 @@ func parseHeader(header []byte) *Header {
 	// parse the global checksum
 	h.GlobalChecksum = uint16(header[0x4E]) | uint16(header[0x4F])<<8
 
+	fmt.Println(h.CartridgeType.String())
 	return h
 }
 

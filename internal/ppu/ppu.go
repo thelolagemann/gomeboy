@@ -4,11 +4,12 @@ package ppu
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/interrupts"
-	"github.com/thelolagemann/gomeboy/internal/mmu"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image"
 	"image/color"
 )
@@ -21,38 +22,27 @@ const (
 )
 
 type PPU struct {
-	*lcd.Controller
-	CurrentScanline uint8
-	lyCompare       uint8
-	SpritePalettes  [2]palette.Palette
+	// LCDC register
+	Enabled                                         bool
+	BackgroundEnabled, WindowEnabled, SpriteEnabled bool
+	BackgroundTileMap, WindowTileMap                uint8
+	TileDataAddress                                 uint16
+	SpriteSize                                      uint8
+	isSigned, cleared                               bool
+
+	SpritePalettes [2]palette.Palette
 
 	// LCD
 	status uint8
 	Mode   lcd.Mode
 
-	// Background
-	// It is made up of a 256x256 pixel map
-	// of tiles. The map is divided into 32x32 tiles. Each tile is 8x8 pixels. As the
-	// display only has 160x144 pixels, the background is scrolled to display
-	// different parts of the map.
-
-	// scrollX is the X position of the background.
-	scrollX uint8
-	// scrollY is the Y position of the background.
-	scrollY              uint8
 	Palette              palette.Palette
 	compatibilityPalette palette.Palette
 
 	// Window
-	windowX        uint8
-	windowY        uint8
 	windowInternal uint8
 
-	// CGB registers
-	vRAMBank uint8
-
 	oam                 *OAM
-	vRAM                [2][0x2000]uint8 // Second bank only exists on CGB
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
 
@@ -60,22 +50,17 @@ type PPU struct {
 	TileData    [2][384]Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
 	TileMaps    [2]TileMap   // 32x32 tiles, 8x8 pixels each
 
-	irq *interrupts.Service
-
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 	colorNumber   [ScreenWidth]uint8
 
 	backgroundLineRendered [ScreenHeight]bool
 
-	bus                *mmu.MMU
+	b                  *io.Bus
 	statInterruptDelay bool
 	RefreshScreen      bool
 	DMA                *DMA
-	delayedTick        bool
 
 	tileBgPriority [ScreenHeight][ScreenWidth]bool
-	isGBC          bool
-	isGBCCompat    bool
 
 	// various LUTs
 	colourNumberLUT         [256][256][8]uint8
@@ -92,336 +77,259 @@ type PPU struct {
 	}
 	backgroundDirty bool
 
-	dirtiedLog   [65536]dirtyEvent
-	lastDirty    uint16
-	CurrentCycle uint64
-	lastLine     bool
+	dirtiedLog [65536]dirtyEvent
+	lastDirty  uint16
 
-	hdma                              *HDMA
-	s                                 *scheduler.Scheduler
-	oamReadBlocked, oamWriteBlocked   bool
-	vramReadBlocked, vramWriteBlocked bool
-	lyForComparison                   uint8
-	lycInterruptLine                  bool
-	statInterruptLine                 bool
-	modeToInterrupt                   uint8
-	currentLine                       uint8
-	vblankCounts                      uint8
-	cyclesPassed                      uint64
-	cyclesStart                       uint64
-	cgbPalettesBlocked                bool
-	lastOAMWrite                      uint8
+	hdma                            *HDMA
+	s                               *scheduler.Scheduler
+	oamReadBlocked, oamWriteBlocked bool
+	vramWriteBlocked                bool
+	lyForComparison                 uint8
+	lycInterruptLine                bool
+	statInterruptLine               bool
+	modeToInterrupt                 uint8
+	currentLine                     uint8
+	cgbPalettesBlocked              bool
 }
 
-func (p *PPU) init() {
-	// setup components
-	p.Controller = lcd.NewController(func(writeFn func()) {
-		// TODO lcdon_timing
-		// cycle 0x11 (17) currently reports 0x87 (0b10000111) instead of 0x84 (0b10000100)
-		// so we're entering mode 0 (hblank) too late?
-		// "lcd-on is special, the oam scan period is 4 cycles shorter in the first line (and doesn't actually scan oam, the mode reads as 0)
-		//[13:31]
-		//or I guess it effectively starts at cycle 4 in the line " - @calc
-		old := p.Raw
-		wasOn := p.Enabled
-		writeFn()
+func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
+	oam := NewOAM()
+	p := &PPU{
+		TileData: [2][384]Tile{},
 
-		// if the screen was turned off, clear the screen
-		if wasOn && !p.Enabled {
-			// the screen should not be turned off unless in vblank
+		b:   b,
+		s:   s,
+		oam: oam,
+	}
+	p.DMA = NewDMA(b, oam, s, p)
+	p.hdma = NewHDMA(b, p, s)
+
+	b.ReserveAddress(types.LCDC, func(v byte) byte {
+		// is the screen turning off?
+		if p.Enabled && v&types.Bit7 == 0 {
+			// the screen should only be turned off in VBlank
 			if p.Mode != lcd.VBlank {
-				// panic("PPU: Screen was turned off while not in VBlank")
+				// warn user of incorrect behaviour TODO
 			}
 
 			// deschedule all PPU events
-			for i := scheduler.PPUHBlank; i < scheduler.PPUGlitchedLine0; i++ {
+			for i := scheduler.PPUHBlank; i < scheduler.PPUOAMInterrupt; i++ {
 				p.s.DescheduleEvent(i)
 			}
 
 			// clear the screen
 			p.renderBlank()
 
-			// when the LCD is off, LY is 0, and STAT mode is 0
-			p.CurrentScanline = 0
+			// when the LCD is off, LY reads 0, and STAT mode reads 0 (HBlank)
+			p.b.Set(types.LY, 0)
 			p.currentLine = 0
 			p.Mode = lcd.HBlank
 
-			// unblock OAM and VRAM reads/writes
+			// unlock OAM/VRAM
 			p.oamReadBlocked = false
-			p.vramReadBlocked = false
 			p.oamWriteBlocked = false
+			p.b.UnlockRange(0x8000, 0x9FFF)
 			p.vramWriteBlocked = false
 			p.cgbPalettesBlocked = false
-		} else if !wasOn && p.Enabled {
 
+			// turn off the screen
+			p.Enabled = false
+		} else if !p.Enabled && v&types.Bit7 != 0 {
 			// reset LYC to compare against and clear coincidence flag
 			p.lyForComparison = 0
-			p.CurrentScanline = 0
+			p.b.Set(types.LY, 0)
 			p.currentLine = 0
 
+			// perform STAT check
 			p.modeToInterrupt = 255
-			// perform STAT interrupt check
 			p.statUpdate()
 
-			p.s.EnableDebugLogging()
-			// schedule the end of first line
+			// schedule end of first glitched line
 			p.s.ScheduleEvent(scheduler.PPUStartGlitchedLine0, 76)
-		}
-		if old != p.Raw {
-			p.dirtyBackground(lcdc)
+
+			// turn on the screen
+			p.Enabled = true
+			p.cleared = false
 		}
 
+		if utils.Test(v, 6) {
+			p.WindowTileMap = 1
+		} else {
+			p.WindowTileMap = 0
+		}
+		p.WindowEnabled = utils.Test(v, 5)
+		if utils.Test(v, 4) {
+			p.TileDataAddress = 0x8000
+			p.isSigned = false // TODO rename to something more appropriate
+		} else {
+			p.TileDataAddress = 0x8800
+			p.isSigned = true
+		}
+
+		if utils.Test(v, 3) {
+			p.BackgroundTileMap = 1
+		} else {
+			p.BackgroundTileMap = 0
+		}
+
+		p.SpriteSize = 8 + uint8(utils.Val(v, 2))*8
+		p.SpriteEnabled = utils.Test(v, 1)
+		p.BackgroundEnabled = utils.Test(v, 0)
+
+		return v
+	})
+	b.ReserveAddress(types.STAT, func(v byte) byte {
+		// writing to STAT briefly enables all STAT interrupts
+		// but only on DMG. Road Rash relies on this bug, so
+		// maybe add a warning for users trying to play Road
+		// Rash in CGB mode
+		if !p.b.IsGBC() {
+			p.status = 0xFF
+			p.statUpdate()
+		}
+
+		p.status = v&0b0111_1000 | types.Bit7
+		p.statUpdate()
+
+		return p.status
+	})
+	b.ReserveSetAddress(types.STAT, func(v any) {
+		p.status = v.(byte) & 0b0111_1100
+		p.Mode = v.(byte) & 0b11
+	})
+	b.ReserveAddress(types.SCY, func(v byte) byte {
+		// do we need to force a re-render on background
+		if b.Get(types.SCY) != v {
+			p.dirtyBackground(scy)
+		}
+
+		return v
+	})
+	b.ReserveAddress(types.SCX, func(v byte) byte {
+		// do we need to force a re-render on background
+		if b.Get(types.SCX) != v {
+			p.dirtyBackground(scx)
+		}
+
+		return v
+	})
+	b.ReserveAddress(types.LY, func(v byte) byte {
+		// any write to LY resets to 0
+		return 0
+	})
+	b.ReserveSetAddress(types.LY, func(v any) {
+		p.currentLine = v.(uint8)
+		p.b.Set(types.LY, v.(uint8))
+	})
+	b.ReserveAddress(types.LYC, func(v byte) byte {
+		// do we need to force a re-render on background
+		if b.Get(types.LYC) != v {
+			p.dirtyBackground(lyc)
+		}
+		return v
+	})
+	b.ReserveAddress(types.BGP, func(v byte) byte {
+		// do we need to force a re-render on background?
+		pal := palette.ByteToPalette(v)
+		if p.Palette != pal {
+			p.Palette = pal
+
+			p.dirtyBackground(bgp)
+		}
+
+		return v
+	})
+	b.ReserveAddress(types.OBP0, func(v byte) byte {
+		// do we need to force a re-render on background?
+		pal := palette.ByteToPalette(v)
+		if p.SpritePalettes[0] != pal {
+			p.SpritePalettes[0] = pal
+
+			p.dirtyBackground(obp0)
+		}
+
+		return v
+	})
+	b.ReserveAddress(types.OBP1, func(v byte) byte {
+		// do we need to force a re-render on background?
+		pal := palette.ByteToPalette(v)
+		if p.SpritePalettes[1] != pal {
+			p.SpritePalettes[1] = pal
+
+			p.dirtyBackground(obp1)
+		}
+
+		return v
+	})
+	b.ReserveAddress(types.WY, func(v byte) byte {
+		return v
+	})
+	b.ReserveAddress(types.WX, func(v byte) byte {
+		return v
 	})
 
-	// setup registers
-	types.RegisterHardware(
-		types.STAT,
-		func(v uint8) {
-			// silly road rash bug, only present on DMG
-			if !p.isGBC {
-				p.status = 0xFF
-				p.statUpdate()
-			}
+	// setup CGB only registers
+	if b.Model() == types.CGBABC || b.Model() == types.CGB0 {
+		b.ReserveAddress(types.BCPS, func(v byte) byte {
+			p.ColourPalette.SetIndex(v)
+			p.dirtyBackground(bcps)
+			return p.ColourPalette.GetIndex() | 0x40
+		})
+		b.ReserveAddress(types.BCPD, func(v byte) byte {
+			p.ColourPalette.Write(v)
+			p.dirtyBackground(bcpd)
+			return p.ColourPalette.Read()
+		})
+		b.ReserveAddress(types.OCPS, func(v byte) byte {
+			p.ColourSpritePalette.SetIndex(v)
+			p.dirtyBackground(ocps)
+			return p.ColourSpritePalette.GetIndex() | 0x40
+		})
+		b.ReserveAddress(types.OCPD, func(v byte) byte {
+			p.ColourSpritePalette.Write(v)
+			p.dirtyBackground(ocpd)
+			return p.ColourSpritePalette.Read()
+		})
+	}
 
-			p.status = v&0b0111_1000 | types.Bit7
-			p.statUpdate()
-		},
-		func() uint8 {
-			return p.status | p.Mode | types.Bit7
-		},
-		types.WithSet(func(v interface{}) {
-			p.status = v.(uint8) & 0b0111_1100
-			p.Mode = v.(uint8) & 0b11
-		}))
-	types.RegisterHardware(
-		types.SCY,
-		func(v uint8) {
-			if p.scrollY != v {
-				p.dirtyBackground(scy)
-				p.scrollY = v
-			}
-		},
-		func() uint8 {
-			return p.scrollY
-		},
-	)
-	types.RegisterHardware(
-		types.SCX,
-		func(v uint8) {
-			if p.scrollX != v {
-				p.dirtyBackground(scx)
-				p.scrollX = v
-			}
-		},
-		func() uint8 {
-			return p.scrollX
-		},
-	)
-	types.RegisterHardware(
-		types.LY,
-		func(v uint8) {
-			// any write to LY resets the value to 0
-			p.CurrentScanline = 0
-		},
-		func() uint8 {
-			return p.CurrentScanline
-		},
-		types.WithSet(func(v interface{}) {
-			p.CurrentScanline = v.(uint8)
-			p.currentLine = v.(uint8)
-		}),
-	)
-	types.RegisterHardware(
-		types.LYC,
-		func(v uint8) {
-			p.lyCompare = v
-			if p.lyCompare != v {
-				p.dirtyBackground(lyc)
+	s.RegisterEvent(scheduler.PPUStartGlitchedLine0, p.startGlitchedFirstLine)
+	s.RegisterEvent(scheduler.PPUContinueGlitchedLine0, p.continueGlitchedFirstLine)
+	s.RegisterEvent(scheduler.PPUHBlank, p.endHBlank)
+	s.RegisterEvent(scheduler.PPUVRAMTransfer, p.endVRAMTransfer)
+	s.RegisterEvent(scheduler.PPUStartOAMSearch, p.startOAM)
+	s.RegisterEvent(scheduler.PPUContinueOAMSearch, p.continueOAM)
+	s.RegisterEvent(scheduler.PPUEndOAMSearch, p.endOAM)
+	s.RegisterEvent(scheduler.PPUStartVBlank, p.startVBlank)
+	s.RegisterEvent(scheduler.PPUContinueVBlank, p.continueVBlank)
+	s.RegisterEvent(scheduler.PPULine153Start, p.startLine153)
+	s.RegisterEvent(scheduler.PPULine153Continue, p.continueLine153)
+	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
+	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
+	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
+		p.b.LockRange(0x8000, 0x9FFF)
+	})
+	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
+		p.b.UnlockRange(0x8000, 0x9FFF)
+	})
+	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
+		p.vramWriteBlocked = true
+	})
+	s.RegisterEvent(scheduler.PPUVRAMWriteUnlocked, func() {
+		p.vramWriteBlocked = false
+	})
+	s.RegisterEvent(scheduler.PPUOAMLocked, func() {
+		p.oamReadBlocked = true
+		p.oamWriteBlocked = true
+	})
+	s.RegisterEvent(scheduler.PPUOAMUnlocked, func() {
+		p.oamWriteBlocked = false
+	})
 
-			}
-			p.statUpdate()
-		},
-		func() uint8 {
-			return p.lyCompare
-		},
-	)
-
-	types.RegisterHardware(
-		types.BGP,
-		func(v uint8) {
-			pal := palette.ByteToPalette(v)
-			if p.Palette != pal {
-				p.Palette = pal
-				if p.isGBCCompat && !p.isGBC {
-					// rewrite the palette
-					for i := 0; i < 4; i++ {
-						// get colour number from value
-						palNum := v >> (i * 2) & 0x3
-						p.compatibilityPalette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
-					}
-				}
-				p.dirtyBackground(bgp)
-			}
-		},
-		func() uint8 {
-			return p.Palette.ToByte()
-		},
-		types.WithSet(func(v interface{}) {
-			p.Palette = palette.ByteToPalette(v.(uint8)) // avoid the write operation above
-		}),
-	)
-	types.RegisterHardware(
-		types.OBP0,
-		func(v uint8) {
-			pal := palette.ByteToPalette(v)
-			if p.SpritePalettes[0] != pal {
-				p.SpritePalettes[0] = pal
-				if p.isGBCCompat && !p.isGBC {
-					// rewrite the palette
-					for i := 0; i < 4; i++ {
-						// get colour number from value
-						palNum := v >> (i * 2) & 0x3
-						p.SpritePalettes[0][palNum] = p.ColourSpritePalette.Palettes[0].GetColour(uint8(i))
-					}
-				}
-				p.dirtyBackground(obp0)
-			}
-		},
-		func() uint8 {
-			return p.SpritePalettes[0].ToByte()
-		},
-	)
-	types.RegisterHardware(
-		types.OBP1,
-		func(v uint8) {
-			pal := palette.ByteToPalette(v)
-			if p.SpritePalettes[1] != pal {
-				p.SpritePalettes[1] = pal
-				if p.isGBCCompat && !p.isGBC {
-					// rewrite the palette
-					for i := 0; i < 4; i++ {
-						// get colour number from value
-						palNum := v >> (i * 2) & 0x3
-						p.SpritePalettes[1][palNum] = p.ColourSpritePalette.Palettes[1].GetColour(uint8(i))
-					}
-				}
-				p.dirtyBackground(obp1)
-			}
-		},
-		func() uint8 {
-			return p.SpritePalettes[1].ToByte()
-		},
-	)
-	types.RegisterHardware(
-		types.WX,
-		func(v uint8) {
-			if p.windowX != v {
-				p.windowX = v
-			}
-		},
-		func() uint8 {
-			return p.windowX
-		},
-	)
-	types.RegisterHardware(
-		types.WY,
-		func(v uint8) {
-			if p.windowY != v {
-				p.windowY = v
-			}
-		},
-		func() uint8 {
-			return p.windowY
-		},
-	)
-
-	// CGB registers
-	types.RegisterHardware(
-		types.VBK,
-		func(v uint8) {
-			if p.isGBCCompat {
-				p.vRAMBank = v & types.Bit0
-				p.dirtyBackground(scx)
-			}
-		},
-		func() uint8 {
-			if p.isGBCCompat {
-				return p.vRAMBank | ^uint8(0x01)
-			}
-			return 0xFF
-		},
-	)
-	types.RegisterHardware(
-		types.BCPS,
-		func(v uint8) {
-			if p.isGBCCompat {
-				p.ColourPalette.SetIndex(v)
-				p.dirtyBackground(bcps)
-			}
-		},
-		func() uint8 {
-			if p.isGBCCompat {
-				return p.ColourPalette.GetIndex() | types.Bit6
-			}
-			return 0xFF
-		},
-		types.WithSet(func(v interface{}) {
-			p.ColourPalette.SetIndex(v.(uint8))
-			for i := 0; i < 4; i++ {
-				// get colour number from value
-				palNum := v.(uint8) >> (i * 2) & 0x3
-				p.compatibilityPalette[palNum] = p.ColourPalette.Palettes[0].GetColour(uint8(i))
-			}
-		}),
-	)
-	types.RegisterHardware(
-		types.BCPD,
-		func(v uint8) {
-			if p.isGBCCompat {
-				p.ColourPalette.Write(v)
-				p.dirtyBackground(bcpd)
-			}
-		},
-		func() uint8 {
-			if p.isGBC && !p.cgbPalettesBlocked {
-				return p.ColourPalette.Read()
-			}
-			return 0xFF
-		},
-	)
-	types.RegisterHardware(
-		types.OCPS,
-		func(v uint8) {
-			if p.isGBCCompat && p.colorPaletteUnlocked() {
-				p.ColourSpritePalette.SetIndex(v)
-				p.dirtyBackground(ocps)
-			}
-		},
-		func() uint8 {
-			if p.isGBCCompat {
-				return p.ColourSpritePalette.GetIndex() | 0x40
-			}
-			return 0xFF
-		},
-		types.WithSet(func(v interface{}) {
-			p.ColourSpritePalette.SetIndex(v.(uint8))
-		}),
-	)
-	types.RegisterHardware(
-		types.OCPD,
-		func(v uint8) {
-			if p.isGBCCompat {
-				p.ColourSpritePalette.Write(v)
-				p.dirtyBackground(ocpd)
-			}
-		},
-		func() uint8 {
-			if p.isGBC {
-				return p.ColourSpritePalette.Read()
-			}
-			return 0xFF
-		},
-	)
+	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
+		p.modeToInterrupt = lcd.HBlank
+		p.statUpdate()
+		p.modeToInterrupt = lcd.VRAM
+	})
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
@@ -449,68 +357,6 @@ func (p *PPU) init() {
 
 	p.ColourPalette = palette.NewCGBPallette()
 	p.ColourSpritePalette = palette.NewCGBPallette()
-}
-
-// TODO pass channel to send frame to
-func (p *PPU) StartRendering() {
-	p.isGBC = p.bus.IsGBC()
-	p.isGBCCompat = p.bus.IsGBCCompat()
-}
-
-func New(mmu *mmu.MMU, irq *interrupts.Service, s *scheduler.Scheduler) *PPU {
-	oam := NewOAM()
-	p := &PPU{
-		TileData: [2][384]Tile{},
-
-		bus:  mmu,
-		irq:  irq,
-		oam:  oam,
-		vRAM: [2][0x2000]uint8{},
-		s:    s,
-	}
-	p.DMA = NewDMA(mmu, oam, s, p)
-	p.hdma = NewHDMA(mmu, p, s)
-
-	p.init()
-
-	s.RegisterEvent(scheduler.PPUStartGlitchedLine0, p.startGlitchedFirstLine)
-	s.RegisterEvent(scheduler.PPUContinueGlitchedLine0, p.continueGlitchedFirstLine)
-	s.RegisterEvent(scheduler.PPUHBlank, p.endHBlank)
-	s.RegisterEvent(scheduler.PPUVRAMTransfer, p.endVRAMTransfer)
-	s.RegisterEvent(scheduler.PPUStartOAMSearch, p.startOAM)
-	s.RegisterEvent(scheduler.PPUContinueOAMSearch, p.continueOAM)
-	s.RegisterEvent(scheduler.PPUEndOAMSearch, p.endOAM)
-	s.RegisterEvent(scheduler.PPUStartVBlank, p.startVBlank)
-	s.RegisterEvent(scheduler.PPUContinueVBlank, p.continueVBlank)
-	s.RegisterEvent(scheduler.PPULine153Start, p.startLine153)
-	s.RegisterEvent(scheduler.PPULine153Continue, p.continueLine153)
-	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
-	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
-	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
-		p.vramReadBlocked = true
-	})
-	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
-		p.vramReadBlocked = false
-	})
-	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
-		p.vramWriteBlocked = true
-	})
-	s.RegisterEvent(scheduler.PPUVRAMWriteUnlocked, func() {
-		p.vramWriteBlocked = false
-	})
-	s.RegisterEvent(scheduler.PPUOAMLocked, func() {
-		p.oamReadBlocked = true
-		p.oamWriteBlocked = true
-	})
-	s.RegisterEvent(scheduler.PPUOAMUnlocked, func() {
-		p.oamWriteBlocked = false
-	})
-
-	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
-		p.modeToInterrupt = lcd.HBlank
-		p.statUpdate()
-		p.modeToInterrupt = lcd.VRAM
-	})
 
 	return p
 }
@@ -531,7 +377,7 @@ func (p *PPU) startGlitchedFirstLine() {
 func (p *PPU) continueGlitchedFirstLine() {
 	// OAM & VRAM are blocked until the end of VRAM transfer
 	p.oamReadBlocked = true
-	p.vramReadBlocked = true
+	p.b.LockRange(0x8000, 0x9FFF)
 	p.oamWriteBlocked = true
 	p.vramWriteBlocked = true
 	p.cgbPalettesBlocked = true
@@ -564,7 +410,7 @@ func (p *PPU) endHBlank() {
 		p.backgroundDirty = false
 
 		// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
-		if !p.Cleared() {
+		if !p.cleared {
 			p.renderBlank()
 		}
 
@@ -581,13 +427,13 @@ func (p *PPU) endVRAMTransfer() {
 	p.statUpdate()
 
 	p.oamReadBlocked = false
-	p.vramReadBlocked = false
+	p.b.UnlockRange(0x8000, 0x9FFF)
 	p.oamWriteBlocked = false
 	p.vramWriteBlocked = false
 	p.cgbPalettesBlocked = false
 	p.renderScanline()
 
-	if p.isGBCCompat || p.isGBC {
+	if p.b.IsGBC() {
 		if p.hdma.hdmaRemaining > 0 && !p.hdma.hdmaPaused {
 			p.hdma.newDMA(1)
 			p.hdma.hdmaRemaining--
@@ -598,7 +444,7 @@ func (p *PPU) endVRAMTransfer() {
 	}
 
 	// schedule end of HBlank
-	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.scrollX&0x7]))
+	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.b.Get(types.SCX)&0x7]))
 
 	p.printStage("endVRAMTransfer")
 }
@@ -611,7 +457,7 @@ func (p *PPU) endVRAMTransfer() {
 //
 //	OAM Search: 4 -> 84
 func (p *PPU) startOAM() {
-	p.CurrentScanline = p.currentLine // update LY
+	p.b.Set(types.LY, p.currentLine) // update LY
 
 	p.Mode = lcd.HBlank
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
@@ -632,8 +478,6 @@ func (p *PPU) startOAM() {
 
 	p.s.ScheduleEvent(scheduler.PPUContinueOAMSearch, 4)
 
-	p.cyclesPassed = 0
-	p.cyclesStart = p.s.Cycle()
 	p.printStage("Prepare OAM")
 }
 
@@ -667,19 +511,21 @@ func (p *PPU) endOAM() {
 	p.statUpdate()
 
 	p.oamReadBlocked = true
-	p.vramReadBlocked = true
+	p.b.LockRange(0x8000, 0x9FFF)
 	p.oamWriteBlocked = true
 	p.vramWriteBlocked = true
 	p.cgbPalettesBlocked = true
 
 	// schedule end of VRAM search
-	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.scrollX&0x7])-4)
-	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, uint64(scrollXvRAM[p.scrollX&0x7]))
+	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7])-4)
+	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7]))
 
 	p.printStage("End OAM")
 }
 
 func (p *PPU) WriteCorruptionOAM() {
+	//fmt.Println("corrupting oam")
+	return
 	// determine which row of the OAM we are on
 	// by getting the cycles we have until the end of OAM search
 	cyclesUntilEndOAM := 80 - p.s.Until(scheduler.PPUEndOAMSearch)
@@ -745,15 +591,15 @@ func (p *PPU) startVBlank() {
 	p.statUpdate()
 
 	// set the LY register to current scanline
-	p.CurrentScanline = p.currentLine
+	p.b.Set(types.LY, p.currentLine)
 
 	if p.currentLine == 144 {
 		p.modeToInterrupt = lcd.OAM
 
 		// trigger vblank interrupt (according to mooneye's test, this is triggered on the first cycle of line 144 for DMG, but
 		// is delayed by 4 cycles for CGB)
-		if !p.isGBCCompat {
-			p.irq.Request(interrupts.VBlankFlag)
+		if !p.b.IsGBC() {
+			p.b.RaiseInterrupt(interrupts.VBlankFlag)
 		}
 
 	}
@@ -761,10 +607,6 @@ func (p *PPU) startVBlank() {
 
 	p.s.ScheduleEvent(scheduler.PPUContinueVBlank, 4)
 
-	if p.currentLine == 144 {
-		p.cyclesStart = p.s.Cycle()
-		p.cyclesPassed = 0
-	}
 	p.printStage("Prepare VBlank")
 }
 
@@ -775,13 +617,13 @@ func (p *PPU) continueVBlank() {
 		p.Mode = lcd.VBlank // entering vblank
 
 		// trigger vblank interrupt
-		if p.isGBCCompat {
-			p.irq.Request(interrupts.VBlankFlag)
+		if p.b.IsGBC() {
+			p.b.SetBit(types.IF, interrupts.VBlankFlag)
 		}
 
 		// entering vblank also triggers the OAM STAT interrupt if enabled
 		if !p.statInterruptLine && p.status&0x20 != 0 {
-			p.irq.Request(interrupts.LCDFlag)
+			p.b.SetBit(types.IF, interrupts.LCDFlag)
 		}
 		p.modeToInterrupt = lcd.VBlank
 		p.statUpdate()
@@ -796,7 +638,7 @@ func (p *PPU) continueVBlank() {
 }
 
 func (p *PPU) startLine153() {
-	p.CurrentScanline = 153
+	p.b.Set(types.LY, 153)
 	p.lyForComparison = 255
 
 	p.statUpdate()
@@ -806,7 +648,7 @@ func (p *PPU) startLine153() {
 }
 
 func (p *PPU) continueLine153() {
-	p.CurrentScanline = 0
+	p.b.Set(types.LY, 0)
 	p.lyForComparison = 153
 	p.statUpdate()
 
@@ -815,7 +657,7 @@ func (p *PPU) continueLine153() {
 }
 
 func (p *PPU) endLine153() {
-	p.CurrentScanline = 0
+	p.b.Set(types.LY, 0)
 	p.lyForComparison = 255
 	p.statUpdate()
 
@@ -839,7 +681,7 @@ func (p *PPU) endFrame() {
 // - encoded filename as hash of palette
 
 func (p *PPU) LoadCompatibilityPalette() {
-	if p.bus.BootROM != nil {
+	/*if p.bus.BootROM != nil {
 		panic("boot ROM is enabled, cannot load compatibility palette")
 		return // don't load compatibility palette if boot ROM is Enabled (as the boot ROM will setup the palette)
 	}
@@ -861,24 +703,19 @@ func (p *PPU) LoadCompatibilityPalette() {
 		p.compatibilityPalette[i] = paletteEntry.BG[i]
 		p.ColourSpritePalette.Palettes[0][i] = paletteEntry.OBJ0[i]
 		p.ColourSpritePalette.Palettes[1][i] = paletteEntry.OBJ1[i]
-	}
+	}*/
 
 }
 
 func (p *PPU) Read(address uint16) uint8 {
-	// read from VRAM
-	if address >= 0x8000 && address <= 0x9FFF {
-		if !p.vramReadBlocked {
-			return p.vRAM[p.vRAMBank][address-0x8000]
-		} else {
-			return 0xFF
-		}
-	}
-
 	// read from OAM
 	if address >= 0xFE00 && address <= 0xFE9F {
+
 		if !p.oamReadBlocked && !p.DMA.IsTransferring() {
-			return p.oam.Read(address - 0xFE00)
+			for i := 0; i < len(p.oam.data); i++ {
+				//fmt.Printf("%04x %02x\n", 0xfe00+i, p.oam.data[i])
+			}
+			return p.oam.Read(address & 0xFF)
 		}
 		return 0xff
 	}
@@ -893,8 +730,8 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 		for j := uint8(0); j < 32; j++ {
 			tileEntry := p.calculateTileID(j, i, 0)
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber])
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.isSigned)]
+			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.Palette)
 		}
 	}
 
@@ -904,8 +741,8 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 			tileEntry := p.calculateTileID(j, i, 1)
 
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.UsingSignedTileData())]
-			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber])
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.isSigned)]
+			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.Palette)
 		}
 	}
 }
@@ -916,26 +753,23 @@ func (p *PPU) colorPaletteUnlocked() bool {
 
 func (p *PPU) writeVRAM(address uint16, value uint8) {
 	if address <= 0x2000 {
-		// write to the current VRAM bank
-		p.vRAM[p.vRAMBank][address] = value
-
 		// are we writing to the tile data?
 		if address <= 0x17FF {
 			p.updateTile(address, value)
 			// update the tile data
 		} else if address <= 0x1FFF {
-			if p.vRAMBank == 0 {
+			if p.b.Get(types.VBK)&1 == 0 {
 				// which offset are we writing to?
 				if address >= 0x1800 && address <= 0x1BFF {
 					// tilemap 0
-					p.updateTileMap(address, 0)
+					p.updateTileMap(address, 0, value)
 				}
 				if address >= 0x1C00 && address <= 0x1FFF {
 					// tilemap 1
-					p.updateTileMap(address, 1)
+					p.updateTileMap(address, 1, value)
 				}
 			}
-			if p.vRAMBank == 1 {
+			if p.b.Get(types.VBK)&1 == 1 {
 				// update the tile Attributes
 				if address >= 0x1800 && address <= 0x1BFF {
 					// tilemap 0
@@ -987,21 +821,21 @@ func (p *PPU) updateTile(address uint16, value uint8) {
 	// get the tile row
 	row := (address >> 1) & 0x7
 
-	p.TileData[p.vRAMBank][tileID][row+((address%2)*8)] = value
-	p.TileChanged[p.vRAMBank][tileID] = true
+	p.TileData[p.b.Get(types.VBK)&1][tileID][row+((address%2)*8)] = value
+	p.TileChanged[p.b.Get(types.VBK)&1][tileID] = true
 
 	p.dirtyBackground(tile)
 	// recache tilemap
 	//p.recacheByID(tileID)
 }
 
-func (p *PPU) updateTileMap(address uint16, tilemapIndex uint8) {
+func (p *PPU) updateTileMap(address uint16, tilemapIndex, value uint8) {
 	// determine the y and x position
 	y := (address / 32) & 0x1F
 	x := address & 0x1F
 
 	// update the tilemap
-	p.TileMaps[tilemapIndex][y][x].id = uint16(p.vRAM[0][address])
+	p.TileMaps[tilemapIndex][y][x].id = uint16(value)
 
 	p.dirtyBackground(tileMap)
 }
@@ -1039,7 +873,7 @@ func (p *PPU) statUpdate() {
 	prevInterruptLine := p.statInterruptLine
 
 	// handle LY=LYC
-	if p.lyForComparison == p.lyCompare {
+	if p.lyForComparison == p.b.Get(types.LYC) {
 		p.lycInterruptLine = true
 		p.status |= 0x04
 	} else {
@@ -1068,7 +902,7 @@ func (p *PPU) statUpdate() {
 
 	// trigger interrupt if needed
 	if p.statInterruptLine && !prevInterruptLine {
-		p.irq.Request(interrupts.LCDFlag)
+		p.b.SetBit(types.IF, interrupts.LCDFlag)
 	}
 }
 
@@ -1078,11 +912,14 @@ var (
 )
 
 func (p *PPU) renderScanline() {
-	if p.CurrentScanline >= ScreenHeight {
+	if p.b.Get(types.LY) >= ScreenHeight {
 		return
 	}
-	if (!p.backgroundLineRendered[p.CurrentScanline] || p.oam.spriteScanlines[p.CurrentScanline] || p.oam.dirtyScanlines[p.CurrentScanline] || p.backgroundDirty) && (p.BackgroundEnabled || p.isGBC) {
+	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.spriteScanlines[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBC()) {
 		p.renderBackgroundScanline()
+	} else {
+		//fmt.Printf("%v %v %v %v\n", p.backgroundLineRendered[p.b.Get(types.LY)], p.oam.spriteScanlines[p.b.Get(types.LY)], p.oam.dirtyScanlines[p.b.Get(types.LY)], p.backgroundDirty)
+		//fmt.Println("Background scanline not rendered")
 	}
 
 	if !p.Debug.WindowDisabled {
@@ -1093,7 +930,7 @@ func (p *PPU) renderScanline() {
 
 	if !p.Debug.SpritesDisabled {
 		if p.SpriteEnabled {
-			p.renderSpritesScanline(p.CurrentScanline)
+			p.renderSpritesScanline(p.b.Get(types.LY))
 		}
 	}
 }
@@ -1104,29 +941,23 @@ func (p *PPU) renderBlank() {
 			p.PreparedFrame[y][x] = p.Palette.GetColour(0) // TODO handle GBC
 		}
 	}
-	p.Clear()
-}
-
-func (p *PPU) renderBlankLine() {
-	for x := uint8(0); x < ScreenWidth; x++ {
-		p.PreparedFrame[p.CurrentScanline][x] = p.Palette.GetColour(0)
-	}
+	p.cleared = true
 }
 
 func (p *PPU) renderWindowScanline() {
 	// do nothing if window is out of bounds
-	if p.CurrentScanline < p.windowY {
+	if p.b.Get(types.LY) < p.b.Get(types.WY) {
 		return
-	} else if p.windowX > ScreenWidth {
+	} else if p.b.Get(types.WX) > ScreenWidth {
 		return
-	} else if p.windowY > ScreenHeight {
+	} else if p.b.Get(types.WY) > ScreenHeight {
 		return
 	}
 
 	yPos := p.windowInternal
 
 	// get the initial x pos and pixel pos
-	xPos := p.windowX - 7
+	xPos := p.b.Get(types.WX) - 7
 	xPixelPos := xPos % 8
 
 	// get the tile map row
@@ -1134,7 +965,7 @@ func (p *PPU) renderWindowScanline() {
 
 	// get the first tile entry
 	tileEntry := tileMapRow[xPos>>3]
-	tileID := tileEntry.GetID(p.UsingSignedTileData())
+	tileID := tileEntry.GetID(p.isSigned)
 
 	yPixelPos := yPos
 
@@ -1160,39 +991,21 @@ func (p *PPU) renderWindowScanline() {
 	priority := tileEntry.Attributes.BGPriority
 
 	// assign the palette to use
-	var pal palette.Palette
-	if p.isGBC || p.bus.BootROM != nil && !p.bus.IsBootROMDone() {
-		pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
-	} else if p.isGBCCompat {
-		// we use the last palette for compatibility mode (not actually representative of
-		// the actual hardware)
-		pal = p.compatibilityPalette
-	} else {
-		pal = p.Palette
-	}
+	var pal = p.Palette
 
-	scanline := &p.PreparedFrame[p.CurrentScanline]
-	bgPriorityLine := &p.tileBgPriority[p.CurrentScanline]
+	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
+	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// did we just finish a tile?
 		if xPixelPos == 8 { // we don't need to do this for the last pixel
 			// increment xPos by the number of pixels we've just rendered
-			xPos = i - (p.windowX - 7)
+			xPos = i - (p.b.Get(types.WX) - 7)
 
 			// get the next tile entry
 			tileEntry = tileMapRow[xPos>>3]
-			tileID = tileEntry.GetID(p.UsingSignedTileData())
+			tileID = tileEntry.GetID(p.isSigned)
 
-			if p.isGBC || p.bus.BootROM != nil && !p.bus.IsBootROMDone() {
-				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
-			} else if p.isGBCCompat {
-				// we use the last palette for compatibility mode (not actually representative of
-				// the actual hardware)
-				pal = p.compatibilityPalette
-			} else {
-				pal = p.Palette
-			}
 			tileData = p.TileData[tileEntry.Attributes.VRAMBank][tileID]
 
 			if tileEntry.Attributes.YFlip {
@@ -1214,7 +1027,7 @@ func (p *PPU) renderWindowScanline() {
 		}
 
 		// don't render until we're in the window
-		if i >= p.windowX-7 {
+		if i >= p.b.Get(types.WX)-7 {
 			p.colorNumber[i] = colourLUT[xPixelPos]
 			scanline[i] = pal[colourLUT[xPixelPos]]
 			bgPriorityLine[i] = priority
@@ -1229,15 +1042,15 @@ func (p *PPU) renderWindowScanline() {
 
 func (p *PPU) renderBackgroundScanline() {
 	// get the initial y pos and pixel pos
-	yPos := p.CurrentScanline + p.scrollY
+	yPos := p.b.Get(types.LY) + p.b.Get(types.SCY)
 
 	// get the initial x pos and pixel pos
-	xPos := p.scrollX
+	xPos := p.b.Get(types.SCX)
 	xPixelPos := xPos & 7
 
 	// get the first tile entry
 	tileEntry := p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
-	tileID := tileEntry.GetID(p.UsingSignedTileData())
+	tileID := tileEntry.GetID(p.isSigned)
 
 	yPixelPos := yPos
 	// get the first lot of tile data
@@ -1262,19 +1075,10 @@ func (p *PPU) renderBackgroundScanline() {
 	priority := tileEntry.Attributes.BGPriority
 
 	// assign the palette to use
-	var pal palette.Palette
-	if p.isGBC || p.bus.IsBootROMCGB() && !p.bus.IsBootROMDone() {
-		pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
-	} else if p.isGBCCompat {
-		// we use the last palette for compatibility mode (not actually representative of
-		// the actual hardware)
-		pal = p.compatibilityPalette
-	} else {
-		pal = p.Palette
-	}
+	var pal = p.Palette
 
-	bgPriorityLine := &p.tileBgPriority[p.CurrentScanline]
-	scanline := &p.PreparedFrame[p.CurrentScanline]
+	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
+	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		if p.Debug.BackgroundDisabled {
@@ -1296,17 +1100,8 @@ func (p *PPU) renderBackgroundScanline() {
 
 			// get the next tile entry
 			tileEntry = p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
-			tileID = tileEntry.GetID(p.UsingSignedTileData())
+			tileID = tileEntry.GetID(p.isSigned)
 
-			if p.isGBC || p.bus.IsBootROMCGB() && !p.bus.IsBootROMDone() {
-				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
-			} else if p.isGBCCompat {
-				// we use the last palette for compatibility mode (not actually representative of
-				// the actual hardware)
-				pal = p.compatibilityPalette
-			} else {
-				pal = p.Palette
-			}
 			tileData = p.TileData[tileEntry.Attributes.VRAMBank][tileID]
 
 			if tileEntry.Attributes.YFlip {
@@ -1328,8 +1123,8 @@ func (p *PPU) renderBackgroundScanline() {
 		}
 	}
 
-	p.backgroundLineRendered[p.CurrentScanline] = true
-	p.oam.dirtyScanlines[p.CurrentScanline] = false
+	p.backgroundLineRendered[p.b.Get(types.LY)] = true
+	p.oam.dirtyScanlines[p.b.Get(types.LY)] = false
 }
 
 // calculateTileID calculates the tile ID for the current scanline
@@ -1390,7 +1185,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 			colourLUT = p.colourNumberLUT[b1][b2]
 		}
 		var pal palette.Palette
-		if p.isGBC {
+		if p.b.IsGBC() {
 			pal = p.ColourSpritePalette.Palettes[sprite.cgbPalette]
 		} else {
 			pal = p.SpritePalettes[sprite.useSecondPalette]
@@ -1412,7 +1207,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 			}
 
 			// skip if the sprite doesn't have priority and the background is not transparent
-			if !p.isGBC || p.BackgroundEnabled {
+			if !p.b.IsGBC() || p.BackgroundEnabled {
 				if !(sprite.priority && !p.tileBgPriority[scanline][pixelPos]) {
 					if p.colorNumber[pixelPos] != 0 {
 						continue
@@ -1420,7 +1215,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 				}
 			}
 
-			if p.isGBC {
+			if !p.b.IsGBC() {
 				// skip if the sprite doesn't have priority and the background is not transparent
 				if spriteXPerScreen[pixelPos] != 0 {
 					continue
@@ -1452,26 +1247,11 @@ func (p *PPU) ClearRefresh() {
 var _ types.Stater = (*PPU)(nil)
 
 func (p *PPU) Load(s *types.State) {
-	p.Controller.Load(s)
-	p.CurrentScanline = s.Read8()
-	p.lyCompare = s.Read8()
-	p.windowX = s.Read8()
-	p.windowY = s.Read8()
 	p.windowInternal = s.Read8()
-	for i := uint16(0); i < 0x2000; i++ {
-		p.vRAMBank = 0
-		p.writeVRAM(i, s.Read8())
-	}
-	for i := uint16(0); i < 0x2000; i++ {
-		p.vRAMBank = 1
-		p.writeVRAM(i, s.Read8())
-	}
 	// load the vRAM data
-	p.vRAMBank = s.Read8()
 	p.DMA.Load(s)
 	p.RefreshScreen = s.ReadBool()
 	p.statInterruptDelay = s.ReadBool()
-	p.delayedTick = s.ReadBool()
 	p.Palette = palette.LoadPaletteFromState(s)
 	p.SpritePalettes[0] = palette.LoadPaletteFromState(s)
 	p.SpritePalettes[1] = palette.LoadPaletteFromState(s)
@@ -1480,19 +1260,10 @@ func (p *PPU) Load(s *types.State) {
 }
 
 func (p *PPU) Save(s *types.State) {
-	p.Controller.Save(s)        // 1 byte
-	s.Write8(p.CurrentScanline) // 1 byte
-	s.Write8(p.lyCompare)       // 1 byte
-	s.Write8(p.windowX)         // 1 byte
-	s.Write8(p.windowY)         // 1 byte
-	s.Write8(p.windowInternal)  // 1 byte
-	s.WriteData(p.vRAM[0][:])
-	s.WriteData(p.vRAM[1][:])
-	s.Write8(p.vRAMBank) // 1 byte
+	s.Write8(p.windowInternal) // 1 byte
 	p.DMA.Save(s)
 	s.WriteBool(p.RefreshScreen)
 	s.WriteBool(p.statInterruptDelay)
-	s.WriteBool(p.delayedTick)
 	p.Palette.Save(s)
 	p.SpritePalettes[0].Save(s)
 	p.SpritePalettes[1].Save(s)

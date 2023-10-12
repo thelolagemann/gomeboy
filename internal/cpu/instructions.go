@@ -20,7 +20,7 @@ func disallowedOpcode(opcode uint8) Instruction {
 	return Instruction{
 		name: fmt.Sprintf("disallowed opcode %X", opcode),
 		fn: func(cpu *CPU) {
-			panic(fmt.Sprintf("disallowed opcode %X at %04x", opcode, cpu.PC))
+			//panic(fmt.Sprintf("disallowed opcode %X at %04x", opcode, cpu.PC))
 		},
 	}
 }
@@ -133,19 +133,20 @@ var InstructionSet = [256]Instruction{
 			c.s.SysClockReset()
 
 			// if there's no pending interrupt then STOP becomes a 2-byte opcode
-			if !c.irq.HasInterrupts() {
+			if !c.b.HasInterrupts() {
 				c.PC++
 			}
 
 			// are we in gbc mode (STOP is alternatively used for speed-switching)
-			if c.mmu.IsGBC() && c.mmu.Key()&types.Bit0 == types.Bit0 {
+			if c.b.Model() == types.CGB0 || c.b.Model() == types.CGBABC &&
+				c.b.Get(types.KEY1)&types.Bit0 == types.Bit0 {
 				c.doubleSpeed = !c.doubleSpeed
 				c.s.ChangeSpeed(c.doubleSpeed)
 
 				if c.doubleSpeed {
-					c.mmu.SetKey(types.Bit7)
+					c.b.SetBit(types.KEY1, types.Bit7)
 				} else {
-					c.mmu.SetKey(0)
+					c.b.ClearBit(types.KEY1, types.Bit7)
 				}
 			} else {
 				c.stopped = true
@@ -811,7 +812,7 @@ var InstructionSet = [256]Instruction{
 				//panic("halt with interrupts enabled")
 				c.skipHALT()
 			} else {
-				if c.irq.HasInterrupts() {
+				if c.b.HasInterrupts() {
 					c.doHALTBug()
 				} else {
 					switch c.model {
@@ -1586,7 +1587,7 @@ var InstructionSet = [256]Instruction{
 		"EI",
 		func(c *CPU) {
 			// handle ei_delay_halt (see https://github.com/LIJI32/SameSuite/blob/master/interrupt/ei_delay_halt.asm)
-			if c.mmu.Read(c.PC) == 0x76 && c.irq.HasInterrupts() {
+			if c.b.Get(c.PC) == 0x76 && c.b.Get(types.IE)&c.b.Get(types.IF) != 0 {
 				// if an EI instruction is directly succeeded by a HALT instruction,
 				// and there is a pending interrupt, the interrupt will be serviced
 				// first, before the interrupt returns control to the HALT instruction,

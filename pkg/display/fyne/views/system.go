@@ -7,6 +7,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"runtime"
+	"strconv"
 )
 
 type System struct {
@@ -59,4 +60,15 @@ func (s *System) Run(window fyne.Window, events <-chan event.Event) error {
 	}()
 
 	return nil
+}
+
+// humanReadable returns a human readable string in bytes for the given size
+func humanReadable(s uint) string {
+	if s < 1024 {
+		return strconv.Itoa(int(s)) + " B"
+	}
+	if s < 1024*1024 {
+		return strconv.Itoa(int(s)/1024) + " KiB"
+	}
+	return strconv.Itoa(int(s)/(1024*1024)) + " MiB"
 }

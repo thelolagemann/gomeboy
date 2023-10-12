@@ -90,6 +90,9 @@ func NewController(b *io.Bus, s *scheduler.Scheduler, a *apu.APU) *Controller {
 
 		return 0 // any write to DIV resets it
 	})
+	b.ReserveSetAddress(types.DIV, func(b any) {
+		s.OverrideDiv(b.(uint16))
+	})
 
 	b.ReserveAddress(types.TIMA, func(v byte) byte {
 		// handle reload
@@ -153,7 +156,7 @@ func (c *Controller) reloadTIMA() {
 	// if the reload was not cancelled, set the timer to the new value
 	if !c.reloadCancel {
 		c.b.Set(types.TIMA, c.b.Get(types.TMA))
-		c.b.Set(types.IF, interrupts.TimerFlag)
+		c.b.RaiseInterrupt(interrupts.TimerFlag)
 		c.reloadCancel = false // reset cancel flag
 	}
 
@@ -171,7 +174,7 @@ func (c *Controller) abruptlyIncrementTIMA() {
 	// instantly, rather than being delayed by 1-M cycle
 	if c.b.Get(types.TIMA) == 0 {
 		c.b.Set(types.TIMA, c.b.Get(types.TMA))
-		c.b.Set(types.IF, interrupts.TimerFlag)
+		c.b.RaiseInterrupt(interrupts.TimerFlag)
 	}
 }
 

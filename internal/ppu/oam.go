@@ -48,6 +48,7 @@ func (o *OAM) Read(address uint16) uint8 {
 
 // Write writes the given value at the given address.
 func (o *OAM) Write(address uint16, value uint8) {
+	// check if the address is valid
 	// get the sprite
 	s := o.Sprites[address>>2]
 

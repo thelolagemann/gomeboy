@@ -140,7 +140,6 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			LCDC: uint8(0x91),
 			STAT: uint8(0x81),
 			BGP:  uint8(0xFC),
-			BDIS: uint8(0x01),
 			IF:   uint8(0xE1),
 		}
 	case DMGABC:
@@ -168,7 +167,6 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			LCDC: uint8(0x91),
 			STAT: uint8(0x87),
 			BGP:  uint8(0xFC),
-			BDIS: uint8(0x01),
 			IF:   uint8(0xE1),
 		}
 	case CGBABC:
@@ -200,7 +198,6 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			OCPS: uint8(0xD0),
 			KEY0: uint8(0xFF),
 			FF74: uint8(0xFF),
-			BDIS: uint8(0x01),
 			IF:   uint8(0xE1),
 		}
 	case CGB0:

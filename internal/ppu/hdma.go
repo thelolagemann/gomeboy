@@ -54,6 +54,9 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		return 0xFF
 	})
 	b.ReserveAddress(types.HDMA5, func(v byte) byte {
+		if !b.IsGBC() {
+			return 0xff
+		}
 		// update the length
 		h.length = (v & 0x7F) + 1
 

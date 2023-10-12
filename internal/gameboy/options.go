@@ -27,12 +27,12 @@ func NoAudio() Opt {
 func SerialDebugger(output *string) Opt {
 	return func(gb *GameBoy) {
 		// used to intercept serial output and store it in a string
-		types.RegisterHardware(types.SB, func(v uint8) {
+		gb.b.ReserveAddress(types.SB, func(v byte) byte {
 			*output += string(v)
 			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
 				gb.CPU.DebugBreakpoint = true
 			}
-		}, func() uint8 {
+
 			return 0
 		})
 	}
@@ -56,7 +56,6 @@ func SerialConnection(gbFrom *GameBoy) Opt {
 func WithLogger(log log.Logger) Opt {
 	return func(gb *GameBoy) {
 		gb.Logger = log
-		gb.MMU.Log = log
 	}
 }
 
@@ -72,8 +71,6 @@ func WithState(b []byte) Opt {
 // WithBootROM sets the boot ROM for the emulator.
 func WithBootROM(rom []byte) Opt {
 	return func(gb *GameBoy) {
-		gb.MMU.SetBootROM(rom)
-
 		// if we have a boot ROM, we need to reset the CPU
 		// otherwise the emulator will start at 0x100 with
 		// the registers set to the values upon completion

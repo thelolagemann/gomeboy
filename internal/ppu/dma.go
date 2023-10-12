@@ -99,11 +99,12 @@ func (d *DMA) doTransfer() {
 		currentSource -= 0x2000
 	}
 
-	d.lastByte = d.b.Get(currentSource)
+	d.lastByte = d.b.Read(currentSource)
 
 	// transfer a byte from the source to the destination
 	d.oam.Write(uint16(d.destination), d.lastByte)
 
+	//fmt.Printf("writing %x to OAM[%x]\n", d.lastByte, d.destination)
 	// increment source and destination
 	d.source++
 	d.destination++

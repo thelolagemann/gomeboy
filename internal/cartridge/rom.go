@@ -25,6 +25,9 @@ func NewROMCartridge(rom []byte) *ROMCartridge {
 
 // Read returns the value at the given address.
 func (r *ROMCartridge) Read(address uint16) uint8 {
+	if address > 0x7FFF {
+		return 0xFF
+	}
 	return r.rom[address]
 }
 
