@@ -79,7 +79,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 			// if the PPU is already in the HBlank period, then the HDMA would not be
 			// performed by the scheduler until the next HBlank period, so we perform
 			// the transfer immediately here and decrement the remaining length
-			if h.ppu.Enabled && h.ppu.Mode == lcd.HBlank && h.hdmaRemaining > 0 {
+			if h.ppu.Enabled && h.b.Get(types.STAT)&0b11 == lcd.HBlank && h.hdmaRemaining > 0 {
 				h.newDMA(1)
 				h.hdmaRemaining--
 			}

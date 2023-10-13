@@ -179,6 +179,9 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 		if m.romBank == 0 {
 			m.romBank = 1
 		}
+
+		// copy data from bank to bus
+		m.header.b.CopyTo(0x4000, 0x8000, m.rom[m.romBank*0x4000:])
 	case address < 0x6000:
 		if value >= 0x08 && value <= 0x0C {
 			if m.hasRTC && m.rtcEnabled {

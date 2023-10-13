@@ -2,7 +2,6 @@ package io
 
 import (
 	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/cartridge"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"math/rand"
@@ -16,11 +15,10 @@ type Bus struct {
 
 	ppuWrite func(addr uint16, v byte)
 	ppuRead  func(addr uint16) byte
-	apuWrite func(addr uint16, v byte)
-
-	Cartridge *cartridge.Cartridge // Game cartridge
+	apuRead  func(addr uint16) byte
 
 	writeHandlers [0x100]WriteHandler
+	blockWriters  [16]func(uint16, byte)
 	setHandlers   [0x100]SetHandler
 
 	bootROMDone bool
@@ -29,21 +27,15 @@ type Bus struct {
 	s           *scheduler.Scheduler
 }
 
-func NewBus(cart *cartridge.Cartridge, s *scheduler.Scheduler) *Bus {
+func NewBus(s *scheduler.Scheduler) *Bus {
 	b := &Bus{
-		Cartridge: cart,
-		s:         s,
-	}
-
-	// copy ROM to data
-	for i := 0; i < 0x8000; i++ {
-		b.data[i] = cart.Read(uint16(i))
+		s: s,
 	}
 
 	return b
 }
 
-func (b *Bus) Map(m types.Model, ppuWrite, apuWrite func(uint16, byte), ppuRead func(uint16) byte) {
+func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead func(uint16) byte) {
 	b.model = m
 	b.isGBC = m == types.CGB0 || m == types.CGBABC
 
@@ -107,7 +99,7 @@ func (b *Bus) Map(m types.Model, ppuWrite, apuWrite func(uint16, byte), ppuRead 
 
 	b.ppuWrite = ppuWrite
 	b.ppuRead = ppuRead
-	b.apuWrite = apuWrite
+	b.apuRead = apuRead
 }
 
 // Boot sets up the bus to the state that it would be
@@ -125,9 +117,9 @@ func (b *Bus) Boot() {
 			} else if wHandler := b.writeHandlers[i&0xFF]; wHandler != nil {
 				b.data[i] = wHandler(ioRegs[types.HardwareAddress(i)].(byte))
 			}
-		} else {
-			// default to 0xFF
-			//b.data[i] = 0xFF
+		} else if wHandler := b.writeHandlers[i&0xFF]; wHandler == nil {
+			// default to 0xFF if no write handler exists
+			b.data[i] = 0xFF
 		}
 	}
 
@@ -177,18 +169,21 @@ func (b *Bus) ReserveSetAddress(addr uint16, handler SetHandler) {
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
 func (b *Bus) Write(addr uint16, value byte) {
+	if addr >= 0xFF10 && addr <= 0xFF2F {
+		//fmt.Printf("%04x -> %02x\n", addr, value)
+	}
 	switch {
-	// 0x0000-0x7FFF ROM
-	case addr <= 0x7FFF:
-		b.Cartridge.Write(addr, value)
+	case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
+		if w := b.blockWriters[addr/0x1000]; w != nil {
+			w(addr, value)
+		} else {
+			panic("wop")
+		}
 		return
 	// 0x8000-0x9FFF VRAM
 	case addr >= 0x8000 && addr <= 0x9FFF:
 		b.ppuWrite(addr, value)
 	// 0xA000-0xBFFF ERAM (RAM on cartridge)
-	case addr >= 0xA000 && addr <= 0xBFFF:
-		b.Cartridge.Write(addr, value)
-		return
 	// 0xC000-0xFDFF WRAM & mirror
 	case addr >= 0xC000 && addr <= 0xFDFF:
 		b.data[addr&0xDFFF] = value
@@ -216,15 +211,17 @@ func (b *Bus) Write(addr uint16, value byte) {
 // Read reads from the specified memory address. Some addresses
 // need special handling.
 func (b *Bus) Read(addr uint16) byte {
+	if addr >= 0xFF10 && addr <= 0xFF2F {
+		//fmt.Printf("%04x -> %02x\n", addr, b.data[addr])
+		//return b.apuRead(addr)
+	}
 	switch {
-	case addr <= 0x7FFF:
-		return b.Cartridge.Read(addr)
-	case addr >= 0xA000 && addr <= 0xBFFF:
-		return b.Cartridge.Read(addr)
 	case addr >= 0xFE00 && addr <= 0xFE9F:
 		return b.ppuRead(addr)
 	case addr >= 0xE000 && addr <= 0xFDFF:
 		return b.data[addr&0xDDFF]
+	case addr >= 0xFF30 && addr <= 0xFF3F:
+		return b.apuRead(addr)
 	case addr >= 0xFF00 && addr <= 0xFF7F:
 		if addr == types.DIV {
 			return uint8(b.s.SysClock() >> 8)
@@ -318,14 +315,15 @@ func (b *Bus) IsGBC() bool {
 // then overwriting the data with 0xFF. When UnlockRange
 // is called, the data is copied back to the original location.
 func (b *Bus) LockRange(start, end uint16) {
-	return
 	// copy existing data to lock buffer
 	copy(b.lockedData[start:end], b.data[start:end])
 
-	// overwrite data with 0xFF
-	for i := start; i < end; i++ {
-		b.data[i] = 0xFF
+	switch end - start {
+	// 8KiB lock
+	case 0x2000:
+		copy(b.data[start:end], lock8KiB)
 	}
+
 }
 
 // UnlockRange unlocks the specified memory range.
@@ -333,4 +331,20 @@ func (b *Bus) UnlockRange(start, end uint16) {
 	return
 	// copy lock buffer back to original location
 	copy(b.data[start:end], b.lockedData[start:end])
+}
+
+// CopyFrom copies the specified memory range to the specified
+// destination.
+func (b *Bus) CopyFrom(start, end uint16, dest []byte) {
+	copy(dest, b.data[start:end])
+}
+
+// CopyTo copies the specified memory range from the specified
+// source.
+func (b *Bus) CopyTo(start, end uint16, src []byte) {
+	copy(b.data[start:end], src)
+}
+
+func (b *Bus) ReserveBlockWriter(start uint16, h func(uint16, byte)) {
+	b.blockWriters[start/0x1000] = h
 }

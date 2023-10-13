@@ -1,7 +1,12 @@
 package cartridge
 
-import "github.com/thelolagemann/gomeboy/internal/types"
+import (
+	"github.com/thelolagemann/gomeboy/internal/types"
+)
 
+// MemoryBankedCartridge2 is a cartridge that supports ROM
+// sizes up to 2Mbit (16 banks of 16KiB) and includes an internal
+// 512x4 bit RAM array, which is unique amongst MBC cartridges.
 type MemoryBankedCartridge2 struct {
 	rom    []byte
 	ram    []byte
@@ -25,6 +30,7 @@ func (m *MemoryBankedCartridge2) Save(s *types.State) {
 
 // NewMemoryBankedCartridge2 returns a new MemoryBankedCartridge2 cartridge.
 func NewMemoryBankedCartridge2(rom []byte, header *Header) *MemoryBankedCartridge2 {
+	header.b.LockRange(0xA000, 0xC000)
 	return &MemoryBankedCartridge2{
 		rom:    rom,
 		ram:    make([]byte, 512),
@@ -33,41 +39,46 @@ func NewMemoryBankedCartridge2(rom []byte, header *Header) *MemoryBankedCartridg
 	}
 }
 
-// Read returns the value from the cartridges ROM or RAM, depending on the bank
-// selected.
-func (m *MemoryBankedCartridge2) Read(address uint16) uint8 {
-	if address <= 0x3FFF {
-		return m.rom[address]
-	} else if address <= 0x7FFF {
-		offset := uint32(m.romb) * 0x4000
-		if offset >= uint32(len(m.rom)) {
-			offset = offset % uint32(len(m.rom))
-		}
-		return m.rom[offset+uint32(address-0x4000)]
-	} else if address >= 0xA000 && address < 0xC000 {
-		if !m.ramg {
-			return 0xFF
-		}
-		return m.ram[address&0x01FF] | 0xF0
-	} else {
-		return 0xFF
-	}
-}
-
 func (m *MemoryBankedCartridge2) Write(address uint16, value uint8) {
-	if address <= 0x3FFF {
+	switch {
+	case address <= 0x3FFF:
 		if (address & 0x100) == 0x100 {
 			m.romb = value & 0x0F
 			if m.romb == 0 {
 				m.romb = 1
 			}
+
+			// check to see if banks exceed rom
+			if int(m.romb)*0x4000 >= len(m.rom) {
+				m.romb = m.romb % uint8(len(m.rom)/0x4000)
+			}
+
+			// copy from bank to bus
+			m.header.b.CopyTo(0x4000, 0x8000, m.rom[int(m.romb)*0x4000:])
 		} else {
+			if m.ramg {
+				// copy data from bus to ram
+				m.header.b.CopyFrom(0xA000, 0xA200, m.ram)
+			}
 			m.ramg = (value & 0x0F) == 0x0A
+
+			if m.ramg {
+				// only 2048 bits, so we need to account for RAM wrap around
+				// TODO handle on RAM write
+				for i := 0; i < 16; i++ {
+					m.header.b.CopyTo(0xA000+(uint16(i)*0x200), 0xA200+(uint16(i)*0x200), m.ram)
+				}
+			} else {
+				m.header.b.LockRange(0xA000, 0xC000)
+			}
 		}
-	} else if address >= 0xA000 && address < 0xC000 {
-		if len(m.ram) == 0 || !m.ramg {
-			return
+	case address >= 0xA000 && address <= 0xBFFF:
+		// make sure to account for ram wrap around by setting the
+		if m.ramg {
+			for i := 0; i < 16; i++ {
+				m.header.b.Set(0xA000+(uint16(i)*0x200)+address&0x01ff, value|0xF0)
+			}
 		}
-		m.ram[address-0xA000] = value
 	}
+
 }

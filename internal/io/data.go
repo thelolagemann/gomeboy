@@ -48,3 +48,13 @@ var (
 		types.LYC: 0x42,
 	}
 )
+
+var (
+	lock8KiB = make([]byte, 0x2000)
+)
+
+func init() {
+	for i := 0; i < len(lock8KiB); i++ {
+		lock8KiB[i] = 0xFF
+	}
+}

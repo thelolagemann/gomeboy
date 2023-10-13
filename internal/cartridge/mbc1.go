@@ -67,6 +67,8 @@ func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridg
 		bank1:  0x01,
 	}
 	m.checkMultiCart()
+	header.b.LockRange(0xA000, 0xC000)
+	m.handleBanking()
 	return m
 }
 
@@ -74,28 +76,6 @@ func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridg
 // selected.
 func (m *MemoryBankedCartridge1) Read(address uint16) uint8 {
 	switch {
-	case address < 0x4000:
-		// in mode 0, the bank number is always 0, but in mode 1, it's formed
-		// by shifting the bank2 register value left by 5 bits.
-		if !m.mode {
-			return m.rom[address]
-		} else {
-			bankNumber := m.bank2 << m.bankShift()
-			if bankNumber >= uint8(len(m.rom)/0x4000) {
-				bankNumber = bankNumber % (uint8(len(m.rom) / 0x4000))
-			}
-			offset := uint32(bankNumber) * 0x4000
-			return m.rom[offset+uint32(address)]
-		}
-	case address < 0x8000:
-		// address is in the range 0x4000 - 0x7FFF, the bank number is always
-		// a combination of the bank1 and bank2 registers.
-		bankNumber := m.bank1 | m.bank2<<m.bankShift()
-		if bankNumber >= uint8(len(m.rom)/0x4000) {
-			bankNumber = bankNumber % (uint8(len(m.rom) / 0x4000))
-		}
-		offset := uint32(bankNumber) * 0x4000
-		return m.rom[offset+uint32(address-0x4000)]
 	case address >= 0xA000 && address < 0xC000:
 		// if no RAM is present, or RAM is not enabled, all reads return undefined
 		// values, and writes have no affect.
@@ -121,9 +101,20 @@ func (m *MemoryBankedCartridge1) Read(address uint16) uint8 {
 func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 	switch {
 	case address < 0x2000:
-		// if the lower 4 bits of the value are 0b1010, RAM is enabled, otherwise
-		// it's disabled. the upper 4 bits are ignored.
-		m.ramg = value&0x0F == 0x0A // 0b1010 enables RAM, anything else disables it
+		if len(m.ram) == 0 {
+			return
+		}
+		// is the RAM transitioning from enabled to disabled?
+		if m.ramg && value&0x0F != 0x0A {
+			m.ramg = false
+
+			m.handleRAMBanking()
+		} else if !m.ramg && value&0x0F == 0x0A {
+			m.ramg = true
+
+			m.handleRAMBanking()
+		}
+
 	case address < 0x4000:
 		// bank1 is a 5-bit value, so the upper 3 bits are ignored.
 		value &= 0x1F
@@ -134,30 +125,73 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 		if m.isMultiCart {
 			m.bank1 &= 0x0F
 		}
+
+		m.handleBanking()
 	case address < 0x6000:
 		// bank2 is a 2-bit value, so the upper 6 bits are ignored.
 		m.bank2 = value & 0b11
+
+		m.handleBanking()
+
+		// if mode true, also account for 0x0000-0x4000 range
+		if m.mode {
+			bankNumber := m.bank2 << m.bankShift()
+			if bankNumber >= uint8(len(m.rom)/0x4000) {
+				bankNumber = bankNumber % (uint8(len(m.rom) / 0x4000))
+			}
+
+			m.header.b.CopyTo(0x0000, 0x4000, m.rom[int(bankNumber)*0x4000:])
+		} else {
+			m.header.b.CopyTo(0x0000, 0x4000, m.rom[0x0000:])
+		}
 	case address < 0x8000:
-		// mode is a 1-bit value, so the upper 7 bits are ignored.
-		m.mode = (value & 0b1) != 0
+		if m.mode && value&1 == 0 {
+			m.mode = false
+
+			m.handleBanking()
+			m.handleRAMBanking()
+		} else if !m.mode && value&1 == 1 {
+			m.mode = true
+
+			m.handleBanking()
+			m.handleRAMBanking()
+		}
+
 	case address >= 0xA000 && address < 0xC000:
-		// Write to selected RAM bank
+		// if there is no RAM or RAM is disabled, do nothing
 		if len(m.ram) == 0 || !m.ramg {
 			return
 		}
 
-		// in mode 0, the bank number is always 0, but in mode 1, the bank2
-		// register value can be used to provide two high bits of the bank
-		// number. if the cartridge has 8K of RAM, the bank2 register is
-		// always ignored.
-		if !m.mode || m.header.RAMSize == 8192 {
-			m.ram[address-0xA000] = value
-		} else {
-			offset := (uint16(m.bank2) & 0x03) * 0x2000
-			m.ram[offset+address-0xA000] = value
-		}
+		m.header.b.Set(address, value)
 	default:
 		panic(fmt.Sprintf("mbc1: illegal write to address: %X", address))
+	}
+}
+
+func (m *MemoryBankedCartridge1) handleBanking() {
+	bankNumber := m.bank1 | m.bank2<<m.bankShift()
+	if bankNumber >= uint8(len(m.rom)/0x4000) {
+		bankNumber = bankNumber % (uint8(len(m.rom) / 0x4000))
+	}
+
+	// copy data from bank to bus
+	m.header.b.CopyTo(0x4000, 0x8000, m.rom[int(bankNumber)*0x4000:])
+}
+
+func (m *MemoryBankedCartridge1) handleRAMBanking() {
+	// if RAM is enabled and banked, we need to copy from the bus to
+	// the cartridge RAM before changing the bank
+	if m.ramg && len(m.ram) > 0 {
+		// depending on which mode we're in, and the length of the
+		// RAM, we need to calculate the offset to copy into the
+		// cartridge RAM
+		if m.mode && m.header.RAMSize != 8192 {
+			offset := uint16(m.bank2&0x03) * 0x2000 // only use the lower 2 bits
+			m.header.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
+		}
+	} else if !m.ramg {
+		m.header.b.LockRange(0xA000, 0xC000)
 	}
 }
 

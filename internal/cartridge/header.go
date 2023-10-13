@@ -2,6 +2,7 @@ package cartridge
 
 import (
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"strings"
 )
 
@@ -120,6 +121,8 @@ type Header struct {
 	GlobalChecksum  uint16
 
 	raw [0x50]byte
+
+	b *io.Bus
 }
 
 func (h *Header) Destination() string {
