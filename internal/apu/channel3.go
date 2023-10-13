@@ -34,7 +34,7 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		channel: newChannel(),
 		apu:     a,
 	}
-	b.ReserveAddress(types.NR30, func(v byte) byte {
+	b.ReserveAddress(types.NR30, didChange(a, c.channel, func(v byte) byte {
 		if !a.enabled {
 			return b.Get(types.NR30)
 		}
@@ -47,7 +47,7 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		}
 
 		return 0xFF
-	})
+	}))
 	b.ReserveAddress(types.NR31, func(v byte) byte {
 		switch a.model {
 		case types.CGBABC, types.CGB0:
@@ -63,6 +63,9 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		return 0xFF // write only
 	})
 	b.ReserveAddress(types.NR32, func(v byte) byte {
+		if !a.enabled {
+			return b.Get(types.NR32)
+		}
 		c.volumeCode = (v & 0x60) >> 5
 		switch c.volumeCode {
 		case 0b00:
@@ -77,12 +80,11 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 
 		return v | 0x9F
 	})
-	b.ReserveAddress(types.NR33, func(v byte) byte {
-		c.frequency = (c.frequency & 0x700) | uint16(v)
-
-		return 0xFF // write only
-	})
-	b.ReserveAddress(types.NR34, func(v byte) byte {
+	b.ReserveAddress(types.NR33, whenEnabled(a, types.NR33, c.setNRx3))
+	b.ReserveAddress(types.NR34, didChange(a, c.channel, func(v byte) byte {
+		if !a.enabled {
+			return a.b.Get(types.NR34)
+		}
 		c.frequency = (c.frequency & 0x00FF) | (uint16(v&0x7) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
@@ -128,7 +130,7 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		}
 
 		return 0xBF
-	})
+	}))
 
 	a.s.RegisterEvent(scheduler.APUChannel3, func() {
 		if c.enabled && c.dacEnabled {

@@ -128,12 +128,31 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		// TODO onset
 	})
+	b.ReserveSetAddress(types.NR51, func(val any) {
+		v := val.(uint8)
+		a.rightEnable[0] = v&types.Bit0 != 0
+		a.rightEnable[1] = v&types.Bit1 != 0
+		a.rightEnable[2] = v&types.Bit2 != 0
+		a.rightEnable[3] = v&types.Bit3 != 0
+
+		a.leftEnable[0] = v&types.Bit4 != 0
+		a.leftEnable[1] = v&types.Bit5 != 0
+		a.leftEnable[2] = v&types.Bit6 != 0
+		a.leftEnable[3] = v&types.Bit7 != 0
+
+		if !a.enabled {
+			b.Set(types.NR51, 0)
+		} else {
+			b.Set(types.NR51, v)
+		}
+	})
 	b.ReserveAddress(types.NR52, func(v byte) byte {
 		if v&types.Bit7 == 0 && a.enabled {
 			for i := types.NR10; i <= types.NR51; i++ {
-				b.Set(i, 0)
+				b.Write(i, 0)
 			}
 			a.enabled = false
+			b.Set(types.NR51, 0) // NR51 reads 0 when apu is disabled
 			b.ClearBit(types.NR52, types.Bit7)
 		} else if v&types.Bit7 != 0 && !a.enabled {
 			// power on
@@ -142,9 +161,20 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			b.SetBit(types.NR52, types.Bit7)
 		}
 
-		return 0x70
+		fmt.Printf("NR52: %08b %08b\n", b.Get(types.NR52)|0x70, v)
+		return b.Get(types.NR52) | 0x70
 
 		// TODO onset
+	})
+	b.ReserveSetAddress(types.NR52, func(val any) {
+		v := val.(uint8)
+		a.enabled = v&types.Bit7 != 0
+		a.chan1.enabled = v&types.Bit0 != 0
+		a.chan2.enabled = v&types.Bit1 != 0
+		a.chan3.enabled = v&types.Bit2 != 0
+		a.chan4.enabled = v&types.Bit3 != 0
+
+		b.Set(types.NR52, v|0x70)
 	})
 	b.ReserveAddress(types.PCM12, func(v byte) byte {
 		if a.model == types.CGBABC || a.model == types.CGB0 {
@@ -159,9 +189,10 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		return 0xFF
 	})
 
-	for i := 0xFF30; i < 0xFF3F; i++ {
-		b.ReserveAddress(uint16(i), func(v byte) byte {
-			a.chan3.writeWaveRAM(uint16(i), v)
+	for i := 0xFF30; i < 0xFF40; i++ {
+		cI := i
+		b.ReserveAddress(uint16(cI), func(v byte) byte {
+			a.chan3.writeWaveRAM(uint16(cI), v)
 
 			return v
 		})
@@ -284,7 +315,6 @@ func (a *APU) Read(address uint16) uint8 {
 
 // Write writes the value to the given address.
 func (a *APU) Write(address uint16, value uint8) {
-
 	if address >= 0xFF30 && address <= 0xFF3F {
 		a.chan3.writeWaveRAM(address, value)
 		return

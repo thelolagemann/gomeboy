@@ -11,9 +11,32 @@ type channel struct {
 	// NRx1
 	lengthCounter uint
 
+	// NRx3
+	frequency uint16
+
 	// NRx4
 	frequencyTimer       uint64
 	lengthCounterEnabled bool
+}
+
+func (c *channel) setNRx3(v byte) byte {
+	c.frequency = (c.frequency & 0x700) | uint16(v)
+
+	// NRx3 registers always read 0xFF
+	return 0xFF
+}
+
+// whenEnabled is a helper function for the various APU registers
+// that can only be written to when the APU is enabled. Otherwise,
+// any writes will be ignored, and reads will return the last value
+// before the APU powered down.
+func whenEnabled(a *APU, addr uint16, f func(byte) byte) func(byte) byte {
+	return func(b byte) byte {
+		if a.enabled {
+			return f(b)
+		}
+		return a.b.Get(addr)
+	}
 }
 
 type volumeChannel struct {
@@ -28,13 +51,29 @@ type volumeChannel struct {
 	envelopeAddMode bool
 	period          uint8
 
-	// NRx3/4
-	frequency uint16
-
 	waveDutyPosition         uint8
 	volumeEnvelopeTimer      uint8
 	currentVolume            uint8
 	volumeEnvelopeIsUpdating bool
+}
+
+// didChange is a helper function for the various APU channel
+// registers that can affect the enabled status. Such changes
+// should be reported in the types.NR52 register, so this handler
+// takes care of that.
+func didChange(a *APU, c *channel, f func(byte) byte) func(byte) byte {
+	// execute func
+	return func(b byte) byte {
+		b = f(b)
+
+		if c.enabled {
+			a.b.SetBit(types.NR52, types.Bit0)
+		} else {
+			a.b.ClearBit(types.NR52, types.Bit0)
+		}
+
+		return b
+	}
 }
 
 func (v *volumeChannel) volumeStep() {

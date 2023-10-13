@@ -33,19 +33,20 @@ func newChannel2(a *APU, b *io.Bus) *channel2 {
 
 		return c.duty<<6 | 0x3F
 	})
-	b.ReserveAddress(types.NR22, func(v byte) byte {
+	b.ReserveAddress(types.NR22, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
 			return a.b.Get(types.NR22)
 		}
 
 		c.setNRx2(v)
 		return c.getNRx2()
-	})
-	b.ReserveAddress(types.NR23, func(v byte) byte {
-		c.frequency = (c.frequency & 0x700) | uint16(v)
-		return 0xFF // write only
-	})
-	b.ReserveAddress(types.NR24, func(v byte) byte {
+	}))
+	b.ReserveAddress(types.NR23, whenEnabled(a, types.NR23, c2.setNRx3))
+	b.ReserveAddress(types.NR24, didChange(a, c2, func(v byte) byte {
+		if !a.enabled {
+			return a.b.Get(types.NR24)
+		}
+
 		c.frequency = (c.frequency & 0x00FF) | (uint16(v&0x7) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
@@ -79,7 +80,7 @@ func newChannel2(a *APU, b *io.Bus) *channel2 {
 		}
 
 		return 0xBF
-	})
+	}))
 
 	c.volumeChannel = newVolumeChannel(c2)
 	a.s.RegisterEvent(scheduler.APUChannel2, func() {

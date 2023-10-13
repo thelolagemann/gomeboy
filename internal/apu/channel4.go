@@ -44,14 +44,17 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 
 		return 0xFF // write-only
 	})
-	b.ReserveAddress(types.NR42, func(v byte) byte {
+	b.ReserveAddress(types.NR42, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
 			return b.Get(types.NR42)
 		}
 		c.setNRx2(v)
 		return c.getNRx2()
-	})
+	}))
 	b.ReserveAddress(types.NR43, func(v byte) byte {
+		if !a.enabled {
+			return b.Get(types.NR43)
+		}
 		c.clockShift = v >> 4
 		c.widthMode = v&types.Bit3 != 0
 		c.divisorCode = v & 0x7
@@ -64,7 +67,10 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 
 		return v
 	})
-	b.ReserveAddress(types.NR44, func(v byte) byte {
+	b.ReserveAddress(types.NR44, didChange(a, c2, func(v byte) byte {
+		if !a.enabled {
+			return b.Get(types.NR44)
+		}
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
 			c.lengthCounter--
@@ -95,7 +101,7 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 		}
 
 		return 0xBF
-	})
+	}))
 
 	c.volumeChannel = newVolumeChannel(c2)
 	c.frequencyTimer = 8 // TODO figure out correct starting value (good enough for now)

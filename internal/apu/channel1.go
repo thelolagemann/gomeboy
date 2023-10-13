@@ -18,21 +18,12 @@ type channel1 struct {
 	negateHasHappened bool
 }
 
-func writeEnabled(a *APU, f func(v uint8)) func(v uint8) {
-	return func(v uint8) {
-		if a.enabled {
-			f(v)
-		}
-
-	}
-}
-
 func newChannel1(a *APU, b *io.Bus) *channel1 {
 	// create the higher level channel
 	c := &channel1{}
 	c2 := newChannel()
 
-	b.ReserveAddress(types.NR10, func(v byte) byte {
+	b.ReserveAddress(types.NR10, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
 			return a.b.Get(types.NR10)
 		}
@@ -43,7 +34,7 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 			c.enabled = false
 		}
 		return v | 0x80
-	})
+	}))
 	b.ReserveAddress(types.NR11, func(v byte) byte {
 		if a.enabled {
 			c.setDuty(v)
@@ -60,21 +51,19 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 		}
 		return c.duty<<6 | 0x3F
 	})
-	b.ReserveAddress(types.NR12, func(v byte) byte {
+	b.ReserveAddress(types.NR12, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
 			return a.b.Get(types.NR12)
 		}
 
 		c.setNRx2(v)
 		return c.getNRx2()
-	})
-	b.ReserveAddress(types.NR13, func(v byte) byte {
-		if a.enabled {
-			c.frequency = (c.frequency & 0x700) | uint16(v)
+	}))
+	b.ReserveAddress(types.NR13, whenEnabled(a, types.NR13, c2.setNRx3))
+	b.ReserveAddress(types.NR14, didChange(a, c2, func(v byte) byte {
+		if !a.enabled {
+			return a.b.Get(types.NR14)
 		}
-		return 0xFF // write only
-	})
-	b.ReserveAddress(types.NR14, func(v byte) byte {
 		c.frequency = (c.frequency & 0x00FF) | ((uint16(v) & 0x07) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
 		// obscure length counter behavior (see https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware#Length_Counter)
@@ -112,12 +101,13 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 			}
 
 		}
+
 		if c.lengthCounterEnabled {
 			return 0xFF
 		}
 
 		return 0xBF
-	})
+	}))
 
 	c.volumeChannel = newVolumeChannel(c2)
 	a.s.RegisterEvent(scheduler.APUChannel1, func() {
