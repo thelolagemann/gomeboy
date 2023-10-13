@@ -48,10 +48,11 @@ type GameBoy struct {
 
 	cmdChannel chan emulator.CommandPacket
 
-	APU    *apu.APU
-	Joypad *joypad.State
-	Timer  *timer.Controller
-	Serial *serial.Controller
+	APU       *apu.APU
+	Cartridge *cartridge.Cartridge
+	Joypad    *joypad.State
+	Timer     *timer.Controller
+	Serial    *serial.Controller
 
 	b *io.Bus
 
@@ -187,7 +188,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	// check if the cartridge has a ram controller and start a ticker to save the ram
 	var saveTicker *time.Ticker
 	var ram cartridge.RAMController
-	if r, ok := g.b.Cartridge.MemoryBankController.(cartridge.RAMController); ok && g.b.Cartridge.Header().RAMSize > 0 {
+	if r, ok := g.Cartridge.MemoryBankController.(cartridge.RAMController); ok && g.Cartridge.Header().RAMSize > 0 {
 		// start a ticker
 		saveTicker = time.NewTicker(time.Second * 3)
 		ram = r
@@ -219,7 +220,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
 
 	// update window title
-	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.b.Cartridge.Header().Title)}
+	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.Cartridge.Header().Title)}
 
 	// create event handlers for input
 	for i := joypad.ButtonA; i <= joypad.ButtonDown; i++ {
@@ -341,8 +342,8 @@ func (g *GameBoy) TogglePause() {
 func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	sched := scheduler.NewScheduler()
 
-	cart := cartridge.NewCartridge(rom)
-	b := io.NewBus(cart, sched)
+	b := io.NewBus(sched)
+	cart := cartridge.NewCartridge(rom, b)
 	pad := joypad.New(b)
 	serialCtl := serial.NewController(b, sched)
 	sound := apu.NewAPU(sched, b)
@@ -368,7 +369,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		Scheduler:  sched,
 		cmdChannel: make(chan emulator.CommandPacket, 10),
 	}
-
+	g.Cartridge = cart
 	// apply options
 	for _, opt := range opts {
 		opt(g)
@@ -380,7 +381,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	// does the cartridge have RAM? (and therefore a save file)
 	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok && cart.Header().RAMSize > 0 {
 		// try to load the save file
-		saveFiles, err := emulator.LoadSaves(g.b.Cartridge.Title())
+		saveFiles, err := emulator.LoadSaves(g.Cartridge.Title())
 
 		if err != nil {
 			// was there an error loading the save files?
@@ -388,9 +389,9 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		} else {
 			// if there are no save files, create one
 			if saveFiles == nil || len(saveFiles) == 0 {
-				g.Logger.Debugf("no save file found for %s", g.b.Cartridge.Title())
+				g.Logger.Debugf("no save file found for %s", g.Cartridge.Title())
 
-				g.save, err = emulator.NewSave(g.b.Cartridge.Title(), g.b.Cartridge.Header().RAMSize)
+				g.save, err = emulator.NewSave(g.Cartridge.Title(), g.Cartridge.Header().RAMSize)
 				if err != nil {
 					g.Logger.Errorf("error creating save file: %s", err)
 				} else {
@@ -406,7 +407,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	}
 
 	// try to load cheats using filename of rom
-	g.b.Map(g.model, g.PPU.Write, g.APU.Write, g.PPU.Read)
+	g.b.Map(g.model, g.PPU.Write, g.PPU.Read, g.APU.Read)
 	g.CPU.Boot(g.model)
 	g.b.Boot()
 

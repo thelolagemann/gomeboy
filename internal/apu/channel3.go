@@ -131,6 +131,7 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 
 		return 0xBF
 	}))
+	b.Set(types.NR34, 0xBF) // starting value across all devices
 
 	a.s.RegisterEvent(scheduler.APUChannel3, func() {
 		if c.enabled && c.dacEnabled {

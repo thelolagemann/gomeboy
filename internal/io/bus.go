@@ -50,6 +50,7 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 
 	// setup CGB only registers
 	if m == types.CGB0 || m == types.CGBABC {
+		fmt.Println("is cgb wot)")
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -140,6 +141,9 @@ func (b *Bus) Boot() {
 		// pass most anti emulator checks
 		b.data[i] = byte(rand.Intn(256))
 	}
+
+	// handle special case registers
+	b.data[types.BDIS] = 0xFF
 }
 
 // WriteHandler is a function that handles writing to a memory address.

@@ -29,16 +29,14 @@ type DMA struct {
 	b   *io.Bus
 	oam *OAM
 
-	s   *scheduler.Scheduler
-	ppu *PPU
+	s *scheduler.Scheduler
 }
 
-func NewDMA(b *io.Bus, oam *OAM, s *scheduler.Scheduler, ppu *PPU) *DMA {
+func NewDMA(b *io.Bus, oam *OAM, s *scheduler.Scheduler) *DMA {
 	d := &DMA{
 		b:   b,
 		oam: oam,
 		s:   s,
-		ppu: ppu,
 	}
 	s.RegisterEvent(scheduler.DMATransfer, d.doTransfer)
 	s.RegisterEvent(scheduler.DMAStartTransfer, d.startTransfer)

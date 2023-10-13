@@ -146,6 +146,9 @@ func (c *CPU) skipOperand() {
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.s.Tick(4)
 
+	if c.ppu.DMA.IsTransferring() && c.ppu.DMA.IsConflicting(addr) {
+		return c.ppu.DMA.LastByte()
+	}
 	//fmt.Printf("%04x -> %02x\n", addr, c.b.Read(addr))
 	//time.Sleep(time.Millisecond * 100)
 	return c.b.Read(addr)

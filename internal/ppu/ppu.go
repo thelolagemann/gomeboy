@@ -100,7 +100,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		s:   s,
 		oam: oam,
 	}
-	p.DMA = NewDMA(b, oam, s, p)
+	p.DMA = NewDMA(b, oam, s)
 	p.hdma = NewHDMA(b, p, s)
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
@@ -195,6 +195,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 	b.ReserveSetAddress(types.STAT, func(v any) {
 		p.status = v.(byte) & 0b0111_1100
+		p.b.Set(types.STAT, v.(byte)&0b0111_1100|types.Bit7)
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
 		// do we need to force a re-render on background

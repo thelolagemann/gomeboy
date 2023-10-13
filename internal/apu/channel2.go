@@ -14,9 +14,6 @@ func newChannel2(a *APU, b *io.Bus) *channel2 {
 	c := &channel2{}
 	c2 := newChannel()
 
-	b.ReserveAddress(0xFF15, func(v byte) byte {
-		return 0xFF // no NR20 channel
-	})
 	b.ReserveAddress(types.NR21, func(v byte) byte {
 		if a.enabled {
 			c.setDuty(v)

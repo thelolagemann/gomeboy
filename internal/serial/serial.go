@@ -84,6 +84,7 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 
 		return v | 0x7E // bits 1-6 are always set
 	})
+	b.Set(types.SC, 0x7E) // bits 1-6 are unused
 
 	s.RegisterEvent(scheduler.SerialBitTransfer, func() {
 		var bit bool

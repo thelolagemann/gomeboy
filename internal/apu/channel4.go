@@ -27,9 +27,6 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 		lfsr: 0x7FFF,
 	}
 	c2 := newChannel()
-	b.ReserveAddress(0xFF1F, func(v byte) byte {
-		return 0xFF // unused
-	})
 	b.ReserveAddress(types.NR41, func(v byte) byte {
 		switch a.model {
 		case types.CGBABC, types.CGB0:
@@ -102,6 +99,7 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 
 		return 0xBF
 	}))
+	b.Set(types.NR44, 0xBF)
 
 	c.volumeChannel = newVolumeChannel(c2)
 	c.frequencyTimer = 8 // TODO figure out correct starting value (good enough for now)

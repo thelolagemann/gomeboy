@@ -119,6 +119,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 		return map[HardwareAddress]interface{}{
 			P1:   uint8(0xC0),
 			DIV:  uint16(0x182F),
+			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
 			NR12: uint8(0xF3),

@@ -161,7 +161,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			b.SetBit(types.NR52, types.Bit7)
 		}
 
-		fmt.Printf("NR52: %08b %08b\n", b.Get(types.NR52)|0x70, v)
+		//fmt.Printf("NR52: %08b %08b\n", b.Get(types.NR52)|0x70, v)
 		return b.Get(types.NR52) | 0x70
 
 		// TODO onset
@@ -176,18 +176,20 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		b.Set(types.NR52, v|0x70)
 	})
-	b.ReserveAddress(types.PCM12, func(v byte) byte {
-		if a.model == types.CGBABC || a.model == types.CGB0 {
-			return a.pcm12
-		}
-		return 0xFF
-	})
-	b.ReserveAddress(types.PCM34, func(v byte) byte {
-		if a.model == types.CGBABC || a.model == types.CGB0 {
-			return a.pcm34
-		}
-		return 0xFF
-	})
+	if b.IsGBC() {
+		b.ReserveAddress(types.PCM12, func(v byte) byte {
+			if a.model == types.CGBABC || a.model == types.CGB0 {
+				return a.pcm12
+			}
+			return 0xFF
+		})
+		b.ReserveAddress(types.PCM34, func(v byte) byte {
+			if a.model == types.CGBABC || a.model == types.CGB0 {
+				return a.pcm34
+			}
+			return 0xFF
+		})
+	}
 
 	for i := 0xFF30; i < 0xFF40; i++ {
 		cI := i
@@ -212,6 +214,12 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 	s.ScheduleEvent(scheduler.APUFrameSequencer, 0)
 	a.sample()
 	s.ScheduleEvent(scheduler.APUChannel3, 0)
+
+	// nrx3 regs always read 0xFF
+	b.Set(types.NR13, 0xFF)
+	b.Set(types.NR23, 0xFF)
+	b.Set(types.NR33, 0xFF)
+	b.Set(types.NR43, 0xFF)
 
 	return a
 }
