@@ -34,6 +34,7 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		channel: newChannel(),
 		apu:     a,
 	}
+	c.channelBit = types.Bit2
 	b.ReserveAddress(types.NR30, didChange(a, c.channel, func(v byte) byte {
 		if !a.enabled {
 			return b.Get(types.NR30)

@@ -109,6 +109,15 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		// TODO onset
 	})
+	b.ReserveSetAddress(types.NR50, func(v any) {
+		a.volumeRight = v.(uint8) & 0x7
+		a.volumeLeft = (v.(uint8) >> 4) & 0x7
+
+		a.vinRight = v.(uint8)&types.Bit3 != 0
+		a.vinLeft = v.(uint8)&types.Bit7 != 0
+
+		b.Set(types.NR50, v.(byte))
+	})
 	b.ReserveAddress(types.NR51, func(v byte) byte {
 		if !a.enabled {
 			return b.Get(types.NR51)
@@ -152,7 +161,6 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 				b.Write(i, 0)
 			}
 			a.enabled = false
-			b.Set(types.NR51, 0) // NR51 reads 0 when apu is disabled
 			b.ClearBit(types.NR52, types.Bit7)
 		} else if v&types.Bit7 != 0 && !a.enabled {
 			// power on
@@ -176,7 +184,8 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		b.Set(types.NR52, v|0x70)
 	})
-	if b.IsGBC() {
+	b.WhenGBC(func() {
+
 		b.ReserveAddress(types.PCM12, func(v byte) byte {
 			if a.model == types.CGBABC || a.model == types.CGB0 {
 				return a.pcm12
@@ -189,7 +198,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			}
 			return 0xFF
 		})
-	}
+	})
 
 	for i := 0xFF30; i < 0xFF40; i++ {
 		cI := i

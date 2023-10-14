@@ -23,6 +23,7 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 	// create the higher level channel
 	c := &channel1{}
 	c2 := newChannel()
+	c2.channelBit = types.Bit0
 
 	b.ReserveAddress(types.NR10, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
@@ -55,15 +56,14 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 	b.ReserveSetAddress(types.NR11, func(a any) {
 		c.setDuty(a.(uint8))
 		c.setLength(a.(uint8))
+
+		b.Set(types.NR11, c.duty<<6|0x3F)
 	})
-	b.ReserveAddress(types.NR12, didDacChange(a, types.NR12, c2, didChange(a, c2, func(v byte) byte {
-		if !a.enabled {
-			return a.b.Get(types.NR12)
-		}
+	b.ReserveAddress(types.NR12, whenEnabled(a, types.NR12, didDacChange(a, types.NR12, c2, didChange(a, c2, func(v byte) byte {
 
 		c.setNRx2(v)
 		return c.getNRx2()
-	})))
+	}))))
 	b.ReserveAddress(types.NR13, whenEnabled(a, types.NR13, c2.setNRx3))
 	b.ReserveAddress(types.NR14, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {

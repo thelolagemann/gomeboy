@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -17,6 +18,8 @@ type channel struct {
 	// NRx4
 	frequencyTimer       uint64
 	lengthCounterEnabled bool
+
+	channelBit uint8
 }
 
 func (c *channel) setNRx3(v byte) byte {
@@ -33,8 +36,10 @@ func (c *channel) setNRx3(v byte) byte {
 func whenEnabled(a *APU, addr uint16, f func(byte) byte) func(byte) byte {
 	return func(b byte) byte {
 		if a.enabled {
+			fmt.Printf("%04x ---> %02x (APU is enabled) %02x\n", addr, b, a.b.Get(addr))
 			return f(b)
 		}
+		fmt.Printf("%04x ---> %02x (APU is disabled) %02x\n", addr, b, a.b.Get(addr))
 		return a.b.Get(addr)
 	}
 }
@@ -64,12 +69,14 @@ type volumeChannel struct {
 func didChange(a *APU, c *channel, f func(byte) byte) func(byte) byte {
 	// execute func
 	return func(b byte) byte {
+		oldVal := c.enabled
 		b = f(b)
 
-		if c.enabled {
-			a.b.SetBit(types.NR52, types.Bit0)
-		} else {
-			a.b.ClearBit(types.NR52, types.Bit0)
+		// did the channel turn off?
+		if oldVal && !c.enabled {
+			a.b.ClearBit(types.NR52, c.channelBit)
+		} else if !oldVal && c.enabled {
+			a.b.SetBit(types.NR52, c.channelBit)
 		}
 
 		return b

@@ -27,6 +27,7 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 		lfsr: 0x7FFF,
 	}
 	c2 := newChannel()
+	c2.channelBit = types.Bit3
 	b.ReserveAddress(types.NR41, func(v byte) byte {
 		switch a.model {
 		case types.CGBABC, types.CGB0:

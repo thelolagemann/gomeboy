@@ -13,6 +13,7 @@ type channel2 struct {
 func newChannel2(a *APU, b *io.Bus) *channel2 {
 	c := &channel2{}
 	c2 := newChannel()
+	c2.channelBit = types.Bit1
 
 	b.ReserveAddress(types.NR21, func(v byte) byte {
 		if a.enabled {
