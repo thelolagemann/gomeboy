@@ -27,6 +27,7 @@ type Bus struct {
 	s           *scheduler.Scheduler
 
 	gbcHandlers []func()
+	locks       [0x10000]bool
 }
 
 func NewBus(s *scheduler.Scheduler) *Bus {
@@ -181,20 +182,13 @@ func (b *Bus) ReserveSetAddress(addr uint16, handler SetHandler) {
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
 func (b *Bus) Write(addr uint16, value byte) {
-	if addr == types.KEY1 {
-		//fmt.Printf("%08b\n", value)
-	}
+
 	switch {
-	case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
+	case addr <= 0xBFFF:
 		if w := b.blockWriters[addr/0x1000]; w != nil {
 			w(addr, value)
-		} else {
-			panic("wop")
 		}
 		return
-	// 0x8000-0x9FFF VRAM
-	case addr >= 0x8000 && addr <= 0x9FFF:
-		b.ppuWrite(addr, value)
 	// 0xA000-0xBFFF ERAM (RAM on cartridge)
 	// 0xC000-0xFDFF WRAM & mirror
 	case addr >= 0xC000 && addr <= 0xFDFF:
@@ -223,9 +217,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 // Read reads from the specified memory address. Some addresses
 // need special handling.
 func (b *Bus) Read(addr uint16) byte {
-	if addr == types.KEY1 {
-		//fmt.Printf("Read %08b\n", b.data[addr])
-	}
+
 	if addr >= 0xFF30 && addr <= 0xFF3F {
 		return b.apuRead(addr)
 	}
@@ -290,6 +282,29 @@ func (b *Bus) HasInterrupts() bool {
 	return b.data[types.IE]&b.data[types.IF] != 0
 }
 
+// HardLock locks the specified memory range and prevents
+// unlock until the lock counter has reached 0.
+func (b *Bus) HardLock(start, end uint16) {
+	// check to see if range is already in the hardlock
+	if b.locks[start] {
+		// don't need to do anything
+		return
+	}
+
+	b.LockRange(start, end)
+	b.locks[start] = true
+}
+
+// HardUnlock
+func (b *Bus) HardUnlock(start, end uint16) {
+	if !b.locks[start] {
+		return
+	}
+
+	b.UnlockRange(start, end)
+	b.locks[start] = false
+}
+
 // IRQVector returns the currently serviced interrupt vector,
 // or 0 if no interrupt is being serviced. This function
 // will also clear the corresponding bit in the types.IF
@@ -344,7 +359,6 @@ func (b *Bus) LockRange(start, end uint16) {
 
 // UnlockRange unlocks the specified memory range.
 func (b *Bus) UnlockRange(start, end uint16) {
-	return
 	// copy lock buffer back to original location
 	copy(b.data[start:end], b.lockedData[start:end])
 }

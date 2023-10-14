@@ -30,7 +30,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		s:   s,
 		b:   b,
 	}
-	if b.IsGBC() {
+	b.WhenGBC(func() {
 		b.ReserveAddress(types.HDMA1, func(v byte) byte {
 			h.source &= 0xF0
 			h.source |= uint16(v) << 8
@@ -54,6 +54,12 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 			h.destination |= uint16(v & 0xF0)
 			return 0xFF
 		})
+
+		// HDMA1-4 always read 0xff, HDMA5 starts 0xff
+		for i := types.HDMA1; i <= types.HDMA5; i++ {
+			b.Set(i, 0xff)
+		}
+
 		b.ReserveAddress(types.HDMA5, func(v byte) byte {
 			if !b.IsGBC() {
 				return 0xff
@@ -109,7 +115,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 				return v | (h.hdmaRemaining-1)&0x7F
 			}
 		})
-	}
+	})
 
 	return h
 }

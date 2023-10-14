@@ -128,7 +128,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			// unlock OAM/VRAM
 			p.oamReadBlocked = false
 			p.oamWriteBlocked = false
-			p.b.UnlockRange(0x8000, 0x9FFF)
+			p.b.HardUnlock(0x8000, 0xA000)
 			p.vramWriteBlocked = false
 			p.cgbPalettesBlocked = false
 
@@ -272,7 +272,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	// setup CGB only registers
-	if b.Model() == types.CGBABC || b.Model() == types.CGB0 {
+	b.WhenGBC(func() {
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
 			p.ColourPalette.SetIndex(v)
 			p.dirtyBackground(bcps)
@@ -283,6 +283,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.dirtyBackground(bcpd)
 			return p.ColourPalette.Read()
 		})
+		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
 			p.ColourSpritePalette.SetIndex(v)
 			p.dirtyBackground(ocps)
@@ -293,7 +294,8 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.dirtyBackground(ocpd)
 			return p.ColourSpritePalette.Read()
 		})
-	}
+		b.Set(types.OCPD, p.ColourSpritePalette.Read())
+	})
 
 	s.RegisterEvent(scheduler.PPUStartGlitchedLine0, p.startGlitchedFirstLine)
 	s.RegisterEvent(scheduler.PPUContinueGlitchedLine0, p.continueGlitchedFirstLine)
@@ -309,10 +311,10 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
 	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
-		//p.b.LockRange(0x8000, 0x9FFF)
+		p.b.HardLock(0x8000, 0xA000)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
-		//p.b.UnlockRange(0x8000, 0x9FFF)
+		p.b.HardUnlock(0x8000, 0xA000)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
 		p.vramWriteBlocked = true
@@ -333,6 +335,9 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		p.statUpdate()
 		p.modeToInterrupt = lcd.VRAM
 	})
+
+	b.ReserveBlockWriter(0x8000, p.Write)
+	b.ReserveBlockWriter(0x9000, p.Write)
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
@@ -388,7 +393,7 @@ func (p *PPU) changeMode(mode lcd.Mode) {
 func (p *PPU) continueGlitchedFirstLine() {
 	// OAM & VRAM are blocked until the end of VRAM transfer
 	p.oamReadBlocked = true
-	//p.b.LockRange(0x8000, 0x9FFF)
+	p.b.HardLock(0x8000, 0xA000)
 	p.oamWriteBlocked = true
 	p.vramWriteBlocked = true
 	p.cgbPalettesBlocked = true
@@ -432,7 +437,7 @@ func (p *PPU) endVRAMTransfer() {
 	p.statUpdate()
 
 	p.oamReadBlocked = false
-	p.b.UnlockRange(0x8000, 0x9FFF)
+	p.b.HardUnlock(0x8000, 0xA000)
 	p.oamWriteBlocked = false
 	p.vramWriteBlocked = false
 	p.cgbPalettesBlocked = false
@@ -510,7 +515,7 @@ func (p *PPU) endOAM() {
 	p.statUpdate()
 
 	p.oamReadBlocked = true
-	//p.b.LockRange(0x8000, 0x9FFF)
+	p.b.HardLock(0x8000, 0xA000)
 	p.oamWriteBlocked = true
 	p.vramWriteBlocked = true
 	p.cgbPalettesBlocked = true
@@ -774,8 +779,12 @@ func (p *PPU) Write(address uint16, value uint8) {
 	if address >= 0x8000 && address <= 0x9FFF {
 		// is the VRAM currently locked?
 		if p.vramWriteBlocked {
+			if address == 0x8000 {
+				fmt.Printf("8000 <- %02x while blocked\n", value)
+			}
 			return
 		}
+		p.b.Set(address, value)
 		p.writeVRAM(address-0x8000, value)
 		return
 	}
@@ -973,6 +982,9 @@ func (p *PPU) renderWindowScanline() {
 
 	// assign the palette to use
 	var pal = p.Palette
+	if p.b.IsGBC() {
+		pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+	}
 
 	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
 	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
@@ -986,6 +998,10 @@ func (p *PPU) renderWindowScanline() {
 			// get the next tile entry
 			tileEntry = tileMapRow[xPos>>3]
 			tileID = tileEntry.GetID(p.isSigned)
+
+			if p.b.IsGBC() {
+				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+			}
 
 			tileData = p.TileData[tileEntry.Attributes.VRAMBank][tileID]
 
@@ -1058,6 +1074,10 @@ func (p *PPU) renderBackgroundScanline() {
 	// assign the palette to use
 	var pal = p.Palette
 
+	if p.b.IsGBC() {
+		pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+	}
+
 	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
 	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
 
@@ -1082,6 +1102,10 @@ func (p *PPU) renderBackgroundScanline() {
 			// get the next tile entry
 			tileEntry = p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
 			tileID = tileEntry.GetID(p.isSigned)
+
+			if p.b.IsGBC() {
+				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+			}
 
 			tileData = p.TileData[tileEntry.Attributes.VRAMBank][tileID]
 
@@ -1168,6 +1192,10 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 		var pal palette.Palette
 		pal = p.SpritePalettes[sprite.useSecondPalette]
 
+		if p.b.IsGBC() {
+			pal = p.ColourSpritePalette.Palettes[sprite.cgbPalette]
+		}
+
 		for x := uint8(0); x < 8; x++ {
 			// skip if the sprite is out of bounds
 			pixelPos := spriteX + x
@@ -1192,7 +1220,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 				}
 			}
 
-			if !p.b.IsGBC() {
+			if p.b.IsGBC() {
 				// skip if the sprite doesn't have priority and the background is not transparent
 				if spriteXPerScreen[pixelPos] != 0 {
 					continue
