@@ -25,11 +25,14 @@ type Bus struct {
 	model       types.Model
 	isGBC       bool
 	s           *scheduler.Scheduler
+
+	gbcHandlers []func()
 }
 
 func NewBus(s *scheduler.Scheduler) *Bus {
 	b := &Bus{
-		s: s,
+		s:           s,
+		gbcHandlers: make([]func(), 0),
 	}
 
 	return b
@@ -50,7 +53,6 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 
 	// setup CGB only registers
 	if m == types.CGB0 || m == types.CGBABC {
-		fmt.Println("is cgb wot)")
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -61,7 +63,7 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 		})
 		b.ReserveAddress(types.KEY1, func(v byte) byte {
 			// only least significant bit is writable
-			return v&0x01 | 0b0111_1110
+			return v&0x01 | 0b1111_1110
 		})
 		b.ReserveAddress(types.VBK, func(v byte) byte {
 			// copy currently banked data to VRAM
@@ -74,23 +76,29 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 		})
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
 			// copy currently banked data to WRAM
-			copy(b.wRAM[b.data[types.SVBK]&0x7][:], b.data[0xD000:0xDFFF])
+			copy(b.wRAM[b.data[types.SVBK]&0x7][:], b.data[0xD000:0xE000])
 
 			// copy WRAM to currently banked data
-			copy(b.data[0xD000:0xDFFF], b.wRAM[v&0x7][:])
+			copy(b.data[0xD000:0xE000], b.wRAM[v&0x7][:])
 
 			return v | 0b1111_1000
 		})
+		b.Set(types.SVBK, 0xFF) // TODO find out why?
 
-		for i := types.FF72; i < types.FF74; i++ {
+		for i := types.FF72; i <= types.FF74; i++ {
 			b.ReserveAddress(i, func(v byte) byte {
 				return v
 			})
 		}
 		b.ReserveAddress(types.FF75, func(v byte) byte {
 			// only bits 4-6 are writable
-			return v & 0x70
+			return v&0x70 | 0x8F
 		})
+		b.Set(types.FF75, 0x8F)
+
+		for _, f := range b.gbcHandlers {
+			f()
+		}
 	}
 
 	b.writeHandlers[types.LCDC&0xFF](0x91)
@@ -114,7 +122,6 @@ func (b *Bus) Boot() {
 			// is there a set handler registered for this address?
 			if handler := b.setHandlers[i&0xFF]; handler != nil {
 				handler(ioRegs[types.HardwareAddress(i)])
-				fmt.Printf("set handler for address %04X\n", i)
 			} else if wHandler := b.writeHandlers[i&0xFF]; wHandler != nil {
 				b.data[i] = wHandler(ioRegs[types.HardwareAddress(i)].(byte))
 			}
@@ -144,6 +151,7 @@ func (b *Bus) Boot() {
 
 	// handle special case registers
 	b.data[types.BDIS] = 0xFF
+	b.bootROMDone = true
 }
 
 // WriteHandler is a function that handles writing to a memory address.
@@ -173,8 +181,8 @@ func (b *Bus) ReserveSetAddress(addr uint16, handler SetHandler) {
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
 func (b *Bus) Write(addr uint16, value byte) {
-	if addr >= 0xFF10 && addr <= 0xFF2F {
-		//fmt.Printf("%04x -> %02x\n", addr, value)
+	if addr == types.KEY1 {
+		//fmt.Printf("%08b\n", value)
 	}
 	switch {
 	case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
@@ -215,9 +223,11 @@ func (b *Bus) Write(addr uint16, value byte) {
 // Read reads from the specified memory address. Some addresses
 // need special handling.
 func (b *Bus) Read(addr uint16) byte {
-	if addr >= 0xFF10 && addr <= 0xFF2F {
-		//fmt.Printf("%04x -> %02x\n", addr, b.data[addr])
-		//return b.apuRead(addr)
+	if addr == types.KEY1 {
+		//fmt.Printf("Read %08b\n", b.data[addr])
+	}
+	if addr >= 0xFF30 && addr <= 0xFF3F {
+		return b.apuRead(addr)
 	}
 	switch {
 	case addr >= 0xFE00 && addr <= 0xFE9F:
@@ -262,7 +272,7 @@ func (b *Bus) SetBit(addr uint16, bit byte) {
 
 // ClearBit clears the bit at the specified memory address.
 func (b *Bus) ClearBit(addr uint16, bit byte) {
-	b.data[addr] &= ^bit
+	b.data[addr] &^= bit
 }
 
 // TestBit tests the bit at the specified memory address.
@@ -290,7 +300,7 @@ func (b *Bus) IRQVector(irq byte) uint16 {
 		flag := uint8(1 << i)
 
 		// check if the interrupt is requested and enabled
-		if irq&b.data[types.IF] == flag {
+		if irq&b.data[types.IF]&flag == flag {
 			// clear the flag
 			b.data[types.IF] &= ^flag
 
@@ -298,6 +308,8 @@ func (b *Bus) IRQVector(irq byte) uint16 {
 			return uint16(0x0040 + i*8)
 		}
 	}
+
+	//fmt.Printf("%08b %08b\n", b.data[types.IF], b.data[types.IE])
 
 	return 0
 }
@@ -351,4 +363,8 @@ func (b *Bus) CopyTo(start, end uint16, src []byte) {
 
 func (b *Bus) ReserveBlockWriter(start uint16, h func(uint16, byte)) {
 	b.blockWriters[start/0x1000] = h
+}
+
+func (b *Bus) WhenGBC(f func()) {
+	b.gbcHandlers = append(b.gbcHandlers, f)
 }
