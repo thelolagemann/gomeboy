@@ -278,7 +278,12 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.dirtyBackground(bcps)
 			return p.ColourPalette.GetIndex() | 0x40
 		})
+		b.ReserveSetAddress(types.BCPS, func(a any) {
+			p.ColourPalette.SetIndex(a.(byte))
+			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
+		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
+			fmt.Println("writing to bcpd")
 			p.ColourPalette.Write(v)
 			p.dirtyBackground(bcpd)
 			return p.ColourPalette.Read()
@@ -385,6 +390,13 @@ func (p *PPU) changeMode(mode lcd.Mode) {
 
 	// set new mode
 	p.b.Set(types.STAT, p.b.Get(types.STAT)|mode)
+
+	// if we're changing to mode 3, we need to block BCPD
+	if mode == lcd.VRAM {
+		p.b.Set(types.BCPD, 0xFF)
+	} else {
+		p.b.Set(types.BCPD, p.ColourPalette.Read())
+	}
 }
 
 // continueGlitchedFirstLine is called 4 cycles after startGlitchedFirstLine,

@@ -7,6 +7,24 @@ import (
 	"math/rand"
 )
 
+// Bus is the main component responsible for handling IO
+// operations on the Game Boy. The Game Boy has a 16-bit
+// address bus, allowing for a 64KiB memory space.
+//
+// The memory space is mapped as so:
+//
+//		Start  | End	| Name
+//	 ----------------------------
+//		0x0000 | 0x7FFF | ROM
+//		0x8000 | 0x9FFF | VRAM
+//		0xA000 | 0xBFFF | External RAM
+//		0xC000 | 0xDFFF | Work RAM
+//		0xE000 | 0xFDFF | Work RAM Mirror
+//		0xFE00 | 0xFE9F | OAM
+//		0xFEA0 | 0xFEFF | Not used
+//		0xFF00 | 0xFF7F | IO
+//		0xFF80 | 0xFFFE | High RAM
+//		0xFFFF | 0xFFFF | Interrupt Enable Register
 type Bus struct {
 	data       [0x10000]byte   // 64 KiB memory
 	lockedData [0x10000]byte   // 64 KiB memory lock buffer
@@ -150,6 +168,18 @@ func (b *Bus) Boot() {
 		b.data[i] = byte(rand.Intn(256))
 	}
 
+	// setup starting events for scheduler
+	events := b.model.Events()
+	if len(events) > 0 {
+		for i := scheduler.APUFrameSequencer; i <= scheduler.JoypadDownRelease; i++ {
+			b.s.DescheduleEvent(i)
+		}
+		// set starting event for scheduler
+		for _, e := range events {
+			b.s.ScheduleEvent(e.Type, e.Cycle)
+		}
+	}
+
 	// handle special case registers
 	b.data[types.BDIS] = 0xFF
 	b.bootROMDone = true
@@ -217,6 +247,9 @@ func (b *Bus) Write(addr uint16, value byte) {
 // Read reads from the specified memory address. Some addresses
 // need special handling.
 func (b *Bus) Read(addr uint16) byte {
+	if addr >= types.BCPS && addr <= types.OCPS {
+		fmt.Printf("%04x %02x\n", addr, b.data[addr])
+	}
 
 	if addr >= 0xFF30 && addr <= 0xFF3F {
 		return b.apuRead(addr)

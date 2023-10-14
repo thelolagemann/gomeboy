@@ -10,6 +10,7 @@ import (
 // in regard to the model-specific quirks. As a most
 // basic example, any CGB models will have CGB features
 // enabled, while DMG models will not.
+// TODO add common IO registers
 type Model int
 
 const (
@@ -117,7 +118,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 	switch m {
 	case DMG0:
 		return map[HardwareAddress]interface{}{
-			P1:   uint8(0xC0),
+			P1:   uint8(0xCF),
 			DIV:  uint16(0x182F),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
@@ -139,13 +140,13 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			NR52: uint8(0xF1),
 			LY:   uint8(0x92),
 			LCDC: uint8(0x91),
-			STAT: uint8(0x81),
+			STAT: uint8(0x87),
 			BGP:  uint8(0xFC),
 			IF:   uint8(0xE1),
 		}
 	case DMGABC:
 		return map[HardwareAddress]interface{}{
-			P1:   uint8(0xC0),
+			P1:   uint8(0xCF),
 			DIV:  uint16(0xABC9),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
@@ -172,7 +173,7 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 		}
 	case CGBABC:
 		return map[HardwareAddress]interface{}{
-			P1:   uint8(0xF0),
+			P1:   uint8(0xFF),
 			DIV:  uint16(0x2675),
 			TAC:  uint8(0xF8),
 			NR10: uint8(0x80),
@@ -198,6 +199,8 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			BCPS: uint8(0xC8),
 			OCPS: uint8(0xD0),
 			KEY0: uint8(0xFF),
+			KEY1: uint8(0xFF),
+			VBK:  uint8(0xFE),
 			FF74: uint8(0xFF),
 			IF:   uint8(0xE1),
 		}
@@ -208,11 +211,25 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 	case SGB:
 		return map[HardwareAddress]interface{}{
 			P1:   uint8(0xFF),
+			TAC:  uint8(0xF8),
 			DIV:  uint16(0xD85F),
+			NR10: uint8(0x80),
 			NR11: uint8(0xBF),
 			NR12: uint8(0xF3),
+			NR14: uint8(0xBF),
+			NR21: uint8(0x3F),
+			NR22: uint8(0x00),
+			NR24: uint8(0xBF),
+			NR30: uint8(0x7F),
+			NR31: uint8(0xFF),
+			NR32: uint8(0x9F),
+			NR33: uint8(0xBF),
+			NR41: uint8(0xFF),
+			NR42: uint8(0x00),
+			NR43: uint8(0x00),
 			NR50: uint8(0x77),
 			NR51: uint8(0xF3),
+			NR52: uint8(0xF0),
 			LCDC: uint8(0x91),
 			STAT: uint8(0x85),
 			LY:   uint8(0x00),

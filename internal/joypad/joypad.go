@@ -71,6 +71,9 @@ func New(b *io.Bus) *State {
 		d ^= 0xf
 		return d
 	})
+	b.ReserveSetAddress(types.P1, func(v any) {
+		b.Set(types.P1, v.(byte))
+	})
 
 	return s
 }
