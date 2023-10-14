@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -51,14 +52,18 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 		}
 		return c.duty<<6 | 0x3F
 	})
-	b.ReserveAddress(types.NR12, didChange(a, c2, func(v byte) byte {
+	b.ReserveSetAddress(types.NR11, func(a any) {
+		c.setDuty(a.(uint8))
+		c.setLength(a.(uint8))
+	})
+	b.ReserveAddress(types.NR12, didDacChange(a, types.NR12, c2, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
 			return a.b.Get(types.NR12)
 		}
 
 		c.setNRx2(v)
 		return c.getNRx2()
-	}))
+	})))
 	b.ReserveAddress(types.NR13, whenEnabled(a, types.NR13, c2.setNRx3))
 	b.ReserveAddress(types.NR14, didChange(a, c2, func(v byte) byte {
 		if !a.enabled {
@@ -77,6 +82,7 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 			c.enabled = c.dacEnabled
 
 			if c.lengthCounter == 0 {
+				fmt.Println("length counter 0 on trigger", c.dacEnabled)
 				c.lengthCounter = 0x40
 				if c.lengthCounterEnabled && a.firstHalfOfLengthPeriod {
 					c.lengthCounter--

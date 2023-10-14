@@ -76,6 +76,20 @@ func didChange(a *APU, c *channel, f func(byte) byte) func(byte) byte {
 	}
 }
 
+func didDacChange(a *APU, addr uint16, c *channel, f func(byte) byte) func(byte) byte {
+	return func(b byte) byte {
+		b = f(b)
+
+		if c.dacEnabled {
+			a.b.SetBit(addr, types.Bit7)
+		} else {
+			a.b.ClearBit(addr, types.Bit7)
+		}
+
+		return b
+	}
+}
+
 func (v *volumeChannel) volumeStep() {
 	if v.period != 0 {
 		if v.volumeEnvelopeTimer > 0 {
@@ -102,11 +116,6 @@ func (v *volumeChannel) setDuty(duty uint8) {
 
 func (v *volumeChannel) setLength(length uint8) {
 	v.lengthLoad = length & 0x3F
-	v.lengthCounter = 0x40 - uint(v.lengthLoad)
-}
-
-func (v *volumeChannel) setNRx1(v1 uint8) {
-	v.lengthLoad = v1 & 0x3F
 	v.lengthCounter = 0x40 - uint(v.lengthLoad)
 }
 

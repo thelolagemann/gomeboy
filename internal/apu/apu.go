@@ -225,6 +225,13 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 }
 
 func (a *APU) StepFrameSequencer() {
+	aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
+
+	oldVals := [4]bool{}
+	for i, ch := range aChans {
+		oldVals[i] = ch.enabled
+	}
+
 	a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 
 	switch a.frameSequencerStep {
@@ -257,6 +264,14 @@ func (a *APU) StepFrameSequencer() {
 	}
 
 	a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
+
+	// check to see if any channels went from enabled -> disabled
+	for i, ch := range aChans {
+		if oldVals[i] && !ch.enabled {
+			// clear bit in NR52
+			a.b.ClearBit(types.NR52, uint8(1<<i))
+		}
+	}
 }
 
 func (a *APU) scheduledFrameSequencer() {
