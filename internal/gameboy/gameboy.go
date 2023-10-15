@@ -354,6 +354,11 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		processor.HasFrame()
 	})
 
+	var model = types.DMGABC
+	if cart.Header().GameboyColor() {
+		model = types.CGBABC
+	}
+
 	g := &GameBoy{
 		CPU:    processor,
 		PPU:    video,
@@ -364,7 +369,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		Joypad:     pad,
 		Timer:      timerCtl,
 		Serial:     serialCtl,
-		model:      types.DMGABC, // default to DMGABC
+		model:      model, // defaults to cart
 		speed:      1.0,
 		Scheduler:  sched,
 		cmdChannel: make(chan emulator.CommandPacket, 10),
@@ -407,7 +412,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	}
 
 	// try to load cheats using filename of rom
-	g.b.Map(g.model, g.PPU.Write, g.PPU.Read, g.APU.Read)
+	g.b.Map(g.model, cart.Header().GameboyColor(), g.PPU.Write, g.PPU.Read, g.APU.Read)
 	g.CPU.Boot(g.model)
 	g.b.Boot()
 
