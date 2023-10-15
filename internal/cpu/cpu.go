@@ -117,12 +117,14 @@ func (c *CPU) skipHALT() {
 // Frame steps the CPU until the next frame is rzeady.
 func (c *CPU) Frame() {
 	for !c.hasFrame && !c.DebugBreakpoint {
+		instr := c.readOperand()
+
 		// execute the instruction
-		c.instructions[c.readOperand()](c)
+		c.instructions[instr](c)
 
 		//fmt.Println("Tick")
 		// did we get an interrupt?
-		if c.ime && c.b.Get(types.IF)&c.b.Get(types.IE) != 0 {
+		if c.ime && c.b.HasInterrupts() {
 			c.executeInterrupt()
 		}
 

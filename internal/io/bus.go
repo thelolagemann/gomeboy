@@ -31,6 +31,8 @@ type Bus struct {
 	wRAM       [8][0x1000]byte // 8 banks of 4 KiB each
 	vRAM       [2][0x2000]byte // 2 banks of 8 KiB each
 
+	wRAMBank uint8 // 1 - 7 in CGB mode
+
 	ppuWrite func(addr uint16, v byte)
 	ppuRead  func(addr uint16) byte
 	apuRead  func(addr uint16) byte
@@ -44,8 +46,9 @@ type Bus struct {
 	isGBC       bool
 	s           *scheduler.Scheduler
 
-	gbcHandlers []func()
-	locks       [0x10000]bool
+	gbcHandlers     []func()
+	gbcCartHandlers []func()
+	locks           [0x10000]bool
 }
 
 func NewBus(s *scheduler.Scheduler) *Bus {
@@ -57,9 +60,9 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 	return b
 }
 
-func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead func(uint16) byte) {
+func (b *Bus) Map(m types.Model, cartCGB bool, ppuWrite func(uint16, byte), ppuRead, apuRead func(uint16) byte) {
 	b.model = m
-	b.isGBC = m == types.CGB0 || m == types.CGBABC
+	b.isGBC = (m == types.CGBABC || m == types.CGB0) && cartCGB
 
 	b.ReserveAddress(types.BDIS, func(v byte) byte {
 		// any write to BDIS will disable the boot rom
@@ -71,7 +74,7 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 	})
 
 	// setup CGB only registers
-	if m == types.CGB0 || m == types.CGBABC {
+	if b.isGBC {
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -82,7 +85,10 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 		})
 		b.ReserveAddress(types.KEY1, func(v byte) byte {
 			// only least significant bit is writable
-			return v&0x01 | 0b1111_1110
+			// TODO handle speed switching
+
+			// KEY1 always reads 0xFF?
+			return 0xFF
 		})
 		b.ReserveAddress(types.VBK, func(v byte) byte {
 			// copy currently banked data to VRAM
@@ -104,11 +110,20 @@ func (b *Bus) Map(m types.Model, ppuWrite func(uint16, byte), ppuRead, apuRead f
 		})
 		b.Set(types.SVBK, 0xFF) // TODO find out why?
 
-		for i := types.FF72; i <= types.FF74; i++ {
+		for _, f := range b.gbcCartHandlers {
+			f()
+		}
+	}
+
+	if b.model == types.CGBABC || b.model == types.CGB0 {
+		for i := types.FF72; i < types.FF74; i++ {
 			b.ReserveAddress(i, func(v byte) byte {
 				return v
 			})
 		}
+		b.ReserveAddress(types.FF74, func(b byte) byte {
+			return 0xFF
+		})
 		b.ReserveAddress(types.FF75, func(v byte) byte {
 			// only bits 4-6 are writable
 			return v&0x70 | 0x8F
@@ -183,6 +198,7 @@ func (b *Bus) Boot() {
 	// handle special case registers
 	b.data[types.BDIS] = 0xFF
 	b.bootROMDone = true
+
 }
 
 // WriteHandler is a function that handles writing to a memory address.
@@ -247,14 +263,15 @@ func (b *Bus) Write(addr uint16, value byte) {
 // Read reads from the specified memory address. Some addresses
 // need special handling.
 func (b *Bus) Read(addr uint16) byte {
-	if addr >= types.BCPS && addr <= types.OCPS {
-		fmt.Printf("%04x %02x\n", addr, b.data[addr])
-	}
-
 	if addr >= 0xFF30 && addr <= 0xFF3F {
 		return b.apuRead(addr)
 	}
 	switch {
+	case addr >= 0x8000 && addr <= 0x9FFF:
+		// range could be locked so check for that
+		if b.locks[addr&0x8000] {
+			return 0xff
+		}
 	case addr >= 0xFE00 && addr <= 0xFE9F:
 		return b.ppuRead(addr)
 	case addr >= 0xE000 && addr <= 0xFDFF:
@@ -318,23 +335,12 @@ func (b *Bus) HasInterrupts() bool {
 // HardLock locks the specified memory range and prevents
 // unlock until the lock counter has reached 0.
 func (b *Bus) HardLock(start, end uint16) {
-	// check to see if range is already in the hardlock
-	if b.locks[start] {
-		// don't need to do anything
-		return
-	}
-
-	b.LockRange(start, end)
 	b.locks[start] = true
 }
 
 // HardUnlock
 func (b *Bus) HardUnlock(start, end uint16) {
-	if !b.locks[start] {
-		return
-	}
-
-	b.UnlockRange(start, end)
+	//b.UnlockRange(start, end)
 	b.locks[start] = false
 }
 
@@ -414,4 +420,8 @@ func (b *Bus) ReserveBlockWriter(start uint16, h func(uint16, byte)) {
 
 func (b *Bus) WhenGBC(f func()) {
 	b.gbcHandlers = append(b.gbcHandlers, f)
+}
+
+func (b *Bus) WhenGBCCart(f func()) {
+	b.gbcCartHandlers = append(b.gbcCartHandlers, f)
 }

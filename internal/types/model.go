@@ -196,11 +196,6 @@ func (m Model) IO() map[HardwareAddress]interface{} {
 			LCDC: uint8(0x91),
 			STAT: uint8(0x87),
 			BGP:  uint8(0xFC),
-			BCPS: uint8(0xC8),
-			OCPS: uint8(0xD0),
-			KEY0: uint8(0xFF),
-			KEY1: uint8(0xFF),
-			VBK:  uint8(0xFE),
 			FF74: uint8(0xFF),
 			IF:   uint8(0xE1),
 		}

@@ -1,7 +1,6 @@
 package apu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -36,10 +35,8 @@ func (c *channel) setNRx3(v byte) byte {
 func whenEnabled(a *APU, addr uint16, f func(byte) byte) func(byte) byte {
 	return func(b byte) byte {
 		if a.enabled {
-			fmt.Printf("%04x ---> %02x (APU is enabled) %02x\n", addr, b, a.b.Get(addr))
 			return f(b)
 		}
-		fmt.Printf("%04x ---> %02x (APU is disabled) %02x\n", addr, b, a.b.Get(addr))
 		return a.b.Get(addr)
 	}
 }
@@ -86,12 +83,6 @@ func didChange(a *APU, c *channel, f func(byte) byte) func(byte) byte {
 func didDacChange(a *APU, addr uint16, c *channel, f func(byte) byte) func(byte) byte {
 	return func(b byte) byte {
 		b = f(b)
-
-		if c.dacEnabled {
-			a.b.SetBit(addr, types.Bit7)
-		} else {
-			a.b.ClearBit(addr, types.Bit7)
-		}
 
 		return b
 	}

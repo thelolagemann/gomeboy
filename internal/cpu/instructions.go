@@ -140,6 +140,7 @@ var InstructionSet = [256]Instruction{
 			// are we in gbc mode (STOP is alternatively used for speed-switching)
 			if c.b.Model() == types.CGB0 || c.b.Model() == types.CGBABC &&
 				c.b.Get(types.KEY1)&types.Bit0 == types.Bit0 {
+				fmt.Println("speed switching whoa")
 				c.doubleSpeed = !c.doubleSpeed
 				c.s.ChangeSpeed(c.doubleSpeed)
 

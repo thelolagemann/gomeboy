@@ -30,7 +30,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		s:   s,
 		b:   b,
 	}
-	b.WhenGBC(func() {
+	b.WhenGBCCart(func() {
 		b.ReserveAddress(types.HDMA1, func(v byte) byte {
 			h.source &= 0xF0
 			h.source |= uint16(v) << 8
@@ -61,9 +61,6 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		}
 
 		b.ReserveAddress(types.HDMA5, func(v byte) byte {
-			if !b.IsGBC() {
-				return 0xff
-			}
 			// update the length
 			h.length = (v & 0x7F) + 1
 
@@ -105,15 +102,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 				}
 			}
 
-			if h.hdmaComplete || h.gdmaComplete {
-				return 0xFF
-			} else {
-				v := uint8(0)
-				if h.hdmaPaused {
-					v |= types.Bit7
-				}
-				return v | (h.hdmaRemaining-1)&0x7F
-			}
+			return 0xFF
 		})
 	})
 

@@ -272,7 +272,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	// setup CGB only registers
-	b.WhenGBC(func() {
+	b.WhenGBCCart(func() {
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
 			p.ColourPalette.SetIndex(v)
 			p.dirtyBackground(bcps)
@@ -283,10 +283,9 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
-			fmt.Println("writing to bcpd")
 			p.ColourPalette.Write(v)
 			p.dirtyBackground(bcpd)
-			return p.ColourPalette.Read()
+			return 0xFF
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
@@ -297,7 +296,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
 			p.ColourSpritePalette.Write(v)
 			p.dirtyBackground(ocpd)
-			return p.ColourSpritePalette.Read()
+			return 0xFF
 		})
 		b.Set(types.OCPD, p.ColourSpritePalette.Read())
 	})
@@ -607,7 +606,7 @@ func (p *PPU) startVBlank() {
 
 		// trigger vblank interrupt (according to mooneye's test, this is triggered on the first cycle of line 144 for DMG, but
 		// is delayed by 4 cycles for CGB)
-		if !p.b.IsGBC() {
+		if p.b.Model() != types.CGBABC && p.b.Model() != types.CGB0 {
 			p.b.RaiseInterrupt(interrupts.VBlankFlag)
 		}
 
@@ -624,8 +623,8 @@ func (p *PPU) continueVBlank() {
 		p.changeMode(lcd.VBlank)
 
 		// trigger vblank interrupt
-		if p.b.IsGBC() {
-			p.b.SetBit(types.IF, interrupts.VBlankFlag)
+		if p.b.Model() == types.CGBABC || p.b.Model() == types.CGB0 {
+			p.b.RaiseInterrupt(interrupts.VBlankFlag)
 		}
 
 		// entering vblank also triggers the OAM STAT interrupt if enabled
