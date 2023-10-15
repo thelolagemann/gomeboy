@@ -148,9 +148,6 @@ func (c *CPU) skipOperand() {
 func (c *CPU) readByte(addr uint16) uint8 {
 	c.s.Tick(4)
 
-	if c.ppu.DMA.IsTransferring() && c.ppu.DMA.IsConflicting(addr) {
-		return c.ppu.DMA.LastByte()
-	}
 	//fmt.Printf("%04x -> %02x\n", addr, c.b.Read(addr))
 	//time.Sleep(time.Millisecond * 100)
 	return c.b.Read(addr)
@@ -162,10 +159,6 @@ func (c *CPU) writeByte(addr uint16, val uint8) {
 	//fmt.Printf("%04x <- %02x\n", addr, val)
 	//time.Sleep(time.Millisecond * 100)
 
-	if c.ppu.DMA.IsTransferring() && c.ppu.DMA.IsConflicting(addr) {
-		// TODO ^^ this is incorrect but enough to pass most anti-emulator checks
-		return
-	}
 	c.b.Write(addr, val)
 }
 

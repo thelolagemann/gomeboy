@@ -15,9 +15,6 @@ var (
 type OAM struct {
 	Sprites [40]*Sprite // 40 sprites
 
-	// raw data
-	data [160]byte
-
 	dirtyScanlines        [ScreenHeight]bool
 	spriteScanlines       [ScreenHeight]bool
 	spriteScanlinesColumn [ScreenHeight][ScreenWidth]bool
@@ -31,8 +28,6 @@ func (o *OAM) Reset() {
 			spriteAttributes: spriteAttributes{},
 		}
 	}
-	// reset raw data
-	o.data = [160]byte{}
 }
 
 func NewOAM() *OAM {
@@ -41,19 +36,11 @@ func NewOAM() *OAM {
 	return o
 }
 
-// Read returns the value at the given address.
-func (o *OAM) Read(address uint16) uint8 {
-	return o.data[address]
-}
-
 // Write writes the given value at the given address.
 func (o *OAM) Write(address uint16, value uint8) {
 	// check if the address is valid
 	// get the sprite
 	s := o.Sprites[address>>2]
-
-	// update raw data so that it can be easily read back
-	o.data[address] = value
 
 	oldY := s.Y
 	oldX := s.X
@@ -126,17 +113,4 @@ func (o *OAM) Write(address uint16, value uint8) {
 		s.cgbPalette = value & 0x07
 	}
 
-}
-
-var _ types.Stater = (*OAM)(nil)
-
-func (o *OAM) Load(s *types.State) {
-	s.ReadData(o.data[:])
-	for i := 0; i < len(o.data); i++ {
-		o.Write(uint16(i), o.data[i])
-	}
-}
-
-func (o *OAM) Save(s *types.State) {
-	s.WriteData(o.data[:])
 }

@@ -2,7 +2,6 @@
 package ppu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/interrupts"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
@@ -54,7 +53,6 @@ type PPU struct {
 	b                  *io.Bus
 	statInterruptDelay bool
 	RefreshScreen      bool
-	DMA                *DMA
 
 	tileBgPriority [ScreenHeight][ScreenWidth]bool
 
@@ -76,16 +74,14 @@ type PPU struct {
 	dirtiedLog [65536]dirtyEvent
 	lastDirty  uint16
 
-	hdma                            *HDMA
-	s                               *scheduler.Scheduler
-	oamReadBlocked, oamWriteBlocked bool
-	vramWriteBlocked                bool
-	lyForComparison                 uint8
-	lycInterruptLine                bool
-	statInterruptLine               bool
-	modeToInterrupt                 uint8
-	currentLine                     uint8
-	cgbPalettesBlocked              bool
+	hdma               *HDMA
+	s                  *scheduler.Scheduler
+	lyForComparison    uint8
+	lycInterruptLine   bool
+	statInterruptLine  bool
+	modeToInterrupt    uint8
+	currentLine        uint8
+	cgbPalettesBlocked bool
 }
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
@@ -97,7 +93,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		s:   s,
 		oam: oam,
 	}
-	p.DMA = NewDMA(b, oam, s)
 	p.hdma = NewHDMA(b, p, s)
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
@@ -126,10 +121,10 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.changeMode(lcd.HBlank)
 
 			// unlock OAM/VRAM
-			p.oamReadBlocked = false
-			p.oamWriteBlocked = false
-			p.b.HardUnlock(0x8000, 0xA000)
-			p.vramWriteBlocked = false
+			p.b.RUnlock(0xFE00)
+			p.b.WUnlock(0xFE00)
+			p.b.RUnlock(0x8000)
+			p.b.WUnlock(0x8000)
 			p.cgbPalettesBlocked = false
 
 		} else if !p.Enabled && v&types.Bit7 != 0 {
@@ -315,23 +310,24 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
 	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
-		p.b.HardLock(0x8000, 0xA000)
+		p.b.RLock(0x8000)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
-		p.b.HardUnlock(0x8000, 0xA000)
+		p.b.RUnlock(0x8000)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
-		p.vramWriteBlocked = true
+		p.b.WLock(0x8000)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMWriteUnlocked, func() {
-		p.vramWriteBlocked = false
+		p.b.WUnlock(0x8000)
 	})
 	s.RegisterEvent(scheduler.PPUOAMLocked, func() {
-		p.oamReadBlocked = true
-		p.oamWriteBlocked = true
+		p.b.RLock(0xFE00)
+		p.b.WLock(0xFE00)
 	})
 	s.RegisterEvent(scheduler.PPUOAMUnlocked, func() {
-		p.oamWriteBlocked = false
+		p.b.WUnlock(0xFE00)
+
 	})
 
 	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
@@ -340,8 +336,8 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		p.modeToInterrupt = lcd.VRAM
 	})
 
-	b.ReserveBlockWriter(0x8000, p.Write)
-	b.ReserveBlockWriter(0x9000, p.Write)
+	b.ReserveBlockWriter(0x8000, p.writeVRAM)
+	b.ReserveBlockWriter(0x9000, p.writeVRAM)
 
 	// initialize tile data
 	for i := 0; i < 2; i++ {
@@ -403,10 +399,11 @@ func (p *PPU) changeMode(mode lcd.Mode) {
 // to the real hardware.
 func (p *PPU) continueGlitchedFirstLine() {
 	// OAM & VRAM are blocked until the end of VRAM transfer
-	p.oamReadBlocked = true
-	p.b.HardLock(0x8000, 0xA000)
-	p.oamWriteBlocked = true
-	p.vramWriteBlocked = true
+	p.b.RLock(0xFE00)
+	p.b.RLock(0x8000)
+	p.b.WLock(0xFE00)
+	p.b.WLock(0x8000)
+
 	p.cgbPalettesBlocked = true
 
 	p.changeMode(lcd.VRAM)
@@ -447,10 +444,11 @@ func (p *PPU) endVRAMTransfer() {
 	p.modeToInterrupt = lcd.HBlank
 	p.statUpdate()
 
-	p.oamReadBlocked = false
-	p.b.HardUnlock(0x8000, 0xA000)
-	p.oamWriteBlocked = false
-	p.vramWriteBlocked = false
+	p.b.RUnlock(0xFE00)
+	p.b.RUnlock(0x8000)
+	p.b.WUnlock(0xFE00)
+	p.b.WUnlock(0x8000)
+
 	p.cgbPalettesBlocked = false
 	p.renderScanline()
 
@@ -492,8 +490,8 @@ func (p *PPU) startOAM() {
 
 	// OAM read is blocked until the end of OAM search,
 	// OAM write is not blocked for another 4 cycles
-	p.oamReadBlocked = true
-	p.oamWriteBlocked = false
+	p.b.RLock(0xFE00)
+	p.b.WUnlock(0xFE00)
 
 	p.s.ScheduleEvent(scheduler.PPUContinueOAMSearch, 4)
 }
@@ -509,7 +507,7 @@ func (p *PPU) continueOAM() {
 	p.modeToInterrupt = 255
 	p.statUpdate()
 
-	p.oamWriteBlocked = true
+	p.b.WLock(0xFE00)
 
 	p.s.ScheduleEvent(scheduler.PPUVRAMReadLocked, 76)
 	p.s.ScheduleEvent(scheduler.PPUOAMUnlocked, 76)
@@ -525,10 +523,11 @@ func (p *PPU) endOAM() {
 	p.modeToInterrupt = lcd.VRAM
 	p.statUpdate()
 
-	p.oamReadBlocked = true
-	p.b.HardLock(0x8000, 0xA000)
-	p.oamWriteBlocked = true
-	p.vramWriteBlocked = true
+	p.b.RLock(0xFE00)
+	p.b.RLock(0x8000)
+	p.b.WLock(0xFE00)
+	p.b.WLock(0x8000)
+
 	p.cgbPalettesBlocked = true
 
 	// schedule end of VRAM search
@@ -537,7 +536,7 @@ func (p *PPU) endOAM() {
 }
 
 func (p *PPU) WriteCorruptionOAM() {
-	//fmt.Println("corrupting oam")
+	/*fmt.Println("corrupting oam")
 	return
 	// determine which row of the OAM we are on
 	// by getting the cycles we have until the end of OAM search
@@ -577,7 +576,7 @@ func (p *PPU) WriteCorruptionOAM() {
 	p.oam.data[row*4-2] = p.oam.data[row*4+2]
 	p.oam.data[row*4-1] = p.oam.data[row*4+3]
 
-	//panic(fmt.Sprintf("OAM corruption: row %d %d cycles until end of OAM search %s", row, cyclesUntilEndOAM, p.s.String()))
+	//panic(fmt.Sprintf("OAM corruption: row %d %d cycles until end of OAM search %s", row, cyclesUntilEndOAM, p.s.String()))*/
 }
 
 func bitwiseGlitch(a, b, c uint16) uint16 {
@@ -708,23 +707,6 @@ func (p *PPU) LoadCompatibilityPalette() {
 
 }
 
-func (p *PPU) Read(address uint16) uint8 {
-	// read from OAM
-	if address >= 0xFE00 && address <= 0xFE9F {
-
-		if !p.oamReadBlocked && !p.DMA.IsTransferring() {
-			for i := 0; i < len(p.oam.data); i++ {
-				//fmt.Printf("%04x %02x\n", 0xfe00+i, p.oam.data[i])
-			}
-			return p.oam.Read(address & 0xFF)
-		}
-		return 0xff
-	}
-
-	// illegal read
-	panic(fmt.Sprintf("PPU: Read from invalid address: %X", address))
-}
-
 func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 	// draw tilemap (0x9800 - 0x9BFF)
 	for i := uint8(0); i < 32; i++ {
@@ -749,66 +731,37 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 }
 
 func (p *PPU) writeVRAM(address uint16, value uint8) {
-	if address <= 0x2000 {
-		// are we writing to the tile data?
-		if address <= 0x17FF {
-			p.updateTile(address, value)
-			// update the tile data
-		} else if address <= 0x1FFF {
-			if p.b.Get(types.VBK)&1 == 0 {
-				// which offset are we writing to?
-				if address >= 0x1800 && address <= 0x1BFF {
-					// tilemap 0
-					p.updateTileMap(address, 0, value)
-				}
-				if address >= 0x1C00 && address <= 0x1FFF {
-					// tilemap 1
-					p.updateTileMap(address, 1, value)
-				}
+	address &= 0x1FFF
+
+	// are we writing to the tile data?
+	if address <= 0x17FF {
+		p.updateTile(address, value)
+		// update the tile data
+	} else if address <= 0x1FFF {
+		if p.b.Get(types.VBK)&1 == 0 {
+			// which offset are we writing to?
+			if address >= 0x1800 && address <= 0x1BFF {
+				// tilemap 0
+				p.updateTileMap(address, 0, value)
 			}
-			if p.b.Get(types.VBK)&1 == 1 {
-				// update the tile Attributes
-				if address >= 0x1800 && address <= 0x1BFF {
-					// tilemap 0
-					p.updateTileAttributes(address, 0, value)
-				}
-				if address >= 0x1C00 && address <= 0x1FFF {
-					// tilemap 1
-					p.updateTileAttributes(address, 1, value)
-				}
+			if address >= 0x1C00 && address <= 0x1FFF {
+				// tilemap 1
+				p.updateTileMap(address, 1, value)
 			}
 		}
-		return
-	}
-
-	// out of bounds
-	panic(fmt.Sprintf("ppu: write to out of bounds VRAM address %04X", address))
-}
-
-func (p *PPU) Write(address uint16, value uint8) {
-	// VRAM (0x8000 - 0x9FFF)
-	if address >= 0x8000 && address <= 0x9FFF {
-		// is the VRAM currently locked?
-		if p.vramWriteBlocked {
-			if address == 0x8000 {
-				fmt.Printf("8000 <- %02x while blocked\n", value)
+		if p.b.Get(types.VBK)&1 == 1 {
+			// update the tile Attributes
+			if address >= 0x1800 && address <= 0x1BFF {
+				// tilemap 0
+				p.updateTileAttributes(address, 0, value)
 			}
-			return
+			if address >= 0x1C00 && address <= 0x1FFF {
+				// tilemap 1
+				p.updateTileAttributes(address, 1, value)
+			}
 		}
-		p.b.Set(address, value)
-		p.writeVRAM(address-0x8000, value)
-		return
-	}
-	// OAM (0xFE00 - 0xFE9F)
-	if address >= 0xFE00 && address <= 0xFE9F {
-		if !p.oamWriteBlocked && !p.DMA.IsTransferring() {
-			p.oam.Write(address-0xFE00, value)
-		}
-		return
 	}
 
-	// illegal writes
-	panic(fmt.Sprintf("ppu: illegal write to address %04X", address))
 }
 
 // updateTile updates the tile at the given address
@@ -1152,6 +1105,10 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) 
 }
 
 func (p *PPU) renderSpritesScanline(scanline uint8) {
+	if p.b.OAMChanged() {
+		p.b.OAMCatchup(p.oam.Write)
+	}
+
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
@@ -1265,7 +1222,6 @@ var _ types.Stater = (*PPU)(nil)
 func (p *PPU) Load(s *types.State) {
 	p.windowInternal = s.Read8()
 	// load the vRAM data
-	p.DMA.Load(s)
 	p.RefreshScreen = s.ReadBool()
 	p.statInterruptDelay = s.ReadBool()
 	p.Palette = palette.LoadPaletteFromState(s)
@@ -1277,7 +1233,6 @@ func (p *PPU) Load(s *types.State) {
 
 func (p *PPU) Save(s *types.State) {
 	s.Write8(p.windowInternal) // 1 byte
-	p.DMA.Save(s)
 	s.WriteBool(p.RefreshScreen)
 	s.WriteBool(p.statInterruptDelay)
 	p.Palette.Save(s)

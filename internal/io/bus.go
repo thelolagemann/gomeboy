@@ -33,9 +33,7 @@ type Bus struct {
 
 	wRAMBank uint8 // 1 - 7 in CGB mode
 
-	ppuWrite func(addr uint16, v byte)
-	ppuRead  func(addr uint16) byte
-	apuRead  func(addr uint16) byte
+	apuRead func(addr uint16) byte
 
 	writeHandlers [0x100]WriteHandler
 	blockWriters  [16]func(uint16, byte)
@@ -48,7 +46,15 @@ type Bus struct {
 
 	gbcHandlers     []func()
 	gbcCartHandlers []func()
-	locks           [0x10000]bool
+	rLocks          [0x10000]bool
+	wLocks          [0x10000]bool
+
+	// DMA related stuff
+	dmaSource, dmaDestination uint16
+	dmaActive, dmaRestarting  bool
+	dmaEnabled                bool
+	oamChanged                bool
+	vRAMChanged               bool
 }
 
 func NewBus(s *scheduler.Scheduler) *Bus {
@@ -57,13 +63,57 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 		gbcHandlers: make([]func(), 0),
 	}
 
+	// setup DMA events
+	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
+	s.RegisterEvent(scheduler.DMAStartTransfer, b.startDMATransfer)
+	s.RegisterEvent(scheduler.DMAEndTransfer, func() {
+		b.dmaActive = false
+		b.dmaEnabled = false
+	})
+
 	return b
 }
 
-func (b *Bus) Map(m types.Model, cartCGB bool, ppuWrite func(uint16, byte), ppuRead, apuRead func(uint16) byte) {
+func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	b.model = m
 	b.isGBC = (m == types.CGBABC || m == types.CGB0) && cartCGB
 
+	b.ReserveAddress(types.DMA, func(v byte) byte {
+		// source address is v << 8
+		b.dmaSource = uint16(v) << 8
+
+		if b.dmaSource >= 0xE000 && b.dmaSource < 0xFE00 {
+			b.dmaSource &= 0xDDFF // account for mirroring
+		} else if b.dmaSource >= 0xFE00 {
+			b.dmaSource -= 0x2000 // why
+		}
+
+		// mark DMA as being inactive
+		b.dmaActive = false
+
+		// handle DMA restarts
+		b.dmaRestarting = b.dmaEnabled
+
+		// reset destination
+		b.dmaDestination = 0xFE00
+
+		// deschedule any existing DMA transfers
+		if b.dmaRestarting {
+			b.s.DescheduleEvent(scheduler.DMATransfer)
+			b.s.DescheduleEvent(scheduler.DMAStartTransfer)
+			b.s.DescheduleEvent(scheduler.DMAEndTransfer)
+		}
+
+		// mark DMA as being enabled (not the same as active)
+		b.dmaEnabled = true
+
+		// schedule DMA transfer
+		b.s.ScheduleEvent(scheduler.DMAStartTransfer, 8) // TODO find out why 8 instead of 4?
+
+		// DMA always returns the last value written
+		// https://github.com/Gekkio/mooneye-test-suite/blob/main/acceptance/oam_dma/reg_read.s
+		return v
+	})
 	b.ReserveAddress(types.BDIS, func(v byte) byte {
 		// any write to BDIS will disable the boot rom
 		b.bootROMDone = true
@@ -140,8 +190,6 @@ func (b *Bus) Map(m types.Model, cartCGB bool, ppuWrite func(uint16, byte), ppuR
 	b.writeHandlers[types.BGP&0xFF](0xFC)
 	b.data[types.IF] = 0xE1
 
-	b.ppuWrite = ppuWrite
-	b.ppuRead = ppuRead
 	b.apuRead = apuRead
 }
 
@@ -228,14 +276,20 @@ func (b *Bus) ReserveSetAddress(addr uint16, handler SetHandler) {
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
 func (b *Bus) Write(addr uint16, value byte) {
-
 	switch {
-	case addr <= 0xBFFF:
+	// 0x0000 - 0x7FFF ROM
+	// 0xA000 - 0xBFFF ERAM (RAM on cartridge)
+	case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
 		if w := b.blockWriters[addr/0x1000]; w != nil {
 			w(addr, value)
 		}
 		return
-	// 0xA000-0xBFFF ERAM (RAM on cartridge)
+	// 0x8000 - 0x9FFF VRAM
+	case addr <= 0x9FFF:
+		if b.wLocks[addr&0x8000] {
+			return
+		}
+		b.blockWriters[addr/0x1000](addr, value)
 	// 0xC000-0xFDFF WRAM & mirror
 	case addr >= 0xC000 && addr <= 0xFDFF:
 		b.data[addr&0xDFFF] = value
@@ -243,8 +297,10 @@ func (b *Bus) Write(addr uint16, value byte) {
 		return
 	// 0xFE00-0xFE9F OAM
 	case addr >= 0xFE00 && addr <= 0xFE9F:
-		b.ppuWrite(addr, value)
-		return
+		if b.wLocks[addr&0xFE00] || b.isDMATransferring() {
+			return
+		}
+		b.oamChanged = true
 	// 0xFEA0-0xFEFF Unusable
 	case addr >= 0xFEA0 && addr <= 0xFEFF:
 		return
@@ -269,11 +325,13 @@ func (b *Bus) Read(addr uint16) byte {
 	switch {
 	case addr >= 0x8000 && addr <= 0x9FFF:
 		// range could be locked so check for that
-		if b.locks[addr&0x8000] {
+		if b.rLocks[addr&0x8000] {
 			return 0xff
 		}
 	case addr >= 0xFE00 && addr <= 0xFE9F:
-		return b.ppuRead(addr)
+		if b.rLocks[addr&0xFE00] || b.isDMATransferring() {
+			return 0xff
+		}
 	case addr >= 0xE000 && addr <= 0xFDFF:
 		return b.data[addr&0xDDFF]
 	case addr >= 0xFF30 && addr <= 0xFF3F:
@@ -332,16 +390,16 @@ func (b *Bus) HasInterrupts() bool {
 	return b.data[types.IE]&b.data[types.IF] != 0
 }
 
-// HardLock locks the specified memory range and prevents
+// RLock locks the specified memory range and prevents
 // unlock until the lock counter has reached 0.
-func (b *Bus) HardLock(start, end uint16) {
-	b.locks[start] = true
+func (b *Bus) RLock(start uint16) {
+	b.rLocks[start] = true
 }
 
-// HardUnlock
-func (b *Bus) HardUnlock(start, end uint16) {
+// RUnlock
+func (b *Bus) RUnlock(start uint16) {
 	//b.UnlockRange(start, end)
-	b.locks[start] = false
+	b.rLocks[start] = false
 }
 
 // IRQVector returns the currently serviced interrupt vector,
@@ -424,4 +482,12 @@ func (b *Bus) WhenGBC(f func()) {
 
 func (b *Bus) WhenGBCCart(f func()) {
 	b.gbcCartHandlers = append(b.gbcCartHandlers, f)
+}
+
+func (b *Bus) WLock(bus uint16) {
+	b.wLocks[bus] = true
+}
+
+func (b *Bus) WUnlock(bus uint16) {
+	b.wLocks[bus] = false
 }

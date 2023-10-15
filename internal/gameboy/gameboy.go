@@ -412,7 +412,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	}
 
 	// try to load cheats using filename of rom
-	g.b.Map(g.model, cart.Header().GameboyColor(), g.PPU.Write, g.PPU.Read, g.APU.Read)
+	g.b.Map(g.model, cart.Header().GameboyColor(), g.APU.Read)
 	g.CPU.Boot(g.model)
 	g.b.Boot()
 
