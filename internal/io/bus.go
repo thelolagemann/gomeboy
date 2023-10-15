@@ -52,9 +52,10 @@ type Bus struct {
 	// DMA related stuff
 	dmaSource, dmaDestination uint16
 	dmaActive, dmaRestarting  bool
+	dmaConflict               uint8
 	dmaEnabled                bool
 	oamChanged                bool
-	vRAMChanged               bool
+	dmaConflicts              [16]bool
 }
 
 func NewBus(s *scheduler.Scheduler) *Bus {
@@ -69,6 +70,10 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 	s.RegisterEvent(scheduler.DMAEndTransfer, func() {
 		b.dmaActive = false
 		b.dmaEnabled = false
+
+		for i := 0; i < 16; i++ {
+			b.dmaConflicts[i] = false
+		}
 	})
 
 	return b
@@ -81,6 +86,19 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	b.ReserveAddress(types.DMA, func(v byte) byte {
 		// source address is v << 8
 		b.dmaSource = uint16(v) << 8
+
+		// set conflicting bus
+		if b.dmaSource >= 0x8000 && b.dmaSource < 0xA000 {
+			b.dmaConflicts[7] = true
+			b.dmaConflicts[8] = true
+		} else if b.dmaSource < 0x8000 || b.dmaSource >= 0xA000 && b.dmaSource <= 0xFEFF {
+			for i := 0; i < 16; i++ {
+				if i == 7 || i == 8 {
+					continue
+				}
+				b.dmaConflicts[i] = true
+			}
+		}
 
 		if b.dmaSource >= 0xE000 && b.dmaSource < 0xFE00 {
 			b.dmaSource &= 0xDDFF // account for mirroring
@@ -140,15 +158,7 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 			// KEY1 always reads 0xFF?
 			return 0xFF
 		})
-		b.ReserveAddress(types.VBK, func(v byte) byte {
-			// copy currently banked data to VRAM
-			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0x9FFF])
 
-			// copy VRAM to currently banked data
-			copy(b.data[0x8000:0x9FFF], b.vRAM[v&0x1][:])
-
-			return v | 0b1111_1110
-		})
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
 			// copy currently banked data to WRAM
 			copy(b.wRAM[b.data[types.SVBK]&0x7][:], b.data[0xD000:0xE000])
@@ -165,7 +175,18 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 		}
 	}
 
+	// setup cgb model registers
 	if b.model == types.CGBABC || b.model == types.CGB0 {
+		b.ReserveAddress(types.VBK, func(v byte) byte {
+			// copy currently banked data to VRAM
+			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0x9FFF])
+
+			// copy VRAM to currently banked data
+			copy(b.data[0x8000:0x9FFF], b.vRAM[v&0x1][:])
+
+			return v | 0b1111_1110
+		})
+		b.Set(types.VBK, 0xFE)
 		for i := types.FF72; i < types.FF74; i++ {
 			b.ReserveAddress(i, func(v byte) byte {
 				return v
@@ -209,6 +230,7 @@ func (b *Bus) Boot() {
 			}
 		} else if wHandler := b.writeHandlers[i&0xFF]; wHandler == nil {
 			// default to 0xFF if no write handler exists
+			fmt.Printf("%04x\n", i)
 			b.data[i] = 0xFF
 		}
 	}
@@ -276,35 +298,8 @@ func (b *Bus) ReserveSetAddress(addr uint16, handler SetHandler) {
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
 func (b *Bus) Write(addr uint16, value byte) {
-	switch {
-	// 0x0000 - 0x7FFF ROM
-	// 0xA000 - 0xBFFF ERAM (RAM on cartridge)
-	case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
-		if w := b.blockWriters[addr/0x1000]; w != nil {
-			w(addr, value)
-		}
-		return
-	// 0x8000 - 0x9FFF VRAM
-	case addr <= 0x9FFF:
-		if b.wLocks[addr&0x8000] {
-			return
-		}
-		b.blockWriters[addr/0x1000](addr, value)
-	// 0xC000-0xFDFF WRAM & mirror
-	case addr >= 0xC000 && addr <= 0xFDFF:
-		b.data[addr&0xDFFF] = value
 
-		return
-	// 0xFE00-0xFE9F OAM
-	case addr >= 0xFE00 && addr <= 0xFE9F:
-		if b.wLocks[addr&0xFE00] || b.isDMATransferring() {
-			return
-		}
-		b.oamChanged = true
-	// 0xFEA0-0xFEFF Unusable
-	case addr >= 0xFEA0 && addr <= 0xFEFF:
-		return
-	// 0xFF00-0xFFFF IO & HRAM
+	switch {
 	case addr >= 0xFF00:
 		// is there a write handler for this address?
 		if handler := b.writeHandlers[addr&0xFF]; handler != nil {
@@ -312,36 +307,86 @@ func (b *Bus) Write(addr uint16, value byte) {
 		} else if addr <= 0xff7f {
 			return
 		}
+		b.data[addr] = value
+		return
+	default:
+		if b.isDMATransferring() {
+			if b.dmaConflicts[addr>>12] {
+				return
+			}
+		}
+		switch {
+		// 0x0000 - 0x7FFF ROM
+		// 0xA000 - 0xBFFF ERAM (RAM on cartridge)
+		case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
+			if w := b.blockWriters[addr/0x1000]; w != nil {
+				w(addr, value)
+			}
+			return
+		// 0x8000 - 0x9FFF VRAM
+		case addr <= 0x9FFF:
+			if b.wLocks[addr&0x8000] {
+				return
+			}
+			b.blockWriters[addr/0x1000](addr, value)
+		// 0xC000-0xFDFF WRAM & mirror
+		case addr >= 0xC000 && addr <= 0xFDFF:
+			b.data[addr&0xDFFF] = value
+
+			return
+		// 0xFE00-0xFE9F OAM
+		case addr >= 0xFE00 && addr <= 0xFE9F:
+			if b.wLocks[addr&0xFE00] || b.isDMATransferring() {
+				return
+			}
+			b.oamChanged = true
+		// 0xFEA0-0xFEFF Unusable
+		case addr >= 0xFEA0 && addr <= 0xFEFF:
+			return
+			// 0xFF00-0xFFFF IO & HRAM
+		}
+		b.data[addr] = value
 	}
-	b.data[addr] = value
+
 }
 
 // Read reads from the specified memory address. Some addresses
 // need special handling.
 func (b *Bus) Read(addr uint16) byte {
-	if addr >= 0xFF30 && addr <= 0xFF3F {
-		return b.apuRead(addr)
-	}
 	switch {
-	case addr >= 0x8000 && addr <= 0x9FFF:
-		// range could be locked so check for that
-		if b.rLocks[addr&0x8000] {
-			return 0xff
-		}
-	case addr >= 0xFE00 && addr <= 0xFE9F:
-		if b.rLocks[addr&0xFE00] || b.isDMATransferring() {
-			return 0xff
-		}
-	case addr >= 0xE000 && addr <= 0xFDFF:
-		return b.data[addr&0xDDFF]
-	case addr >= 0xFF30 && addr <= 0xFF3F:
-		return b.apuRead(addr)
 	case addr >= 0xFF00 && addr <= 0xFF7F:
 		if addr == types.DIV {
 			return uint8(b.s.SysClock() >> 8)
 		}
 		if addr != 0xFF44 && addr != 0xFF00 {
 			//fmt.Printf("special read handle %04x %02x\n", addr, b.data[addr])
+		}
+	case addr >= 0xFF80 && addr <= 0xFFFE:
+		// HRAM can always be read
+		return b.data[addr]
+	default:
+		// is there a DMA transfer active?
+		if b.isDMATransferring() {
+			// is there a conflict at the address
+			if b.dmaConflicts[addr>>12] {
+				return b.dmaConflict
+			}
+		}
+
+		switch {
+		case addr >= 0x8000 && addr <= 0x9FFF:
+			// range could be locked so check for that
+			if b.rLocks[addr&0x8000] {
+				return 0xff
+			}
+		case addr >= 0xFE00 && addr <= 0xFE9F:
+			if b.rLocks[addr&0xFE00] || b.isDMATransferring() {
+				return 0xff
+			}
+		case addr >= 0xE000 && addr <= 0xFDFF:
+			return b.data[addr&0xDDFF]
+		case addr >= 0xFF30 && addr <= 0xFF3F:
+			return b.apuRead(addr)
 		}
 	}
 

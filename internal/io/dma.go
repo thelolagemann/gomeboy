@@ -28,10 +28,9 @@ func (b *Bus) doDMATransfer() {
 	// handle restarting latch
 	b.dmaRestarting = false
 
-	// TODO set conflicting byte
-
 	// copy byte from source to OAM
-	b.data[b.dmaDestination] = b.data[b.dmaSource]
+	b.dmaConflict = b.data[b.dmaSource]
+	b.data[b.dmaDestination] = b.dmaConflict
 
 	// increment source and destination
 	b.dmaSource++
@@ -61,17 +60,4 @@ func (b *Bus) OAMCatchup(f func(uint16, uint8)) {
 	}
 
 	b.oamChanged = false
-}
-
-func (b *Bus) VRAMChanged() bool {
-	return b.vRAMChanged
-}
-
-func (b *Bus) VRAMCatchup(f func(uint16, uint8)) {
-	// write new values to VRAM
-	for i := 0; i < 2048; i++ {
-		f(uint16(i), b.data[i])
-	}
-
-	b.vRAMChanged = false
 }

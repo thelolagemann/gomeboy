@@ -267,7 +267,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	// setup CGB only registers
-	b.WhenGBCCart(func() {
+	b.WhenGBC(func() {
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
 			p.ColourPalette.SetIndex(v)
 			p.dirtyBackground(bcps)
@@ -278,9 +278,12 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
+			if !p.b.IsGBC() {
+				return 0xff
+			}
 			p.ColourPalette.Write(v)
 			p.dirtyBackground(bcpd)
-			return 0xFF
+			return p.ColourPalette.Read()
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
@@ -289,9 +292,12 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			return p.ColourSpritePalette.GetIndex() | 0x40
 		})
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
+			if !p.b.IsGBC() {
+				return 0xff
+			}
 			p.ColourSpritePalette.Write(v)
 			p.dirtyBackground(ocpd)
-			return 0xFF
+			return p.ColourSpritePalette.Read()
 		})
 		b.Set(types.OCPD, p.ColourSpritePalette.Read())
 	})
