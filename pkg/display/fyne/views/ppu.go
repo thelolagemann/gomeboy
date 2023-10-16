@@ -106,11 +106,11 @@ func (p *PPU) Run(w fyne.Window, events <-chan event.Event) error {
 					// set the colors
 					for i := uint8(0); i < 12; i++ {
 						if i < 4 {
-							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.Palette.GetColour(i % 4))
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.Palettes[0].GetColour(i % 4))
 						} else if i < 8 {
-							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[0].GetColour(i % 4))
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.Palettes[0].GetColour(i % 4))
 						} else {
-							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.SpritePalettes[1].GetColour(i % 4))
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.Palettes[1].GetColour(i % 4))
 						}
 						p.dmgPaletteEntryRects[i].Refresh()
 					}

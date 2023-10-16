@@ -535,8 +535,6 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 
 		// print the size of the various components of the PPU
 		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
-		fmt.Printf("Render Job: %d\n", unsafe.Sizeof(ppu.RenderJob{}))
-		fmt.Printf("Render Output: %d\n", unsafe.Sizeof(ppu.RenderOutput{}))
 	},
 	fyne.KeyS: func(gb *gameboy.GameBoy) {
 		st := types.NewState()

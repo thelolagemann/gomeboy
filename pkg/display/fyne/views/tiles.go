@@ -40,7 +40,7 @@ func (v *Tiles) Run(window fyne.Window, events <-chan event.Event) error {
 	settings.Add(container.NewGridWithColumns(2, widget.NewLabelWithStyle("Scale  ", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), scaleDropdown))
 
 	// create paletteView selection container
-	var selectedPalette = v.PPU.Palette
+	var selectedPalette = v.PPU.ColourPalette.Palettes[0]
 	paletteSelection := container.NewGridWithColumns(2)
 	paletteSelection.Add(widget.NewLabelWithStyle("Palette", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 
