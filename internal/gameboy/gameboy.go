@@ -11,6 +11,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/serial"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
@@ -415,6 +416,21 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	g.b.Map(g.model, cart.Header().GameboyColor(), g.APU.Read)
 	g.CPU.Boot(g.model)
 	g.b.Boot()
+
+	// handle colourisation
+	if !cart.Header().GameboyColor() && (g.model == types.CGBABC || g.model == types.CGB0) {
+		video.BGColourisationPalette = &palette.Palette{}
+		video.OBJ0ColourisationPalette = &palette.Palette{}
+		video.OBJ1ColourisationPalette = &palette.Palette{}
+		colourisationPalette := palette.LoadColourisationPalette([]byte(cart.Header().Title))
+
+		for i := 0; i < 4; i++ {
+			video.BGColourisationPalette[i] = colourisationPalette.BG[i]
+			video.OBJ0ColourisationPalette[i] = colourisationPalette.OBJ0[i]
+			video.OBJ1ColourisationPalette[i] = colourisationPalette.OBJ1[i]
+		}
+
+	}
 
 	return g
 }

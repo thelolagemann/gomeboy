@@ -149,19 +149,30 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		a.leftEnable[2] = v&types.Bit6 != 0
 		a.leftEnable[3] = v&types.Bit7 != 0
 
-		if !a.enabled {
-			b.Set(types.NR51, 0)
-		} else {
-			b.Set(types.NR51, v)
-		}
+		b.Set(types.NR51, v)
+
 	})
 	b.ReserveAddress(types.NR52, func(v byte) byte {
 		if v&types.Bit7 == 0 && a.enabled {
+			aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
+
+			oldVals := [4]bool{}
+			for i, ch := range aChans {
+				oldVals[i] = ch.enabled
+			}
 			for i := types.NR10; i <= types.NR51; i++ {
 				b.Write(i, 0)
 			}
 			a.enabled = false
 			b.ClearBit(types.NR52, types.Bit7)
+
+			// check to see if any channels went from enabled -> disabled
+			for i, ch := range aChans {
+				if oldVals[i] && !ch.enabled {
+					// clear bit in NR52
+					a.b.ClearBit(types.NR52, uint8(1<<i))
+				}
+			}
 		} else if v&types.Bit7 != 0 && !a.enabled {
 			// power on
 			a.enabled = true
@@ -182,7 +193,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		a.chan3.enabled = v&types.Bit2 != 0
 		a.chan4.enabled = v&types.Bit3 != 0
 
-		b.Set(types.NR52, v|0x70)
+		//b.Set(types.NR52, v|0x70)
 	})
 	b.WhenGBC(func() {
 
@@ -234,12 +245,6 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 }
 
 func (a *APU) StepFrameSequencer() {
-	aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
-
-	oldVals := [4]bool{}
-	for i, ch := range aChans {
-		oldVals[i] = ch.enabled
-	}
 
 	a.firstHalfOfLengthPeriod = a.frameSequencerStep&types.Bit0 == 0
 
@@ -274,13 +279,6 @@ func (a *APU) StepFrameSequencer() {
 
 	a.frameSequencerStep = (a.frameSequencerStep + 1) & 7
 
-	// check to see if any channels went from enabled -> disabled
-	for i, ch := range aChans {
-		if oldVals[i] && !ch.enabled {
-			// clear bit in NR52
-			a.b.ClearBit(types.NR52, uint8(1<<i))
-		}
-	}
 }
 
 func (a *APU) scheduledFrameSequencer() {
@@ -339,19 +337,25 @@ func (a *APU) sample() {
 
 // Read returns the value at the given address.
 func (a *APU) Read(address uint16) uint8 {
+	if address == types.NR52 {
+		b := uint8(0x70)
+		if a.enabled {
+			b |= types.Bit7
+		}
+
+		aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
+		for i, ch := range aChans {
+			if ch.enabled {
+				b |= uint8(1 << i)
+			}
+		}
+
+		return b
+	}
 	if address >= 0xFF30 && address <= 0xFF3F {
 		return a.chan3.readWaveRAM(address)
 	}
 	panic(fmt.Sprintf("unhandled APU read at address: 0x%04X", address))
-}
-
-// Write writes the value to the given address.
-func (a *APU) Write(address uint16, value uint8) {
-	if address >= 0xFF30 && address <= 0xFF3F {
-		a.chan3.writeWaveRAM(address, value)
-		return
-	}
-	panic("invalid address")
 }
 
 // Pause pauses the APU.

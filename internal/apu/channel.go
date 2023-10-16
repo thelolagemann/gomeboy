@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -37,6 +38,7 @@ func whenEnabled(a *APU, addr uint16, f func(byte) byte) func(byte) byte {
 		if a.enabled {
 			return f(b)
 		}
+		fmt.Printf("APU IO Block %04x <- %02x\n", addr, b)
 		return a.b.Get(addr)
 	}
 }
@@ -72,17 +74,7 @@ func didChange(a *APU, c *channel, f func(byte) byte) func(byte) byte {
 		// did the channel turn off?
 		if oldVal && !c.enabled {
 			a.b.ClearBit(types.NR52, c.channelBit)
-		} else if !oldVal && c.enabled {
-			a.b.SetBit(types.NR52, c.channelBit)
 		}
-
-		return b
-	}
-}
-
-func didDacChange(a *APU, addr uint16, c *channel, f func(byte) byte) func(byte) byte {
-	return func(b byte) byte {
-		b = f(b)
 
 		return b
 	}

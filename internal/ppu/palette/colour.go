@@ -36,12 +36,6 @@ func (p *CGBPalette) GetIndex() byte {
 // - save colour palette to file (bgp = index 0 of colour palette, obp1 = index 0 of sprite palette, obp2 = index 1 of sprite palette)
 // - encoded filename as hash of palette
 
-type CompatibilityPalette struct {
-	BGP  [4][3]uint8 `json:"bgp"`
-	OBP0 [4][3]uint8 `json:"obp1"`
-	OBP1 [4][3]uint8 `json:"obp2"`
-}
-
 // Read returns the value of the palette at the specified index.
 func (p *CGBPalette) Read() byte {
 	paletteIndex := p.Index >> 3
@@ -154,4 +148,28 @@ func (p *CGBPalette) Save(s *types.State) {
 		pa.Save(s)
 	}
 	s.Write8(p.Index)
+}
+
+// LoadColourisationPalette attempts to load a colourisation
+// palette from the specified title. If no palette is found,
+// a default palette is returned.
+func LoadColourisationPalette(title []byte) CompatibilityPaletteEntry {
+	// compute title hash
+	hash := uint8(0)
+	for i := 0; i < len(title); i++ {
+		hash += title[i]
+	}
+
+	// get entry word
+	entryWord := uint16(hash) << 8
+
+	if hash != 0 {
+		entryWord |= uint16(title[3])
+	}
+	entry, ok := GetCompatibilityPaletteEntry(entryWord)
+	if !ok {
+		entry = CompatibilityPalettes[0x1C][0x03]
+	}
+
+	return entry
 }

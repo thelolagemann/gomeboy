@@ -242,7 +242,8 @@ func (p *Printer) runCommand(cmd Command) {
 			colors := palette.ColourPalettes[palette.Greyscale]
 
 			for i := 0; i < p.imageOffset; i++ {
-				colourData[i] = colors[(pal>>(p.imageData[i]<<1))&0b11]
+				cData := colors[(pal>>(p.imageData[i]<<1))&0b11]
+				colourData[i] = color.RGBA{R: cData[0], G: cData[1], B: cData[2], A: 255}
 			}
 
 			// create the image

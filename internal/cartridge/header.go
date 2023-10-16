@@ -3,6 +3,7 @@ package cartridge
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"strings"
 )
 
@@ -122,6 +123,8 @@ type Header struct {
 
 	raw [0x50]byte
 
+	ColourisationPalette palette.CompatibilityPaletteEntry
+
 	b *io.Bus
 }
 
@@ -163,6 +166,8 @@ func parseHeader(header []byte) *Header {
 		h.CartridgeGBMode = FlagOnlyCGB
 	default:
 		h.CartridgeGBMode = FlagOnlyDMG
+
+		h.ColourisationPalette = palette.LoadColourisationPalette(header[0x34:0x44])
 	}
 
 	// parse the title

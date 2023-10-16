@@ -19,9 +19,6 @@ type channel3 struct {
 	volumeCode      uint8
 	volumeCodeShift uint8
 
-	// NR33/34
-	frequency uint16
-
 	waveRAMLastRead     uint64
 	waveRAMLastPosition uint8
 
@@ -34,12 +31,23 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		channel: newChannel(),
 		apu:     a,
 	}
-	c.channelBit = types.Bit2
-	b.ReserveAddress(types.NR30, didChange(a, c.channel, func(v byte) byte {
-		if !a.enabled {
-			return b.Get(types.NR30)
+	a.s.RegisterEvent(scheduler.APUChannel3, func() {
+		if c.enabled && c.dacEnabled {
+			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
+
+			c.waveRAMLastRead = a.s.Cycle()
+			c.waveRAMLastPosition = c.waveRAMPosition >> 1
+			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
+		} else {
+			c.waveRAMSampleBuffer = 0
 		}
 
+		inCycles := uint64((2048 - c.frequency) * 2)
+		a.s.ScheduleEvent(scheduler.APUChannel3, inCycles)
+	})
+
+	c.channelBit = types.Bit2
+	b.ReserveAddress(types.NR30, whenEnabled(a, types.NR30, func(v byte) byte {
 		c.dacEnabled = v&types.Bit7 != 0
 		if !c.dacEnabled {
 			c.enabled = false
@@ -63,10 +71,7 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 
 		return 0xFF // write only
 	})
-	b.ReserveAddress(types.NR32, func(v byte) byte {
-		if !a.enabled {
-			return b.Get(types.NR32)
-		}
+	b.ReserveAddress(types.NR32, whenEnabled(a, types.NR32, func(v byte) byte {
 		c.volumeCode = (v & 0x60) >> 5
 		switch c.volumeCode {
 		case 0b00:
@@ -80,12 +85,9 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 		}
 
 		return v | 0x9F
-	})
+	}))
 	b.ReserveAddress(types.NR33, whenEnabled(a, types.NR33, c.setNRx3))
-	b.ReserveAddress(types.NR34, didChange(a, c.channel, func(v byte) byte {
-		if !a.enabled {
-			return a.b.Get(types.NR34)
-		}
+	b.ReserveAddress(types.NR34, whenEnabled(a, types.NR34, func(v byte) byte {
 		c.frequency = (c.frequency & 0x00FF) | (uint16(v&0x7) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
@@ -134,21 +136,6 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 	}))
 	b.Set(types.NR34, 0xBF) // starting value across all devices
 
-	a.s.RegisterEvent(scheduler.APUChannel3, func() {
-		if c.enabled && c.dacEnabled {
-			c.waveRAMPosition = (c.waveRAMPosition + 1) & 31
-
-			c.waveRAMLastRead = a.s.Cycle()
-			c.waveRAMLastPosition = c.waveRAMPosition >> 1
-			c.waveRAMSampleBuffer = c.waveRAM[c.waveRAMLastPosition]
-		} else {
-			c.waveRAMSampleBuffer = 0
-		}
-
-		inCycles := uint64((2048 - c.frequency) * 2)
-		a.s.ScheduleEvent(scheduler.APUChannel3, inCycles)
-	})
-
 	return c
 }
 
@@ -165,15 +152,16 @@ func (c *channel3) getAmplitude() uint8 {
 }
 
 func (c *channel3) readWaveRAM(address uint16) uint8 {
+	//fmt.Printf("WAV RAM %04x -> %02x\n", address, c.waveRAM[address-0xFF30])
 	if c.isEnabled() {
 		if c.apu.s.Cycle()-c.waveRAMLastRead < 2 || c.apu.model == types.CGBABC || c.apu.model == types.CGB0 {
 			return c.waveRAM[c.waveRAMLastPosition]
 		} else {
+			//fmt.Println(c.apu.s.Cycle(), c.waveRAMLastRead, c.apu.s.Cycle()-c.waveRAMLastRead, c.apu.s.String())
 			return 0xFF
 		}
-	} else {
-		return c.waveRAM[address-0xFF30]
 	}
+	return c.waveRAM[address-0xFF30]
 }
 
 func (c *channel3) writeWaveRAM(address uint16, value uint8) {

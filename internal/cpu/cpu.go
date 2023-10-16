@@ -109,7 +109,7 @@ func (c *CPU) Boot(m types.Model) {
 // event triggering an interrupt occurs. This is used when
 // the CPU is in HALT mode and the IME is enabled.
 func (c *CPU) skipHALT() {
-	for c.b.Get(types.IF)&c.b.Get(types.IE) == 0 {
+	for !c.b.HasInterrupts() {
 		c.s.Skip()
 	}
 }

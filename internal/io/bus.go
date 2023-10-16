@@ -358,7 +358,6 @@ func (b *Bus) Read(addr uint16) byte {
 		if addr == types.NR52 || addr >= 0xFF30 && addr <= 0xFF3F {
 			return b.apuRead(addr)
 		}
-		return b.data[addr]
 	// If a DMA is active and transferring from a bus, any reads
 	// will return the last transferred byte
 	case b.isDMATransferring() && b.dmaConflicts[addr>>12]:
