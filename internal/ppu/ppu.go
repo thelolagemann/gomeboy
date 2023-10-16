@@ -74,14 +74,13 @@ type PPU struct {
 	dirtiedLog [65536]dirtyEvent
 	lastDirty  uint16
 
-	hdma               *HDMA
-	s                  *scheduler.Scheduler
-	lyForComparison    uint8
-	lycInterruptLine   bool
-	statInterruptLine  bool
-	modeToInterrupt    uint8
-	currentLine        uint8
-	cgbPalettesBlocked bool
+	hdma              *HDMA
+	s                 *scheduler.Scheduler
+	lyForComparison   uint8
+	lycInterruptLine  bool
+	statInterruptLine bool
+	modeToInterrupt   uint8
+	currentLine       uint8
 }
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
@@ -125,7 +124,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.WUnlock(0xFE00)
 			p.b.RUnlock(0x8000)
 			p.b.WUnlock(0x8000)
-			p.cgbPalettesBlocked = false
+			p.b.Set(types.BCPD, p.ColourPalette.Read())
 
 		} else if !p.Enabled && v&types.Bit7 != 0 {
 			// turn on the screen
@@ -269,35 +268,50 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	// setup CGB only registers
 	b.WhenGBC(func() {
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
-			p.ColourPalette.SetIndex(v)
-			p.dirtyBackground(bcps)
-			return p.ColourPalette.GetIndex() | 0x40
+			if p.b.IsGBCCart() {
+				p.ColourPalette.SetIndex(v)
+				p.dirtyBackground(bcps)
+				p.b.Set(types.BCPD, p.ColourPalette.Read())
+				return p.ColourPalette.GetIndex() | 0x40
+			}
+
+			return 0xFF
 		})
 		b.ReserveSetAddress(types.BCPS, func(a any) {
 			p.ColourPalette.SetIndex(a.(byte))
 			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
-			if !p.b.IsGBC() {
-				return 0xff
+			if p.b.IsGBCCart() {
+				p.ColourPalette.Write(v)
+				p.dirtyBackground(bcpd)
+
+				// update bcps
+				p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
+				return p.ColourPalette.Read()
 			}
-			p.ColourPalette.Write(v)
-			p.dirtyBackground(bcpd)
-			return p.ColourPalette.Read()
+
+			return 0xFF
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
-			p.ColourSpritePalette.SetIndex(v)
-			p.dirtyBackground(ocps)
-			return p.ColourSpritePalette.GetIndex() | 0x40
+			if p.b.IsGBCCart() && p.b.Get(types.STAT)&0b11 != lcd.VRAM {
+				p.ColourSpritePalette.SetIndex(v)
+				p.dirtyBackground(ocps)
+				p.b.Set(types.OCPD, p.ColourSpritePalette.Read())
+				return p.ColourSpritePalette.GetIndex() | 0x40
+			}
+			return 0xFF
 		})
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
-			if !p.b.IsGBC() {
-				return 0xff
+			if p.b.IsGBCCart() {
+				p.ColourSpritePalette.Write(v)
+				p.dirtyBackground(ocpd)
+				p.b.Set(types.OCPS, p.ColourSpritePalette.GetIndex()|0x40)
+				return p.ColourSpritePalette.Read()
 			}
-			p.ColourSpritePalette.Write(v)
-			p.dirtyBackground(ocpd)
-			return p.ColourSpritePalette.Read()
+
+			return 0xFF
 		})
 		b.Set(types.OCPD, p.ColourSpritePalette.Read())
 	})
@@ -410,7 +424,9 @@ func (p *PPU) continueGlitchedFirstLine() {
 	p.b.WLock(0xFE00)
 	p.b.WLock(0x8000)
 
-	p.cgbPalettesBlocked = true
+	if p.b.IsGBC() {
+		p.b.Set(types.BCPD, 0xFF)
+	}
 
 	p.changeMode(lcd.VRAM)
 
@@ -455,16 +471,20 @@ func (p *PPU) endVRAMTransfer() {
 	p.b.WUnlock(0xFE00)
 	p.b.WUnlock(0x8000)
 
-	p.cgbPalettesBlocked = false
+	if p.b.IsGBC() {
+		p.b.Set(types.BCPD, p.ColourPalette.Read())
+	}
 	p.renderScanline()
 
 	if p.b.IsGBC() {
 		if p.hdma.hdmaRemaining > 0 && !p.hdma.hdmaPaused {
+			p.b.Set(types.HDMA5, p.b.Get(types.HDMA5)&0x80|(p.hdma.hdmaRemaining-1)&0x7F)
 			p.hdma.newDMA(1)
 			p.hdma.hdmaRemaining--
 		} else {
 			p.hdma.hdmaRemaining = 0
 			p.hdma.hdmaComplete = true
+			p.b.Set(types.HDMA5, 0xFF)
 		}
 	}
 
@@ -534,7 +554,9 @@ func (p *PPU) endOAM() {
 	p.b.WLock(0xFE00)
 	p.b.WLock(0x8000)
 
-	p.cgbPalettesBlocked = true
+	if p.b.IsGBC() {
+		p.b.Set(types.BCPD, 0xFF)
+	}
 
 	// schedule end of VRAM search
 	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7])-4)
@@ -877,9 +899,6 @@ func (p *PPU) renderScanline() {
 	}
 	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.spriteScanlines[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBC()) {
 		p.renderBackgroundScanline()
-	} else {
-		//fmt.Printf("%v %v %v %v\n", p.backgroundLineRendered[p.b.Get(types.LY)], p.oam.spriteScanlines[p.b.Get(types.LY)], p.oam.dirtyScanlines[p.b.Get(types.LY)], p.backgroundDirty)
-		//fmt.Println("Background scanline not rendered")
 	}
 
 	if !p.Debug.WindowDisabled {

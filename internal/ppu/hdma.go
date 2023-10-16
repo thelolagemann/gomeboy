@@ -32,7 +32,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 	}
 	b.WhenGBCCart(func() {
 		b.ReserveAddress(types.HDMA1, func(v byte) byte {
-			h.source &= 0xF0
+			h.source &= 0x00F0
 			h.source |= uint16(v) << 8
 			if h.source >= 0xE000 {
 				h.source |= 0xF000
@@ -41,7 +41,7 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 		})
 		b.ReserveAddress(types.HDMA2, func(v byte) byte {
 			h.source &= 0xFF00
-			h.source |= uint16(v)
+			h.source |= uint16(v & 0xf0)
 			return 0xFF
 		})
 		b.ReserveAddress(types.HDMA3, func(v byte) byte {
@@ -102,7 +102,15 @@ func NewHDMA(b *io.Bus, ppu *PPU, s *scheduler.Scheduler) *HDMA {
 				}
 			}
 
-			return 0xFF
+			if h.hdmaComplete || h.gdmaComplete {
+				return 0xFF
+			} else {
+				v := uint8(0)
+				if h.hdmaPaused {
+					v |= types.Bit7
+				}
+				return v | (h.hdmaRemaining-1)&0x7F
+			}
 		})
 	})
 
@@ -121,6 +129,7 @@ func (h *HDMA) newDMA(length uint8) {
 
 			// perform the transfer
 			h.ppu.writeVRAM(h.destination&0x1FFF, h.b.Get(h.source))
+			h.ppu.b.Set(h.destination&0x1fff|0x8000, h.b.Get(h.source))
 
 			// increment the source and destination
 			h.source++
