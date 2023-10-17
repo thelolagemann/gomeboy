@@ -1,7 +1,5 @@
 package io
 
-import "github.com/thelolagemann/gomeboy/internal/types"
-
 var (
 	// initialTileData is the range of data found at 0x8000 after the boot ROM
 	// has completed.
@@ -42,19 +40,11 @@ var (
 		0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
 		0x15, 0x16, 0x17, 0x18,
 	}
-	// dmgIO
-	dmgIO = []byte{
-		types.LY:  0x41,
-		types.LYC: 0x42,
-	}
 )
 
-var (
-	lock8KiB = make([]byte, 0x2000)
-)
+// WriteHandler is a function that handles writing to a memory address.
+// It should return the new value to be written back to the memory address.
+type WriteHandler func(byte) byte
 
-func init() {
-	for i := 0; i < len(lock8KiB); i++ {
-		lock8KiB[i] = 0xFF
-	}
-}
+// SetHandler is a function that handles setting a value at a memory address.
+type SetHandler func(any)

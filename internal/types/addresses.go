@@ -22,6 +22,17 @@ const (
 	// P1 is the address of the P1 hardware register. The P1
 	// hardware register is used to select the input keys to
 	// be read by the CPU, and to read the state of the joypad.
+	//
+	// The register is laid out as follows:
+	//
+	//	Bit 7 - Not used
+	//	Bit 6 - Not used
+	//	Bit 5 - P15 Select Button Keys      (0=Select)
+	//	Bit 4 - P14 Select Direction Keys   (0=Select)
+	//	Bit 3 - P13 Input Down  or Start    (0=Pressed) (Read Only)
+	//	Bit 2 - P12 Input Up    or Select   (0=Pressed) (Read Only)
+	//	Bit 1 - P11 Input Left  or Button B (0=Pressed) (Read Only)
+	//	Bit 0 - P10 Input Right or Button A (0=Pressed) (Read Only)
 	P1 HardwareAddress = 0xFF00
 	// SB is the address of the SB hardware register. The SB
 	// hardware register is used to transfer data between the

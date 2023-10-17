@@ -292,15 +292,14 @@ func (c *CPU) pushNN(h, l types.Register) {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) popNN(h, l *types.Register) {
-
-	*l = c.readByte(c.SP)
+	*l = c.b.ClockedRead(c.SP)
 	c.SP++
 
 	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
 		c.ppu.WriteCorruptionOAM()
 	}
 
-	*h = c.readByte(c.SP)
+	*h = c.b.ClockedRead(c.SP)
 	c.SP++
 }
 

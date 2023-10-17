@@ -87,16 +87,16 @@ func (c *CPU) push(high, low uint8) {
 		c.ppu.WriteCorruptionOAM()
 	}
 	c.SP--
-	c.writeByte(c.SP, high)
+	c.b.ClockedWrite(c.SP, high)
 	c.SP--
-	c.writeByte(c.SP, low)
+	c.b.ClockedWrite(c.SP, low)
 }
 
 // pop a 16 bit value off the stack.
 func (c *CPU) pop(high *uint8, low *uint8) {
-	*low = c.readByte(c.SP)
+	*low = c.b.ClockedRead(c.SP)
 	c.SP++
-	*high = c.readByte(c.SP)
+	*high = c.b.ClockedRead(c.SP)
 	c.SP++
 }
 

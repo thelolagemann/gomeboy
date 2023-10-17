@@ -2,7 +2,6 @@
 package ppu
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/interrupts"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
@@ -11,6 +10,7 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image"
 	"image/color"
+	"unsafe"
 )
 
 const (
@@ -73,13 +73,14 @@ type PPU struct {
 	dirtiedLog [65536]dirtyEvent
 	lastDirty  uint16
 
-	hdma              *HDMA
-	s                 *scheduler.Scheduler
-	lyForComparison   uint8
-	lycInterruptLine  bool
-	statInterruptLine bool
-	modeToInterrupt   uint8
-	currentLine       uint8
+	hdma                  *HDMA
+	s                     *scheduler.Scheduler
+	lyForComparison       uint8
+	lycInterruptLine      bool
+	statInterruptLine     bool
+	modeToInterrupt       uint8
+	currentLine           uint8
+	backgroundLineChanged [256]bool
 }
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
@@ -404,6 +405,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		}
 	}
 
+	// setup line changed
+	for i := 0; i < len(p.backgroundLineChanged); i++ {
+		p.backgroundLineChanged[i] = true
+	}
+
 	p.ColourPalette = palette.NewCGBPallette()
 	p.ColourSpritePalette = palette.NewCGBPallette()
 
@@ -655,7 +661,7 @@ func (p *PPU) startVBlank() {
 		// trigger vblank interrupt (according to mooneye's test, this is triggered on the first cycle of line 144 for DMG, but
 		// is delayed by 4 cycles for CGB)
 		if p.b.Model() != types.CGBABC && p.b.Model() != types.CGB0 {
-			p.b.RaiseInterrupt(interrupts.VBlankFlag)
+			p.b.RaiseInterrupt(io.VBlankINT)
 		}
 
 	}
@@ -672,12 +678,12 @@ func (p *PPU) continueVBlank() {
 
 		// trigger vblank interrupt
 		if p.b.Model() == types.CGBABC || p.b.Model() == types.CGB0 {
-			p.b.RaiseInterrupt(interrupts.VBlankFlag)
+			p.b.RaiseInterrupt(io.VBlankINT)
 		}
 
 		// entering vblank also triggers the OAM STAT interrupt if enabled
 		if !p.statInterruptLine && p.b.TestBit(types.STAT, 0x20) {
-			p.b.RaiseInterrupt(interrupts.LCDFlag)
+			p.b.RaiseInterrupt(io.LCDINT)
 		}
 		p.modeToInterrupt = lcd.VBlank
 		p.statUpdate()
@@ -805,7 +811,6 @@ func (p *PPU) updateTileMap(address uint16, tilemapIndex, value uint8) {
 	y := (address / 32) & 0x1F
 	x := address & 0x1F
 
-	// update the tilemap
 	p.TileMaps[tilemapIndex][y][x].id = uint16(value)
 
 	p.dirtyBackground(tileMap)
@@ -873,7 +878,7 @@ func (p *PPU) statUpdate() {
 
 	// trigger interrupt if needed
 	if p.statInterruptLine && !prevInterruptLine {
-		p.b.RaiseInterrupt(interrupts.LCDFlag)
+		p.b.RaiseInterrupt(io.LCDINT)
 	}
 }
 
@@ -888,6 +893,8 @@ func (p *PPU) renderScanline() {
 	}
 	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.spriteScanlines[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBC()) {
 		p.renderBackgroundScanline()
+
+		//fmt.Printf("%v rendered: %v sprite (dirty): %v (%v) background (dirty): %v (%v)\n", p.b.Get(types.LY), p.backgroundLineRendered[p.b.Get(types.LY)], p.oam.spriteScanlines[p.b.Get(types.LY)], p.oam.dirtyScanlines[p.b.Get(types.LY)], p.BackgroundEnabled, p.backgroundDirty)
 	}
 
 	if !p.Debug.WindowDisabled {
@@ -1048,15 +1055,15 @@ func (p *PPU) renderBackgroundScanline() {
 	pal := p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
 
 	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
-	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
+	var scanline [ScreenWidth][3]uint8
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		if p.Debug.BackgroundDisabled {
 			scanline[i] = [3]uint8{255, 255, 255}
 		} else {
 			// set scanline using unsafe to copy 4 bytes at a time
-			scanline[i] = pal[colourLUT[xPixelPos]]
-			// *(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
+			//scanline[i] = pal[colourLUT[xPixelPos]]
+			*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 		}
 		bgPriorityLine[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]
@@ -1099,6 +1106,9 @@ func (p *PPU) renderBackgroundScanline() {
 
 	p.backgroundLineRendered[p.b.Get(types.LY)] = true
 	p.oam.dirtyScanlines[p.b.Get(types.LY)] = false
+
+	// update scanline in frame
+	p.PreparedFrame[p.b.Get(types.LY)] = scanline
 }
 
 // calculateTileID calculates the tile ID for the current scanline
@@ -1111,7 +1121,13 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) 
 
 func (p *PPU) renderSpritesScanline(scanline uint8) {
 	if p.b.OAMChanged() {
-		p.b.OAMCatchup(p.oam.Write)
+		// copy new data to oam
+		data := make([]byte, 160)
+		p.b.CopyFrom(0xFE00, 0xFEA0, data)
+		for i := 0; i < 160; i++ {
+			p.oam.Write(uint16(i), data[i])
+		}
+		p.b.OAMCatchup()
 	}
 
 	spriteXPerScreen := [ScreenWidth]uint8{}

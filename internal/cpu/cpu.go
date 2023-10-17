@@ -116,13 +116,12 @@ func (c *CPU) skipHALT() {
 
 // Frame steps the CPU until the next frame is rzeady.
 func (c *CPU) Frame() {
-	for !c.hasFrame && !c.DebugBreakpoint {
+	for !c.hasFrame {
 		instr := c.readOperand()
 
 		// execute the instruction
 		c.instructions[instr](c)
 
-		//fmt.Println("Tick")
 		// did we get an interrupt?
 		if c.ime && c.b.HasInterrupts() {
 			c.executeInterrupt()
@@ -134,7 +133,7 @@ func (c *CPU) Frame() {
 
 // readOperand reads the next operand from memory.
 func (c *CPU) readOperand() uint8 {
-	value := c.readByte(c.PC)
+	value := c.b.ClockedRead(c.PC)
 	c.PC++
 	return value
 }
@@ -142,24 +141,6 @@ func (c *CPU) readOperand() uint8 {
 func (c *CPU) skipOperand() {
 	c.s.Tick(4)
 	c.PC++
-}
-
-// readByte reads a byte from memory.
-func (c *CPU) readByte(addr uint16) uint8 {
-	c.s.Tick(4)
-
-	//fmt.Printf("%04x -> %02x\n", addr, c.b.Read(addr))
-	//time.Sleep(time.Millisecond * 100)
-	return c.b.Read(addr)
-}
-
-// writeByte writes the given value to the given address.
-func (c *CPU) writeByte(addr uint16, val uint8) {
-	c.s.Tick(4)
-	//fmt.Printf("%04x <- %02x\n", addr, val)
-	//time.Sleep(time.Millisecond * 100)
-
-	c.b.Write(addr, val)
 }
 
 func (c *CPU) executeInterrupt() {
@@ -172,12 +153,12 @@ func (c *CPU) executeInterrupt() {
 
 	// save PC to stack
 	c.SP--
-	c.writeByte(c.SP, uint8(c.PC>>8))
+	c.b.ClockedWrite(c.SP, uint8(c.PC>>8))
 
 	irq := c.b.Get(types.IE) // IRQ check saved for later
 
 	c.SP--
-	c.writeByte(c.SP, uint8(c.PC&0xFF))
+	c.b.ClockedWrite(c.SP, uint8(c.PC&0xFF))
 
 	// get vector from IRQ
 	c.PC = c.b.IRQVector(irq)

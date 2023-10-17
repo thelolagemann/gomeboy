@@ -1,7 +1,6 @@
 package serial
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/interrupts"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -64,6 +63,12 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 		return v
 	})
 	b.ReserveAddress(types.SC, func(v byte) byte {
+		if b.Get(types.SC) == v|0x7e {
+			// some games appear to write before the last transfer finished, causing
+			// the transfer to start looping - likely bc of my cursed serial interrupt
+			// timing
+			return v | 0x7e
+		}
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
 
@@ -102,7 +107,7 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 		if c.count == 8 {
 			c.count = 0
 			c.TransferRequest = false
-			c.b.Set(types.SC, c.b.Get(types.SC)&^types.Bit7)
+			c.b.ClearBit(types.SC, types.Bit7)
 		} else if c.count == 7 {
 			// schedule interrupt to happen 1 cycle before count reaches 8 (TODO find out why, possibly the CPU interrupt handling?)
 			s.ScheduleEvent(scheduler.SerialBitInterrupt, ticksPerBit-4)
@@ -112,7 +117,7 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 		}
 	})
 	s.RegisterEvent(scheduler.SerialBitInterrupt, func() {
-		c.b.Set(types.IF, interrupts.SerialFlag)
+		c.b.RaiseInterrupt(io.SerialINT)
 	})
 	return c
 }
@@ -122,7 +127,7 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 func (c *Controller) checkTransfer() {
 	if c.count++; c.count == 8 {
 		c.count = 0
-		c.b.Set(types.IF, interrupts.SerialFlag)
+		c.b.Set(types.IF, io.SerialINT)
 
 		// clear transfer request
 		c.b.Set(types.SC, c.b.Get(types.SC)&^types.Bit7)

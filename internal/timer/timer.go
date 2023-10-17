@@ -2,7 +2,6 @@ package timer
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/apu"
-	"github.com/thelolagemann/gomeboy/internal/interrupts"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -156,7 +155,7 @@ func (c *Controller) reloadTIMA() {
 	// if the reload was not cancelled, set the timer to the new value
 	if !c.reloadCancel {
 		c.b.Set(types.TIMA, c.b.Get(types.TMA))
-		c.b.RaiseInterrupt(interrupts.TimerFlag)
+		c.b.RaiseInterrupt(io.TimerINT)
 		c.reloadCancel = false // reset cancel flag
 	}
 
@@ -174,7 +173,7 @@ func (c *Controller) abruptlyIncrementTIMA() {
 	// instantly, rather than being delayed by 1-M cycle
 	if c.b.Get(types.TIMA) == 0 {
 		c.b.Set(types.TIMA, c.b.Get(types.TMA))
-		c.b.RaiseInterrupt(interrupts.TimerFlag)
+		c.b.RaiseInterrupt(io.TimerINT)
 	}
 }
 

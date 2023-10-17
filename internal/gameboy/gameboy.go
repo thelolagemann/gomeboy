@@ -9,7 +9,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/cartridge"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
@@ -20,7 +19,6 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
-	"math/rand"
 	"sync"
 	"time"
 	"unsafe"
@@ -51,7 +49,6 @@ type GameBoy struct {
 
 	APU       *apu.APU
 	Cartridge *cartridge.Cartridge
-	Joypad    *joypad.State
 	Timer     *timer.Controller
 	Serial    *serial.Controller
 
@@ -92,12 +89,12 @@ func (g *GameBoy) AttachAudioListener(player func([]byte)) {
 func (g *GameBoy) StartLinked(
 	frames1 chan<- []byte,
 	events1 chan<- event.Event,
-	pressed1 <-chan joypad.Button,
-	released1 <-chan joypad.Button,
+	pressed1 <-chan io.Button,
+	released1 <-chan io.Button,
 	frames2 chan<- []byte,
 	events2 chan<- event.Event,
-	pressed2 <-chan joypad.Button,
-	released2 <-chan joypad.Button,
+	pressed2 <-chan io.Button,
+	released2 <-chan io.Button,
 ) {
 
 	// setup the frame buffer
@@ -112,13 +109,13 @@ func (g *GameBoy) StartLinked(
 	for {
 		select {
 		case p := <-pressed1:
-			g.Joypad.Press(p)
+			g.b.Press(p)
 		case r := <-released1:
-			g.Joypad.Release(r)
+			g.b.Release(r)
 		case p := <-pressed2:
-			g.attachedGameBoy.Joypad.Press(p)
+			g.attachedGameBoy.b.Press(p)
 		case r := <-released2:
-			g.attachedGameBoy.Joypad.Release(r)
+			g.attachedGameBoy.b.Release(r)
 		case <-ticker.C:
 			// lock the gameboy
 			g.Lock()
@@ -177,7 +174,7 @@ func (g *GameBoy) StartLinked(
 	}
 }
 
-func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed <-chan joypad.Button, released <-chan joypad.Button) {
+func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed <-chan io.Button, released <-chan io.Button) {
 	g.running = true
 	// setup fps counter
 	g.frames = 0
@@ -224,13 +221,13 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.Cartridge.Header().Title)}
 
 	// create event handlers for input
-	for i := joypad.ButtonA; i <= joypad.ButtonDown; i++ {
+	for i := io.ButtonA; i <= io.ButtonDown; i++ {
 		_i := i
 		g.Scheduler.RegisterEvent(scheduler.JoypadA+scheduler.EventType(_i), func() {
-			g.Joypad.Press(_i)
+			g.b.Press(_i)
 		})
 		g.Scheduler.RegisterEvent(scheduler.JoypadARelease+scheduler.EventType(_i), func() {
-			g.Joypad.Release(_i)
+			g.b.Release(_i)
 		})
 	}
 
@@ -239,10 +236,12 @@ emuLoop:
 		select {
 		case b := <-pressed:
 			// press button with some entropy by pressing at a random cycle in the future
-			g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadA)+b), uint64(1024+rand.Intn(4192)*4))
+			g.b.Press(b)
+			//g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.bA)+b), uint64(1024+rand.Intn(4192)*4))
 		case b := <-released:
-			until := g.Scheduler.Until(scheduler.JoypadA + scheduler.EventType(b))
-			g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.JoypadARelease)+b), until+uint64(1024+rand.Intn(1024)*4))
+			g.b.Release(b)
+			//until := g.Scheduler.Until(scheduler.bA + scheduler.EventType(b))
+			//g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.bARelease)+b), until+uint64(1024+rand.Intn(1024)*4))
 		case cmd := <-g.cmdChannel:
 			g.Lock()
 			switch cmd.Command {
@@ -345,7 +344,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 	b := io.NewBus(sched)
 	cart := cartridge.NewCartridge(rom, b)
-	pad := joypad.New(b)
 	serialCtl := serial.NewController(b, sched)
 	sound := apu.NewAPU(sched, b)
 	timerCtl := timer.NewController(b, sched, sound)
@@ -367,7 +365,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		b:      b,
 
 		APU:        sound,
-		Joypad:     pad,
 		Timer:      timerCtl,
 		Serial:     serialCtl,
 		model:      model, // defaults to cart
@@ -483,7 +480,6 @@ func (g *GameBoy) Load(s *types.State) {
 	g.CPU.Load(s)
 	g.PPU.Load(s)
 	// g.APU.LoadRAM(s) TODO implement APU state
-	g.Joypad.Load(s)
 	g.Serial.Load(s)
 }
 
@@ -491,6 +487,5 @@ func (g *GameBoy) Save(s *types.State) {
 	g.CPU.Save(s)
 	g.PPU.Save(s)
 	// g.APU.SaveRAM(s) TODO implement APU state
-	g.Joypad.Save(s)
 	g.Serial.Save(s)
 }

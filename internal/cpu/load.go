@@ -26,7 +26,7 @@ func (c *CPU) loadRegister8(reg *types.Register) {
 //	LD n, (HL)
 //	n = A, B, C, D, E, H, L
 func (c *CPU) loadMemoryToRegister(reg *types.Register, address uint16) {
-	*reg = c.readByte(address)
+	*reg = c.b.ClockedRead(address)
 }
 
 // loadRegisterToMemory loads the value of the given Register into the given
@@ -35,7 +35,7 @@ func (c *CPU) loadMemoryToRegister(reg *types.Register, address uint16) {
 //	LD (HL), n
 //	n = A, B, C, D, E, H, L
 func (c *CPU) loadRegisterToMemory(reg types.Register, address uint16) {
-	c.writeByte(address, reg)
+	c.b.ClockedWrite(address, reg)
 }
 
 // loadRegisterToHardware loads the value of the given Register into the given
@@ -44,7 +44,7 @@ func (c *CPU) loadRegisterToMemory(reg types.Register, address uint16) {
 //	LD (0xFF00 + n), A
 //	n = B, C, D, E, H, L, 8 bit immediate value (0xFF00 + n)
 func (c *CPU) loadRegisterToHardware(reg types.Register, address uint8) {
-	c.writeByte(0xFF00+uint16(address), reg)
+	c.b.ClockedWrite(0xFF00+uint16(address), reg)
 }
 
 // loadRegister16 loads the given value into the given Register pair.

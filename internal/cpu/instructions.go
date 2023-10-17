@@ -80,8 +80,8 @@ var InstructionSet = [256]Instruction{
 			high := c.readOperand()
 
 			address := uint16(high)<<8 | uint16(low)
-			c.writeByte(address, uint8(c.SP&0xFF))
-			c.writeByte(address+1, uint8(c.SP>>8))
+			c.b.ClockedWrite(address, uint8(c.SP&0xFF))
+			c.b.ClockedWrite(address+1, uint8(c.SP>>8))
 		},
 	},
 	0x09: {
@@ -401,19 +401,19 @@ var InstructionSet = [256]Instruction{
 	0x34: {
 		"INC (HL)",
 		func(c *CPU) {
-			c.writeByte(c.HL.Uint16(), c.increment(c.readByte(c.HL.Uint16())))
+			c.b.ClockedWrite(c.HL.Uint16(), c.increment(c.b.ClockedRead(c.HL.Uint16())))
 		},
 	},
 	0x35: {
 		"DEC (HL)",
 		func(c *CPU) {
-			c.writeByte(c.HL.Uint16(), c.decrement(c.readByte(c.HL.Uint16())))
+			c.b.ClockedWrite(c.HL.Uint16(), c.decrement(c.b.ClockedRead(c.HL.Uint16())))
 		},
 	},
 	0x36: {
 		"LD (HL), d8",
 		func(c *CPU) {
-			c.writeByte(c.HL.Uint16(), c.readOperand())
+			c.b.ClockedWrite(c.HL.Uint16(), c.readOperand())
 		},
 	},
 	0x37: {
@@ -637,12 +637,7 @@ var InstructionSet = [256]Instruction{
 	},
 	0x5B: {
 		"LD E, E",
-		func(c *CPU) {
-			// LD E, E is often used as a debug breakpoint
-			if c.Debug {
-				c.DebugBreakpoint = true
-			}
-		},
+		func(c *CPU) {},
 	},
 	0x5C: {
 		"LD E, H",
@@ -694,12 +689,7 @@ var InstructionSet = [256]Instruction{
 	},
 	0x64: {
 		"LD H, H",
-		func(c *CPU) {
-			// LD H, H is often used as a debug breakpoint
-			if c.Debug {
-				c.DebugBreakpoint = true
-			}
-		},
+		func(c *CPU) {},
 	},
 	0x65: {
 		"LD H, L",
@@ -751,12 +741,7 @@ var InstructionSet = [256]Instruction{
 	},
 	0x6D: {
 		"LD L, L",
-		func(c *CPU) {
-			// LD L, L is often used as a debug breakpoint
-			if c.Debug {
-				c.DebugBreakpoint = true
-			}
-		},
+		func(c *CPU) {},
 	},
 	0x6E: {
 		"LD L, (HL)",
@@ -917,7 +902,7 @@ var InstructionSet = [256]Instruction{
 	0x86: {
 		"ADD A, (HL)",
 		func(c *CPU) {
-			c.add(c.readByte(c.HL.Uint16()), false)
+			c.add(c.b.ClockedRead(c.HL.Uint16()), false)
 		},
 	},
 	0x87: {
@@ -965,7 +950,7 @@ var InstructionSet = [256]Instruction{
 	0x8E: {
 		"ADC A, (HL)",
 		func(c *CPU) {
-			c.add(c.readByte(c.HL.Uint16()), true)
+			c.add(c.b.ClockedRead(c.HL.Uint16()), true)
 		},
 	},
 	0x8F: {
@@ -1013,7 +998,7 @@ var InstructionSet = [256]Instruction{
 	0x96: {
 		"SUB (HL)",
 		func(c *CPU) {
-			c.sub(c.readByte(c.HL.Uint16()), false)
+			c.sub(c.b.ClockedRead(c.HL.Uint16()), false)
 		},
 	},
 	0x97: {
@@ -1061,7 +1046,7 @@ var InstructionSet = [256]Instruction{
 	0x9E: {
 		"SBC (HL)",
 		func(c *CPU) {
-			c.sub(c.readByte(c.HL.Uint16()), true)
+			c.sub(c.b.ClockedRead(c.HL.Uint16()), true)
 		},
 	},
 	0x9F: {
@@ -1109,7 +1094,7 @@ var InstructionSet = [256]Instruction{
 	0xA6: {
 		"AND (HL)",
 		func(c *CPU) {
-			c.and(c.readByte(c.HL.Uint16()))
+			c.and(c.b.ClockedRead(c.HL.Uint16()))
 		},
 	},
 	0xA7: {
@@ -1157,7 +1142,7 @@ var InstructionSet = [256]Instruction{
 	0xAE: {
 		"XOR (HL)",
 		func(c *CPU) {
-			c.xor(c.readByte(c.HL.Uint16()))
+			c.xor(c.b.ClockedRead(c.HL.Uint16()))
 		},
 	},
 	0xAF: {
@@ -1205,7 +1190,7 @@ var InstructionSet = [256]Instruction{
 	0xB6: {
 		"OR (HL)",
 		func(c *CPU) {
-			c.or(c.readByte(c.HL.Uint16()))
+			c.or(c.b.ClockedRead(c.HL.Uint16()))
 		},
 	},
 	0xB7: {
@@ -1253,7 +1238,7 @@ var InstructionSet = [256]Instruction{
 	0xBE: {
 		"CP (HL)",
 		func(c *CPU) {
-			c.compare(c.readByte(c.HL.Uint16()))
+			c.compare(c.b.ClockedRead(c.HL.Uint16()))
 		},
 	},
 	0xBF: {
@@ -1656,9 +1641,9 @@ var InstructionSetCB = [256]Instruction{
 	0x06: {
 		"RLC (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.rotateLeftCarry(c.readByte(c.HL.Uint16())),
+				c.rotateLeftCarry(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -1707,9 +1692,9 @@ var InstructionSetCB = [256]Instruction{
 	0x0E: {
 		"RRC (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.rotateRightCarry(c.readByte(c.HL.Uint16())),
+				c.rotateRightCarry(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -1758,9 +1743,9 @@ var InstructionSetCB = [256]Instruction{
 	0x16: {
 		"RL (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.rotateLeftThroughCarry(c.readByte(c.HL.Uint16())),
+				c.rotateLeftThroughCarry(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -1809,9 +1794,9 @@ var InstructionSetCB = [256]Instruction{
 	0x1E: {
 		"RR (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.rotateRightThroughCarry(c.readByte(c.HL.Uint16())),
+				c.rotateRightThroughCarry(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -1860,9 +1845,9 @@ var InstructionSetCB = [256]Instruction{
 	0x26: {
 		"SLA (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.shiftLeftArithmetic(c.readByte(c.HL.Uint16())),
+				c.shiftLeftArithmetic(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -1911,9 +1896,9 @@ var InstructionSetCB = [256]Instruction{
 	0x2E: {
 		"SRA (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.shiftRightArithmetic(c.readByte(c.HL.Uint16())),
+				c.shiftRightArithmetic(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -1962,9 +1947,9 @@ var InstructionSetCB = [256]Instruction{
 	0x36: {
 		"SWAP (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.swap(c.readByte(c.HL.Uint16())),
+				c.swap(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -2013,9 +1998,9 @@ var InstructionSetCB = [256]Instruction{
 	0x3E: {
 		"SRL (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				c.shiftRightLogical(c.readByte(c.HL.Uint16())),
+				c.shiftRightLogical(c.b.ClockedRead(c.HL.Uint16())),
 			)
 		},
 	},
@@ -2064,7 +2049,7 @@ var InstructionSetCB = [256]Instruction{
 	0x46: {
 		"BIT 0, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit0)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit0)
 		},
 	},
 	0x47: {
@@ -2112,7 +2097,7 @@ var InstructionSetCB = [256]Instruction{
 	0x4E: {
 		"BIT 1, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit1)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit1)
 		},
 	},
 	0x4F: {
@@ -2160,7 +2145,7 @@ var InstructionSetCB = [256]Instruction{
 	0x56: {
 		"BIT 2, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit2)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit2)
 		},
 	},
 	0x57: {
@@ -2208,7 +2193,7 @@ var InstructionSetCB = [256]Instruction{
 	0x5E: {
 		"BIT 3, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit3)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit3)
 		},
 	},
 	0x5F: {
@@ -2256,7 +2241,7 @@ var InstructionSetCB = [256]Instruction{
 	0x66: {
 		"BIT 4, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit4)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit4)
 		},
 	},
 	0x67: {
@@ -2304,7 +2289,7 @@ var InstructionSetCB = [256]Instruction{
 	0x6E: {
 		"BIT 5, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit5)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit5)
 		},
 	},
 	0x6F: {
@@ -2352,7 +2337,7 @@ var InstructionSetCB = [256]Instruction{
 	0x76: {
 		"BIT 6, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit6)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit6)
 		},
 	},
 	0x77: {
@@ -2400,7 +2385,7 @@ var InstructionSetCB = [256]Instruction{
 	0x7E: {
 		"BIT 7, (HL)",
 		func(c *CPU) {
-			c.testBit(c.readByte(c.HL.Uint16()), types.Bit7)
+			c.testBit(c.b.ClockedRead(c.HL.Uint16()), types.Bit7)
 		},
 	},
 	0x7F: {
@@ -2449,9 +2434,9 @@ var InstructionSetCB = [256]Instruction{
 	0x86: {
 		"RES 0, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit0),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit0),
 			)
 		},
 	},
@@ -2500,9 +2485,9 @@ var InstructionSetCB = [256]Instruction{
 	0x8E: {
 		"RES 1, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit1),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit1),
 			)
 		},
 	},
@@ -2551,9 +2536,9 @@ var InstructionSetCB = [256]Instruction{
 	0x96: {
 		"RES 2, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit2),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit2),
 			)
 		},
 	},
@@ -2602,9 +2587,9 @@ var InstructionSetCB = [256]Instruction{
 	0x9E: {
 		"RES 3, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit3),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit3),
 			)
 		},
 	},
@@ -2653,9 +2638,9 @@ var InstructionSetCB = [256]Instruction{
 	0xA6: {
 		"RES 4, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit4),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit4),
 			)
 		},
 	},
@@ -2704,9 +2689,9 @@ var InstructionSetCB = [256]Instruction{
 	0xAE: {
 		"RES 5, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit5),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit5),
 			)
 		},
 	},
@@ -2755,9 +2740,9 @@ var InstructionSetCB = [256]Instruction{
 	0xB6: {
 		"RES 6, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit6),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit6),
 			)
 		},
 	},
@@ -2806,9 +2791,9 @@ var InstructionSetCB = [256]Instruction{
 	0xBE: {
 		"RES 7, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Reset(c.readByte(c.HL.Uint16()), types.Bit7),
+				utils.Reset(c.b.ClockedRead(c.HL.Uint16()), types.Bit7),
 			)
 		},
 	},
@@ -2858,9 +2843,9 @@ var InstructionSetCB = [256]Instruction{
 	0xC6: {
 		"SET 0, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit0),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit0),
 			)
 		},
 	},
@@ -2909,9 +2894,9 @@ var InstructionSetCB = [256]Instruction{
 	0xCE: {
 		"SET 1, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit1),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit1),
 			)
 		},
 	},
@@ -2960,9 +2945,9 @@ var InstructionSetCB = [256]Instruction{
 	0xD6: {
 		"SET 2, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit2),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit2),
 			)
 		},
 	},
@@ -3011,9 +2996,9 @@ var InstructionSetCB = [256]Instruction{
 	0xDE: {
 		"SET 3, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit3),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit3),
 			)
 		},
 	},
@@ -3062,9 +3047,9 @@ var InstructionSetCB = [256]Instruction{
 	0xE6: {
 		"SET 4, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit4),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit4),
 			)
 		},
 	},
@@ -3113,9 +3098,9 @@ var InstructionSetCB = [256]Instruction{
 	0xEE: {
 		"SET 5, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit5),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit5),
 			)
 		},
 	},
@@ -3164,9 +3149,9 @@ var InstructionSetCB = [256]Instruction{
 	0xF6: {
 		"SET 6, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit6),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit6),
 			)
 		},
 	},
@@ -3215,9 +3200,9 @@ var InstructionSetCB = [256]Instruction{
 	0xFE: {
 		"SET 7, (HL)",
 		func(c *CPU) {
-			c.writeByte(
+			c.b.ClockedWrite(
 				c.HL.Uint16(),
-				utils.Set(c.readByte(c.HL.Uint16()), types.Bit7),
+				utils.Set(c.b.ClockedRead(c.HL.Uint16()), types.Bit7),
 			)
 		},
 	},

@@ -67,7 +67,8 @@ func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridg
 		bank1:  0x01,
 	}
 	m.checkMultiCart()
-	m.header.b.LockRange(0xA000, 0xC000)
+	m.header.b.RLock(0xA000)
+	m.header.b.WLock(0xA000)
 	return m
 }
 
@@ -149,7 +150,8 @@ func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 			m.header.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
 		}
 	} else if !m.ramg {
-		m.header.b.LockRange(0xA000, 0xC000)
+		m.header.b.RLock(0xA000)
+		m.header.b.WLock(0xA000)
 	}
 }
 

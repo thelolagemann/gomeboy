@@ -30,7 +30,7 @@ func (m *MemoryBankedCartridge2) Save(s *types.State) {
 
 // NewMemoryBankedCartridge2 returns a new MemoryBankedCartridge2 cartridge.
 func NewMemoryBankedCartridge2(rom []byte, header *Header) *MemoryBankedCartridge2 {
-	header.b.LockRange(0xA000, 0xC000)
+	header.b.Lock(0xA000)
 	return &MemoryBankedCartridge2{
 		rom:    rom,
 		ram:    make([]byte, 512),
@@ -69,7 +69,7 @@ func (m *MemoryBankedCartridge2) Write(address uint16, value uint8) {
 					m.header.b.CopyTo(0xA000+(uint16(i)*0x200), 0xA200+(uint16(i)*0x200), m.ram)
 				}
 			} else {
-				m.header.b.LockRange(0xA000, 0xC000)
+				m.header.b.Lock(0xA000)
 			}
 		}
 	case address >= 0xA000 && address <= 0xBFFF:

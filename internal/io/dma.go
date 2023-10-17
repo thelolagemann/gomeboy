@@ -2,10 +2,9 @@ package io
 
 import "github.com/thelolagemann/gomeboy/internal/scheduler"
 
-// when dma transfer occurs, set conflicting area
-// when conflicting - reads return last byte written
-// writes are ineffective
-// also handle oam/vram locking
+var (
+	noConflicts = [16]bool{}
+)
 
 // startDMATransfer
 // DMA (Direct Memory Access) is used to transfer data from
@@ -17,13 +16,21 @@ import "github.com/thelolagemann/gomeboy/internal/scheduler"
 //
 // A DMA transfer copies data from ROM or RAM to the OAM, taking
 // 160 M-cycles to complete. The source address is specified by
-// the types.DMA register.
+// writing a value to the types.DMA register, which will then get
+// bit shifted by 8 to provide the source address.
+//
+// E.g. If a write to types.DMA is 0x84, then the source becomes
+// 0x8400 (0x84 << 8).
 func (b *Bus) startDMATransfer() {
 	b.dmaActive = true
 	b.doDMATransfer()
 	b.s.ScheduleEvent(scheduler.DMAEndTransfer, 640)
 }
 
+// doDMATransfer transfers a single byte from the source to the
+// PPU's OAM.
+// todo conflict
+// todo oam changed
 func (b *Bus) doDMATransfer() {
 	// handle restarting latch
 	b.dmaRestarting = false
@@ -53,11 +60,7 @@ func (b *Bus) OAMChanged() bool {
 	return b.oamChanged
 }
 
-func (b *Bus) OAMCatchup(f func(uint16, uint8)) {
-	// write new values to OAM
-	for i := 0; i < 160; i++ {
-		f(uint16(i), b.data[0xFE00+uint16(i)])
-	}
+func (b *Bus) OAMCatchup() {
 
 	b.oamChanged = false
 }
