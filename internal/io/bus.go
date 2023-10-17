@@ -320,7 +320,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 			}
 			return
 		// 0x8000 - 0x9FFF VRAM
-		case addr <= 0x9FFF:
+		case addr >= 0x8000 && addr <= 0x9FFF:
 			if b.wLocks[addr&0x8000] {
 				return
 			}
@@ -423,7 +423,7 @@ func (b *Bus) RaiseInterrupt(interrupt byte) {
 
 // HasInterrupts returns true if there are pending interrupts.
 func (b *Bus) HasInterrupts() bool {
-	return b.data[types.IE]&b.data[types.IF] != 0
+	return b.data[types.IE]&b.data[types.IF]&0x1F != 0
 }
 
 // RLock locks the specified memory range and prevents
