@@ -1,8 +1,10 @@
 package tests
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -25,10 +27,14 @@ func newSamesuiteTestCollectionFromDir(suite *TestSuite, dir string) *TestCollec
 			continue
 		}
 
-		tc.Add(&mooneyeTest{
+		t := &mooneyeTest{
 			romPath: filepath.Join(romDir, file.Name()),
 			name:    file.Name(),
-		})
+		}
+		if file.Name() == "blocking_bgpi_increase.gb" || strings.Contains(file.Name(), "dma") {
+			t.model = types.CGBABC
+		}
+		tc.Add(t)
 	}
 
 	return tc

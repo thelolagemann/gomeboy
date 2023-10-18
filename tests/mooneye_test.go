@@ -224,7 +224,7 @@ func testMooneyeROM(t *testing.T, romFile string, model types.Model) bool {
 		// create the gameboy
 		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(model), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		go func() {
 			<-ctx.Done()

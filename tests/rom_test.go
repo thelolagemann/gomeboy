@@ -207,7 +207,7 @@ func Test_Regressions(t *testing.T) {
 		t.Error(err)
 	}
 
-	if bytes.Equal(oldB, newB) {
+	if bytes.Equal(b, newB) {
 		t.Error("no changes detected in README file", string(oldB), string(newB))
 	}
 

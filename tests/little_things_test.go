@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"testing"
 )
@@ -31,14 +31,14 @@ func littleThings() []ROMTest {
 
 var (
 	tellingLysInputSequence = []testInput{
-		{button: joypad.ButtonA, atEmulatedCycle: perCycle * 1},
-		{button: joypad.ButtonB, atEmulatedCycle: perCycle * 1.5},
-		{button: joypad.ButtonSelect, atEmulatedCycle: perCycle * 2},
-		{button: joypad.ButtonStart, atEmulatedCycle: perCycle * 2.5},
-		{button: joypad.ButtonRight, atEmulatedCycle: perCycle * 3},
-		{button: joypad.ButtonLeft, atEmulatedCycle: perCycle * 3.5},
-		{button: joypad.ButtonUp, atEmulatedCycle: perCycle * 4},
-		{button: joypad.ButtonDown, atEmulatedCycle: perCycle * 4.5},
+		{button: io.ButtonA, atEmulatedCycle: perCycle * 1},
+		{button: io.ButtonB, atEmulatedCycle: perCycle * 1.5},
+		{button: io.ButtonSelect, atEmulatedCycle: perCycle * 2},
+		{button: io.ButtonStart, atEmulatedCycle: perCycle * 2.5},
+		{button: io.ButtonRight, atEmulatedCycle: perCycle * 3},
+		{button: io.ButtonLeft, atEmulatedCycle: perCycle * 3.5},
+		{button: io.ButtonUp, atEmulatedCycle: perCycle * 4},
+		{button: io.ButtonDown, atEmulatedCycle: perCycle * 4.5},
 	}
 )
 

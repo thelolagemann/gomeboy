@@ -205,13 +205,12 @@ func ImgCompare(img1, img2 image.Image) (int64, image.Image, error) {
 
 	for x := bounds1.Min.X; x < bounds1.Max.X; x++ {
 		for y := bounds1.Min.Y; y < bounds1.Max.Y; y++ {
-			r1, g1, b1, a1 := img1.At(x, y).RGBA()
-			r2, g2, b2, a2 := img2.At(x, y).RGBA()
+			r1, g1, b1, _ := img1.At(x, y).RGBA()
+			r2, g2, b2, _ := img2.At(x, y).RGBA()
 
 			diff := int64(sqDiffUInt32(r1, r2))
 			diff += int64(sqDiffUInt32(g1, g2))
 			diff += int64(sqDiffUInt32(b1, b2))
-			diff += int64(sqDiffUInt32(a1, a2))
 
 			if diff > 0 {
 				accumError += diff
