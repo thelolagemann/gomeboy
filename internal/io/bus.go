@@ -223,6 +223,9 @@ func (b *Bus) Boot() {
 				handler(ioRegs[types.HardwareAddress(i)])
 			} else if wHandler := b.writeHandlers[i&0xFF]; wHandler != nil {
 				b.data[i] = wHandler(ioRegs[types.HardwareAddress(i)].(byte))
+			} else if _, ok := ioRegs[types.HardwareAddress(i)].(byte); ok {
+				// set data as is
+				b.data[i] = ioRegs[types.HardwareAddress(i)].(byte)
 			}
 		} else if wHandler := b.writeHandlers[i&0xFF]; wHandler == nil {
 			// default to 0xFF if no write handler exists
@@ -329,9 +332,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 		// 0x0000 - 0x7FFF ROM
 		// 0xA000 - 0xBFFF ERAM (RAM on cartridge)
 		case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
-			if w := b.blockWriters[addr/0x1000]; w != nil {
-				w(addr, value)
-			}
+			b.blockWriters[addr/0x1000](addr, value)
 			return
 		// 0x8000 - 0x9FFF VRAM
 		case addr >= 0x8000 && addr <= 0x9FFF:
@@ -488,11 +489,13 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 		if b.rLocks[addr&0x8000] {
 			return 0xFF
 		}
+	case addr >= 0xA000 && addr <= 0xBFFF:
+		if b.rLocks[addr&0xA000] {
+			return 0xFF
+		}
 	// 0xE000 - 0xFDFF is the WRAM mirror, so wrap around
 	case addr >= 0xE000 && addr <= 0xFDFF:
 		addr &= 0xDDFF
-	case addr >= 0xFF30 && addr <= 0xFF3F:
-		return b.apuRead(addr)
 	// OAM can be read locked by the PPU and a DMA transfer
 	case addr >= 0xFE00 && addr <= 0xFE9F:
 		if b.rLocks[addr&0xFE00] || b.isDMATransferring() {

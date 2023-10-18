@@ -116,7 +116,7 @@ func (c *CPU) skipHALT() {
 
 // Frame steps the CPU until the next frame is rzeady.
 func (c *CPU) Frame() {
-	for !c.hasFrame {
+	for !c.hasFrame && !c.DebugBreakpoint {
 		instr := c.readOperand()
 
 		// execute the instruction

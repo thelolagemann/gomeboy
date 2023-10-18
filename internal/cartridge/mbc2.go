@@ -68,6 +68,7 @@ func (m *MemoryBankedCartridge2) Write(address uint16, value uint8) {
 				for i := 0; i < 16; i++ {
 					m.header.b.CopyTo(0xA000+(uint16(i)*0x200), 0xA200+(uint16(i)*0x200), m.ram)
 				}
+				m.header.b.Unlock(0xA000)
 			} else {
 				m.header.b.Lock(0xA000)
 			}

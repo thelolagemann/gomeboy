@@ -149,9 +149,9 @@ func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 			offset := uint16(m.bank2&0x03) * 0x2000 // only use the lower 2 bits
 			m.header.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
 		}
+		m.header.b.RUnlock(0xA000)
 	} else if !m.ramg {
 		m.header.b.RLock(0xA000)
-		m.header.b.WLock(0xA000)
 	}
 }
 
