@@ -2,6 +2,7 @@ package io
 
 import (
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"math/rand"
@@ -54,6 +55,12 @@ type Bus struct {
 	dmaEnabled                bool
 	oamChanged                bool
 	dmaConflicts              [16]bool
+
+	// HDMA/GDMA related stuff
+	hdmaSource, hdmaDestination uint16
+	dmaLength                   uint8
+	dmaRemaining                uint8
+	dmaComplete, dmaPaused      bool
 
 	// various IO
 	buttonState uint8
@@ -154,6 +161,83 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 
 			// KEY1 always reads 0xFF?
 			return 0xFF
+		})
+
+		// setup hdma registers
+		b.ReserveAddress(types.HDMA1, func(v byte) byte {
+			b.hdmaSource &= 0xF0
+			b.hdmaSource |= uint16(v) << 8
+			if b.hdmaSource >= 0xE000 {
+				b.hdmaSource |= 0xF000
+			}
+			return 0xff
+		})
+		b.ReserveAddress(types.HDMA2, func(v byte) byte {
+			b.hdmaSource &= 0xFF00
+			b.hdmaSource |= uint16(v & 0xF0)
+
+			return 0xff
+		})
+		b.ReserveAddress(types.HDMA3, func(v byte) byte {
+			b.hdmaDestination &= 0x00F0
+			b.hdmaDestination |= uint16(v) << 8
+
+			return 0xff
+		})
+		b.ReserveAddress(types.HDMA4, func(v byte) byte {
+			b.hdmaDestination &= 0x1F00
+			b.hdmaDestination |= uint16(v & 0xF0)
+
+			return 0xff
+		})
+		b.ReserveAddress(types.HDMA5, func(v byte) byte {
+			// update the length
+			b.dmaLength = (v & 0x7F) + 1
+
+			// if bit 7 is set, we are starting a new HDMA transfer
+			if v&types.Bit7 != 0 {
+				b.dmaRemaining = b.dmaLength // set the remaining length
+
+				// reset the DMA flags
+				b.dmaComplete = false
+				b.dmaPaused = false
+
+				// if the LCD is disabled, one HDMA transfer is performed immediately
+				// and the rest are performed during the next HBlank period
+				if b.Get(types.LCDC)&types.Bit7 != types.Bit7 && b.dmaRemaining > 0 {
+					b.newDMA(1)
+					b.dmaRemaining--
+				}
+
+				// if the PPU is already in the HBlank period, then the HDMA would not be
+				// performed by the scheduler until the next HBlank period, so we perform
+				// the transfer immediately here and decrement the remaining length
+				if b.Get(types.LCDC)&types.Bit7 == types.Bit7 && b.Get(types.STAT)&0b11 == lcd.HBlank && b.dmaRemaining > 0 {
+					b.newDMA(1)
+					b.dmaRemaining--
+				}
+			} else {
+				// if bit 7 is not set, we are starting a new GDMA transfer
+				if b.dmaRemaining > 0 {
+					// if we're in the middle of a HDMA transfer, pause it
+					b.dmaPaused = true
+
+					b.dmaRemaining = b.dmaLength
+				} else {
+					// if we're not in the middle of a HDMA transfer, perform a GDMA transfer
+					b.newDMA(b.dmaLength)
+				}
+			}
+
+			if b.dmaComplete {
+				return 0xFF
+			} else {
+				v := uint8(0)
+				if b.dmaPaused {
+					v |= types.Bit7
+				}
+				return v | (b.dmaRemaining-1)&0x7F
+			}
 		})
 
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
@@ -294,6 +378,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 	// IO & HRAM can't be locked or conflicted
 	case addr >= 0xFF00:
 		switch addr {
+		// handle addresses on the bus
 		case types.P1:
 			d := uint8(0xC0)
 			if value&types.Bit4 == 0 {
@@ -327,10 +412,11 @@ func (b *Bus) Write(addr uint16, value byte) {
 		case types.IF:
 			value = value | 0xE0 // upper bits are always 1
 		default:
-			// is there a write handler for this address?
+			// check to see if a component has reserved this address
 			if handler := b.writeHandlers[addr&0xFF]; handler != nil {
 				value = handler(value)
 			} else if addr <= 0xff7f {
+				// otherwise do nothing
 				return
 			}
 		}
@@ -363,10 +449,6 @@ func (b *Bus) Write(addr uint16, value byte) {
 				return
 			}
 			b.oamChanged = true
-		// 0xFEA0-0xFEFF Unusable
-		case addr >= 0xFEA0 && addr <= 0xFEFF:
-			return
-			// 0xFF00-0xFFFF IO & HRAM
 		}
 	}
 

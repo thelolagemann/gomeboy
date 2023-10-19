@@ -73,7 +73,6 @@ type PPU struct {
 	dirtiedLog [65536]dirtyEvent
 	lastDirty  uint16
 
-	hdma                  *HDMA
 	s                     *scheduler.Scheduler
 	lyForComparison       uint8
 	lycInterruptLine      bool
@@ -92,7 +91,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		s:   s,
 		oam: oam,
 	}
-	p.hdma = NewHDMA(b, p, s)
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
 		// is the screen turning off?
@@ -521,15 +519,7 @@ func (p *PPU) endVRAMTransfer() {
 	p.renderScanline()
 
 	if p.b.IsGBCCart() {
-		if p.hdma.hdmaRemaining > 0 && !p.hdma.hdmaPaused {
-			p.b.Set(types.HDMA5, p.b.Get(types.HDMA5)&0x80|(p.hdma.hdmaRemaining-1)&0x7F)
-			p.hdma.newDMA(1)
-			p.hdma.hdmaRemaining--
-		} else {
-			p.hdma.hdmaRemaining = 0
-			p.hdma.hdmaComplete = true
-			p.b.Set(types.HDMA5, 0xFF)
-		}
+		p.b.HandleHDMA()
 	}
 
 	// schedule end of HBlank
