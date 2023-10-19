@@ -1,6 +1,7 @@
 package apu
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -9,18 +10,12 @@ type channel2 struct {
 	*volumeChannel
 }
 
-func newChannel2(a *APU) *channel2 {
+func newChannel2(a *APU, b *io.Bus) *channel2 {
 	c := &channel2{}
 	c2 := newChannel()
+	c2.channelBit = types.Bit1
 
-	c.volumeChannel = newVolumeChannel(c2)
-	a.s.RegisterEvent(scheduler.APUChannel2, func() {
-		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
-		a.s.ScheduleEvent(scheduler.APUChannel2, uint64((2048-c.frequency)*4))
-	})
-
-	types.RegisterHardware(0xff15, types.NoWrite, types.NoRead)
-	types.RegisterHardware(types.NR21, func(v uint8) {
+	b.ReserveAddress(types.NR21, func(v byte) byte {
 		if a.enabled {
 			c.setDuty(v)
 		}
@@ -33,14 +28,23 @@ func newChannel2(a *APU) *channel2 {
 		case types.DMGABC, types.DMG0:
 			c.setLength(v)
 		}
-	}, c.getNRx1)
-	types.RegisterHardware(types.NR22, writeEnabled(a, c.setNRx2), c.getNRx2)
-	types.RegisterHardware(types.NR23, writeEnabled(a, func(v uint8) {
-		c.frequency = (c.frequency & 0x700) | uint16(v)
-	}), func() uint8 {
-		return 0xFF // write only
+
+		return c.duty<<6 | 0x3F
 	})
-	types.RegisterHardware(types.NR24, writeEnabled(a, func(v uint8) {
+	b.ReserveAddress(types.NR22, didChange(a, c2, func(v byte) byte {
+		if !a.enabled {
+			return a.b.Get(types.NR22)
+		}
+
+		c.setNRx2(v)
+		return c.getNRx2()
+	}))
+	b.ReserveAddress(types.NR23, whenEnabled(a, types.NR23, c2.setNRx3))
+	b.ReserveAddress(types.NR24, didChange(a, c2, func(v byte) byte {
+		if !a.enabled {
+			return a.b.Get(types.NR24)
+		}
+
 		c.frequency = (c.frequency & 0x00FF) | (uint16(v&0x7) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
@@ -68,12 +72,18 @@ func newChannel2(a *APU) *channel2 {
 
 			c.initVolumeEnvelope()
 		}
-	}), func() uint8 {
-		b := uint8(0)
+
 		if c.lengthCounterEnabled {
-			b |= types.Bit6
+			return 0xFF
 		}
-		return b | 0xBF
+
+		return 0xBF
+	}))
+
+	c.volumeChannel = newVolumeChannel(c2)
+	a.s.RegisterEvent(scheduler.APUChannel2, func() {
+		c.waveDutyPosition = (c.waveDutyPosition + 1) & 0x7
+		a.s.ScheduleEvent(scheduler.APUChannel2, uint64((2048-c.frequency)*4))
 	})
 
 	return c

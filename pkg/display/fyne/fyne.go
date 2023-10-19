@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	dialog2 "github.com/sqweek/dialog"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -64,7 +64,7 @@ func (f *fyneDriver) Initialize(gb display.Emulator) {
 	f.gb = gb
 }
 
-func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed chan<- joypad.Button, released chan<- joypad.Button) error {
+func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed chan<- io.Button, released chan<- io.Button) error {
 	// create new fyne application
 	fyneApp := app.NewWithID("gomeboy.thelolagemann.com")
 
@@ -254,7 +254,7 @@ func (f *fyneDriver) toggleMainMenu() {
 		})
 
 		emuCheats := fyne.NewMenuItem("Cheats", func() {
-			f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(gb.MMU.GameShark), views2.WithGameGenie(gb.MMU.GameGenie))) // TODO determine which cheats are enabled
+			//f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(gb.MMU.GameShark), views2.WithGameGenie(gb.MMU.GameGenie))) // TODO determine which cheats are enabled
 		})
 
 		emuMenu := fyne.NewMenu("Emulation",
@@ -399,7 +399,7 @@ func (f *fyneDriver) toggleMainMenu() {
 				case "Tilemap Viewer":
 					f.openWindowIfNotOpen(&views2.Tilemaps{PPU: gb.PPU})
 				case "Cartridge Info":
-					f.openWindowIfNotOpen(&views2.Cartridge{C: gb.MMU.Cart})
+					//f.openWindowIfNotOpen(&views2.Cartridge{C: gb.MMU.Cart})
 				}
 			}))
 		}
@@ -471,15 +471,15 @@ func (f *fyneDriver) newWindow(name string, view View) fyne.Window {
 	return b
 }
 
-var keyMap = map[fyne.KeyName]joypad.Button{
-	fyne.KeyA:         joypad.ButtonA,
-	fyne.KeyB:         joypad.ButtonB,
-	fyne.KeyUp:        joypad.ButtonUp,
-	fyne.KeyDown:      joypad.ButtonDown,
-	fyne.KeyLeft:      joypad.ButtonLeft,
-	fyne.KeyRight:     joypad.ButtonRight,
-	fyne.KeyReturn:    joypad.ButtonStart,
-	fyne.KeyBackspace: joypad.ButtonSelect,
+var keyMap = map[fyne.KeyName]io.Button{
+	fyne.KeyA:         io.ButtonA,
+	fyne.KeyB:         io.ButtonB,
+	fyne.KeyUp:        io.ButtonUp,
+	fyne.KeyDown:      io.ButtonDown,
+	fyne.KeyLeft:      io.ButtonLeft,
+	fyne.KeyRight:     io.ButtonRight,
+	fyne.KeyReturn:    io.ButtonStart,
+	fyne.KeyBackspace: io.ButtonSelect,
 }
 
 var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
@@ -519,11 +519,10 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 		// print the size of all the various components of the gameboy struct
 		fmt.Printf("CPU: %d\n", unsafe.Sizeof(*gb.CPU))
 		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
-		fmt.Printf("MMU: %d\n", unsafe.Sizeof(*gb.MMU))
+		//fmt.Printf("MMU: %d\n", unsafe.Sizeof(*gb.MMU))
 		fmt.Printf("APU: %d\n", unsafe.Sizeof(*gb.APU))
 		fmt.Printf("Timer: %d\n", unsafe.Sizeof(gb.Timer))
-		fmt.Printf("Cartridge: %d\n", unsafe.Sizeof(*gb.MMU.Cart))
-		fmt.Printf("Joypad: %d\n", unsafe.Sizeof(*gb.Joypad))
+		//fmt.Printf("Cartridge: %d\n", unsafe.Sizeof(*gb.MMU.Cart))
 		fmt.Printf("GameBoy: %d\n", unsafe.Sizeof(*gb))
 
 		// print the size of the various types used throughout the gameboy
@@ -535,8 +534,6 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 
 		// print the size of the various components of the PPU
 		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
-		fmt.Printf("Render Job: %d\n", unsafe.Sizeof(ppu.RenderJob{}))
-		fmt.Printf("Render Output: %d\n", unsafe.Sizeof(ppu.RenderOutput{}))
 	},
 	fyne.KeyS: func(gb *gameboy.GameBoy) {
 		st := types.NewState()

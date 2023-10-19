@@ -11,15 +11,34 @@ type channel struct {
 	// NRx1
 	lengthCounter uint
 
+	// NRx3
+	frequency uint16
+
 	// NRx4
 	frequencyTimer       uint64
 	lengthCounterEnabled bool
+
+	channelBit uint8
 }
 
-func registerSetter(f func(v interface{})) types.HardwareOpt {
-	return types.WithSet(func(v interface{}) {
-		f(v)
-	})
+func (c *channel) setNRx3(v byte) byte {
+	c.frequency = (c.frequency & 0x700) | uint16(v)
+
+	// NRx3 registers always read 0xFF
+	return 0xFF
+}
+
+// whenEnabled is a helper function for the various APU registers
+// that can only be written to when the APU is enabled. Otherwise,
+// any writes will be ignored, and reads will return the last value
+// before the APU powered down.
+func whenEnabled(a *APU, addr uint16, f func(byte) byte) func(byte) byte {
+	return func(b byte) byte {
+		if a.enabled {
+			return f(b)
+		}
+		return a.b.Get(addr)
+	}
 }
 
 type volumeChannel struct {
@@ -34,13 +53,29 @@ type volumeChannel struct {
 	envelopeAddMode bool
 	period          uint8
 
-	// NRx3/4
-	frequency uint16
-
 	waveDutyPosition         uint8
 	volumeEnvelopeTimer      uint8
 	currentVolume            uint8
 	volumeEnvelopeIsUpdating bool
+}
+
+// didChange is a helper function for the various APU channel
+// registers that can affect the enabled status. Such changes
+// should be reported in the types.NR52 register, so this handler
+// takes care of that.
+func didChange(a *APU, c *channel, f func(byte) byte) func(byte) byte {
+	// execute func
+	return func(b byte) byte {
+		oldVal := c.enabled
+		b = f(b)
+
+		// did the channel turn off?
+		if oldVal && !c.enabled {
+			a.b.ClearBit(types.NR52, c.channelBit)
+		}
+
+		return b
+	}
 }
 
 func (v *volumeChannel) volumeStep() {
@@ -70,28 +105,6 @@ func (v *volumeChannel) setDuty(duty uint8) {
 func (v *volumeChannel) setLength(length uint8) {
 	v.lengthLoad = length & 0x3F
 	v.lengthCounter = 0x40 - uint(v.lengthLoad)
-}
-
-func (v *volumeChannel) setNRx1(v1 uint8) {
-	v.lengthLoad = v1 & 0x3F
-	v.lengthCounter = 0x40 - uint(v.lengthLoad)
-}
-
-func (v *volumeChannel) getNRx1() uint8 {
-	return (v.duty << 6) | 0x3F
-}
-
-// setNRx1CGB is the same as setNRx1 but for CGB mode,
-// as the length is unable to be changed when disabled,
-// unlike DMG mode where it can be changed at any time.
-func (v *volumeChannel) setNRx1CGB(v1 uint8) {
-	if v.enabled {
-		v.duty = (v1 & 0xC0) >> 6
-
-		v.lengthLoad = v1 & 0x3F
-		v.lengthCounter = 0x40 - uint(v.lengthLoad)
-	}
-
 }
 
 func (v *volumeChannel) setNRx2(v2 uint8) {

@@ -1,91 +1,35 @@
-// Package boot provides a boot ROM implementation for the Game Boy. Whilst
-// this package is not strictly required for the emulator to function, it
-// can be used to emulate the boot process of the Game Boy.
-package boot
+package io
 
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
-// ROM represents a boot ROM for the Game Boy. When the Game Boy first
-// powers on, the boot ROM is mapped to memory addresses 0x0000 -
-// 0x00FF (or 0x0000 - 0x00FF & 0x0200 - 0x08FF for the CGB).
-//
-// The boot ROM performs a series of tasks, such as initializing the
-// hardware, setting the stack pointer, scrolling the Nintendo logo, etc.
-//
-// Once the boot ROM has completed its tasks, it is unmapped from memory
-// (by writing to the types.BDIS register), and the cartridge is mapped
-// over the boot ROM, thus starting the cartridge execution, and preventing
-// the boot ROM from being executed again.
-type ROM struct {
-	raw      []byte // the raw boot rom
-	checksum string // the MD5 checksum of the boot rom
+// bootROMModels is a map of boot rom models, with the key
+// being the boot ROM checksum, and the value being the model type
+var bootROMModels = map[string]types.Model{
+	DMG0:    types.DMG0,
+	DMG:     types.DMGABC,
+	MGB:     types.MGB,
+	SGB:     types.SGB,
+	SGB2:    types.SGB2,
+	CGB0:    types.CGB0,
+	CGB:     types.CGBABC,
+	CGB_AGB: types.AGB,
+	// emulate clones as DMG for now
+	FORTUNE:      types.DMGABC,
+	GAME_FIGHTER: types.DMGABC,
+	MAX_STATION:  types.DMGABC,
 }
 
-// LoadBootROM loads a boot ROM into a new ROM struct and returns a
-// pointer to it. The function ensures that the input raw slice has a
-// valid length for either DMG/MGB/SGB (256 bytes) or CGB (2304 bytes).
-// If the length is invalid, the function will panic. The function also
-// calculates the MD5 checksum of the boot rom, and stores it in the
-// ROM struct.
-func LoadBootROM(b []byte) *ROM {
-	// ensure correct lengths
-	if len(b) != 256 && len(b) != 2304 { // 256 bytes for DMG/MGB/SGB, 2304 bytes for CGB
-		panic(fmt.Sprintf("boot: invalid boot rom length: %d", len(b)))
+// Which returns the model type of the boot ROM.
+func Which(rom []byte) types.Model {
+	sum := md5.Sum(rom)
+	if m, ok := bootROMModels[hex.EncodeToString(sum[:])]; ok {
+		return m
 	}
-
-	// calculate checksum
-	bootChecksum := md5.Sum(b)
-
-	return &ROM{
-		raw:      b,
-		checksum: hex.EncodeToString(bootChecksum[:]),
-	}
-}
-
-// Read returns the byte at the given address.
-func (b *ROM) Read(addr uint16) byte {
-	return b.raw[addr]
-}
-
-// Checksum returns the MD5 checksum of the boot rom.
-func (b *ROM) Checksum() string {
-	if b == nil {
-		return ""
-	}
-	return b.checksum
-}
-
-// Model returns the model of the boot rom. The model
-// is determined by the checksum of the boot rom.
-func (b *ROM) Model() string {
-	if b == nil {
-		return "none"
-	}
-	if model, ok := knownBootROMChecksums[b.checksum]; ok {
-		return model
-	}
-	return "unknown"
-}
-
-// knownBootROMChecksums is a map of known boot rom checksums,
-// with the key being the checksum, and the value being the
-// model of the boot rom.
-var knownBootROMChecksums = map[string]string{
-	DMG0:         "Game Boy (DMG-0)",
-	DMG:          "Game Boy (DMG-01)",
-	MGB:          "Game Boy Pocket",
-	SGB:          "Super Game Boy",
-	SGB2:         "Super Game Boy 2",
-	CGB0:         "Game Boy Color (CGB-0)",
-	CGB:          "Game Boy Color (CGB-A/B/C/D/E)",
-	CGB_AGB:      "Game Boy Advance (AGB-001)",
-	FORTUNE:      "Fortune/Bitman 3000B",
-	GAME_FIGHTER: "Game Fighter",
-	MAX_STATION:  "Max Station",
+	return types.DMGABC
 }
 
 const (

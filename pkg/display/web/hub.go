@@ -87,7 +87,7 @@ func (w *hub) run() error {
 
 	// web server
 	go func() {
-		log.Fatal(http.ListenAndServe("192.168.1.154:8090", nil))
+		log.Fatal(http.ListenAndServe(":8090", nil))
 	}()
 
 	// periodic info updates

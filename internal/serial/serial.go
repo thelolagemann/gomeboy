@@ -1,7 +1,7 @@
 package serial
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/interrupts"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -31,15 +31,12 @@ const (
 //
 // Where o0-o7 are the outgoing bits, and i0-i7 are the incoming bits.
 type Controller struct {
-	data    uint8 // holds the data register, AKA types.SB.
-	control uint8 // holds the control register, AKA types.SC.
-
 	count           uint8 // the number of bits that have been transferred.
 	InternalClock   bool  // if true, this controller is the master.
 	TransferRequest bool  // if true, a transfer has been requested.
 
-	irq            *interrupts.Service // the interrupt service.
-	AttachedDevice Device              // the device that is attached to this controller.
+	b              *io.Bus
+	AttachedDevice Device // the device that is attached to this controller.
 
 	s *scheduler.Scheduler // the scheduler.
 }
@@ -56,22 +53,22 @@ func (c *Controller) Attach(d Device) {
 // By default, the Controller is attached to a nullDevice, which acts as if
 // there is no device attached. This is the same as if the device is not
 // plugged in. If you want to attach a device, use the Controller.Attach method.
-func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller {
+func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 	c := &Controller{
-		irq:            irq,
+		b:              b,
 		AttachedDevice: nullDevice{},
 		s:              s,
 	}
-	types.RegisterHardware(types.SB, func(v uint8) {
-		c.data = v
-	}, func() uint8 {
-		return c.data
+	b.ReserveAddress(types.SB, func(v byte) byte {
+		return v
 	})
-	types.RegisterHardware(types.SC, func(v uint8) {
-		if c.control == v|0x7E {
-			return
+	b.ReserveAddress(types.SC, func(v byte) byte {
+		if b.Get(types.SC) == v|0x7e {
+			// some games appear to write before the last transfer finished, causing
+			// the transfer to start looping - likely bc of my cursed serial interrupt
+			// timing
+			return v | 0x7e
 		}
-		c.control = v | 0x7E // bits 1-6 are always set
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
 
@@ -89,27 +86,28 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 			ticksToGo := s.SysClock() & (ticksPerBit - 1)
 			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
 		}
-	}, func() uint8 {
-		return c.control | 0x7E
+
+		return v | 0x7E // bits 1-6 are always set
 	})
+	b.Set(types.SC, 0x7E) // bits 1-6 are unused
 
 	s.RegisterEvent(scheduler.SerialBitTransfer, func() {
 		var bit bool
 		if c.AttachedDevice != nil {
 			bit = c.AttachedDevice.Send()
-			c.AttachedDevice.Receive(c.data&types.Bit7 == types.Bit7)
+			c.AttachedDevice.Receive(c.b.Get(types.SB)&types.Bit7 == types.Bit7)
 		}
 
-		c.data = c.data << 1
+		c.b.Set(types.SB, c.b.Get(types.SB)<<1)
 		if bit {
-			c.data |= 1
+			c.b.Set(types.SB, c.b.Get(types.SB)|1)
 		}
 
 		c.count++
 		if c.count == 8 {
 			c.count = 0
 			c.TransferRequest = false
-			c.control &^= types.Bit7
+			c.b.ClearBit(types.SC, types.Bit7)
 		} else if c.count == 7 {
 			// schedule interrupt to happen 1 cycle before count reaches 8 (TODO find out why, possibly the CPU interrupt handling?)
 			s.ScheduleEvent(scheduler.SerialBitInterrupt, ticksPerBit-4)
@@ -119,7 +117,7 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 		}
 	})
 	s.RegisterEvent(scheduler.SerialBitInterrupt, func() {
-		c.irq.Request(interrupts.SerialFlag)
+		c.b.RaiseInterrupt(io.SerialINT)
 	})
 	return c
 }
@@ -129,10 +127,10 @@ func NewController(irq *interrupts.Service, s *scheduler.Scheduler) *Controller 
 func (c *Controller) checkTransfer() {
 	if c.count++; c.count == 8 {
 		c.count = 0
-		c.irq.Request(interrupts.SerialFlag)
+		c.b.Set(types.IF, io.SerialINT)
 
 		// clear transfer request
-		c.control &^= types.Bit7
+		c.b.Set(types.SC, c.b.Get(types.SC)&^types.Bit7)
 		c.TransferRequest = false
 	}
 }
@@ -146,16 +144,16 @@ func (c *Controller) Send() bool {
 	if c.InternalClock {
 		return true
 	}
-	return (c.data & types.Bit7) == types.Bit7
+	return (c.b.Get(types.SB) & types.Bit7) == types.Bit7
 }
 
 // Receive receives a bit from the attached device, and shifts it into
 // the data register. If the caller is the master, it does nothing.
 func (c *Controller) Receive(bit bool) {
 	if !c.InternalClock {
-		c.data = c.data << 1
+		c.b.Set(types.SB, c.b.Get(types.SB)<<1)
 		if bit {
-			c.data |= 1
+			c.b.Set(types.SB, c.b.Get(types.SB)|1)
 		}
 		c.checkTransfer()
 	}
@@ -172,9 +170,6 @@ var _ types.Stater = (*Controller)(nil)
 //   - count (uint8)
 //   - InternalClock (bool)
 func (c *Controller) Load(s *types.State) {
-	c.data = s.Read8()
-	c.control = s.Read8()
-
 	c.TransferRequest = s.ReadBool()
 	c.count = s.Read8()
 	c.InternalClock = s.ReadBool()
@@ -189,9 +184,6 @@ func (c *Controller) Load(s *types.State) {
 //   - count (uint8)
 //   - InternalClock (bool)
 func (c *Controller) Save(s *types.State) {
-	s.Write8(c.data)
-	s.Write8(c.control)
-
 	s.WriteBool(c.TransferRequest)
 	s.Write8(c.count)
 	s.WriteBool(c.InternalClock)

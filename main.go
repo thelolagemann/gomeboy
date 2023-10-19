@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/audio"
@@ -86,7 +86,6 @@ func main() {
 	opts = append(opts, gameboy.Speed(*speed))
 	// create a new gameboy
 	opts = append(opts, gameboy.WithLogger(logger))
-	opts = append(opts, gameboy.Debug())
 	gb := gameboy.NewGameBoy(rom, opts...)
 
 	if err := audio.OpenAudio(); err != nil {
@@ -110,8 +109,8 @@ func main() {
 
 	// create various channels
 	events := make(chan event.Event, 60)
-	pressed := make(chan joypad.Button, 10)
-	released := make(chan joypad.Button, 10)
+	pressed := make(chan io.Button, 10)
+	released := make(chan io.Button, 10)
 
 	// start gameboy in a goroutine
 	go gb.Start(fb, events, pressed, released)

@@ -2,6 +2,8 @@ package cartridge
 
 import (
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/io"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"strings"
 )
 
@@ -120,6 +122,10 @@ type Header struct {
 	GlobalChecksum  uint16
 
 	raw [0x50]byte
+
+	ColourisationPalette palette.CompatibilityPaletteEntry
+
+	b *io.Bus
 }
 
 func (h *Header) Destination() string {
@@ -160,6 +166,8 @@ func parseHeader(header []byte) *Header {
 		h.CartridgeGBMode = FlagOnlyCGB
 	default:
 		h.CartridgeGBMode = FlagOnlyDMG
+
+		h.ColourisationPalette = palette.LoadColourisationPalette(header[0x34:0x44])
 	}
 
 	// parse the title
@@ -205,6 +213,7 @@ func parseHeader(header []byte) *Header {
 	// parse the global checksum
 	h.GlobalChecksum = uint16(header[0x4E]) | uint16(header[0x4F])<<8
 
+	fmt.Println(h.CartridgeType.String())
 	return h
 }
 
@@ -233,7 +242,7 @@ func (h *Header) Licensee() string {
 }
 
 func (h *Header) String() string {
-	return fmt.Sprintf("%s (%s) | mode: %s | ROM Size: %dkB | RAM Size: %dkB | Cart Type: %d", h.Title, h.Licensee(), h.Hardware(), h.ROMSize/1024, h.RAMSize/1024, h.CartridgeType)
+	return fmt.Sprintf("%s (%s) | mode: %s | ROM Size: %dkB | RAM Size: %dkB | Cart Type: %d | Mode: %s", h.Title, h.Licensee(), h.Hardware(), h.ROMSize/1024, h.RAMSize/1024, h.CartridgeType, h.Hardware())
 }
 
 // oldLicenseeCodeMap maps the old licensee code to the licensee name,

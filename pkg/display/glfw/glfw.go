@@ -3,7 +3,7 @@ package glfw
 import (
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/pkg/display"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -59,15 +59,15 @@ func init() {
 }
 
 var (
-	joypadKeys = map[glfw.Key]joypad.Button{
-		glfw.KeyA:         joypad.ButtonA,
-		glfw.KeyB:         joypad.ButtonB,
-		glfw.KeyDown:      joypad.ButtonDown,
-		glfw.KeyUp:        joypad.ButtonUp,
-		glfw.KeyLeft:      joypad.ButtonLeft,
-		glfw.KeyRight:     joypad.ButtonRight,
-		glfw.KeyEnter:     joypad.ButtonStart,
-		glfw.KeyBackspace: joypad.ButtonSelect,
+	joypadKeys = map[glfw.Key]io.Button{
+		glfw.KeyA:         io.ButtonA,
+		glfw.KeyB:         io.ButtonB,
+		glfw.KeyDown:      io.ButtonDown,
+		glfw.KeyUp:        io.ButtonUp,
+		glfw.KeyLeft:      io.ButtonLeft,
+		glfw.KeyRight:     io.ButtonRight,
+		glfw.KeyEnter:     io.ButtonStart,
+		glfw.KeyBackspace: io.ButtonSelect,
 	}
 )
 
@@ -96,7 +96,7 @@ func (g *glfwDriver) Initialize(e display.Emulator) {
 }
 
 // Start starts the display driver.
-func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, pressed, released chan<- joypad.Button) error {
+func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, pressed, released chan<- io.Button) error {
 	// create window
 	window, err := glfw.CreateWindow(int(160*g.scale), int(144*g.scale), "GomeBoy", nil, nil)
 	if err != nil {

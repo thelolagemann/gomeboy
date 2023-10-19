@@ -2,7 +2,7 @@ package tests
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
@@ -41,7 +41,7 @@ func (iT *inputTest) Passed() bool {
 
 type testInput struct {
 	// the button to press
-	button joypad.Button
+	button io.Button
 	// the frame to press the button
 	atEmulatedCycle uint64
 }
@@ -61,8 +61,8 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)
 		events := make(chan event.Event, 144)
-		pressed := make(chan joypad.Button, 10)
-		released := make(chan joypad.Button, 10)
+		pressed := make(chan io.Button, 10)
+		released := make(chan io.Button, 10)
 
 		// sort the inputs by cycle (so we can press them in order)
 		sort.Slice(inputs, func(i, j int) bool {

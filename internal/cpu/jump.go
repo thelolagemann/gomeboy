@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 // call pushes the address of the next instruction onto the stack and jumps to
@@ -82,20 +83,20 @@ func (c *CPU) ret(condition bool) {
 
 // push a 16-bit value onto the stack.
 func (c *CPU) push(high, low uint8) {
-	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.ppu.Mode == lcd.OAM {
+	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
 		c.ppu.WriteCorruptionOAM()
 	}
 	c.SP--
-	c.writeByte(c.SP, high)
+	c.b.ClockedWrite(c.SP, high)
 	c.SP--
-	c.writeByte(c.SP, low)
+	c.b.ClockedWrite(c.SP, low)
 }
 
 // pop a 16 bit value off the stack.
 func (c *CPU) pop(high *uint8, low *uint8) {
-	*low = c.readByte(c.SP)
+	*low = c.b.ClockedRead(c.SP)
 	c.SP++
-	*high = c.readByte(c.SP)
+	*high = c.b.ClockedRead(c.SP)
 	c.SP++
 }
 

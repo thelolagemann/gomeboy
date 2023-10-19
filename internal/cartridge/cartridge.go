@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/io"
 )
 
 type Cartridge struct {
@@ -36,12 +37,13 @@ func (c *Cartridge) Filename() string {
 	return fmt.Sprintf("%s", hex.EncodeToString(hash[:]))
 }
 
-func NewCartridge(rom []byte) *Cartridge {
+func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 	if len(rom) < 0x150 {
 		return NewEmptyCartridge()
 	}
 	// parse the cartridge header (0x0100 - 0x014F)
 	header := parseHeader(rom[0x100:0x150])
+	header.b = b
 
 	// print some information about the cartridge
 	cart := &Cartridge{header: header}
@@ -63,6 +65,15 @@ func NewCartridge(rom []byte) *Cartridge {
 	// calculate the md5 hash of the cartridge
 	hash := md5.Sum(rom)
 	cart.MD5 = hex.EncodeToString(hash[:])
+
+	for i := 0; i < 8; i++ {
+		b.ReserveBlockWriter(uint16(i*0x1000), cart.Write)
+	}
+	b.ReserveBlockWriter(0xA000, cart.Write)
+	b.ReserveBlockWriter(0xB000, cart.Write)
+
+	// set initial ROM contents
+	b.CopyTo(0x0000, 0x8000, rom)
 
 	return cart
 }

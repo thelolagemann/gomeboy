@@ -36,61 +36,36 @@ var latchedPalette = Greyscale
 var requestPaletteChange = false
 
 // ColourPalettes maps the shades of a palette to their RGBA values.
-var ColourPalettes = []Colour{
+var ColourPalettes = []Palette{
 	// Greyscale
 	{
-		{0xFF, 0xFF, 0xFF, 0xFF},
-		{0xAA, 0xAA, 0xAA, 0xAA},
-		{0x55, 0x55, 0x55, 0x55},
-		{0x00, 0x00, 0x00, 0x00},
+		{0xFF, 0xFF, 0xFF},
+		{0xAA, 0xAA, 0xAA},
+		{0x55, 0x55, 0x55},
+		{0x00, 0x00, 0x00},
 	},
 	// Green (mimics original)
 	{
-		{0x9B, 0xBC, 0x0F, 0xFF},
-		{0x8B, 0xAC, 0x0F, 0xFF},
-		{0x30, 0x62, 0x30, 0xFF},
-		{0x0F, 0x38, 0x0F, 0xFF},
+		{0x9B, 0xBC, 0x0F},
+		{0x8B, 0xAC, 0x0F},
+		{0x30, 0x62, 0x30},
+		{0x0F, 0x38, 0x0F},
 	},
-}
-
-// GetColour returns the colour based on the colour index and the
-// Current palette.
-func GetColour(index uint8) [3]uint8 {
-	return [3]uint8{ColourPalettes[Current][index].R, ColourPalettes[Current][index].G, ColourPalettes[Current][index].B}
 }
 
 // ByteToPalette creates a new palette from a byte, using the
 // selected palette as a base.
-func ByteToPalette(b byte) Palette {
+func ByteToPalette(colourPalette Palette, b byte) Palette {
 	var palette Palette
 	// get the first 2 bits
-	palette[0] = GetColour(b & 0x03)
+	palette[0] = colourPalette[b&0x3]
 	// get the second 2 bits
-	palette[1] = GetColour((b >> 2) & 0x03)
+	palette[1] = colourPalette[(b>>2)&0x3]
 	// get the third 2 bits
-	palette[2] = GetColour((b >> 4) & 0x03)
+	palette[2] = colourPalette[(b>>4)&0x3]
 	// get the fourth 2 bits
-	palette[3] = GetColour((b >> 6) & 0x03)
+	palette[3] = colourPalette[(b>>6)&0x3]
 	return palette
-}
-
-// ToByte converts a palette to a byte, using the
-// selected palette as a base.
-//
-// TODO The logic here is incredibly inefficient. It should be
-// possible to do this in a single loop.
-func (p Palette) ToByte() byte {
-	var b byte
-
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 4; j++ {
-			if p[i] == GetColour(uint8(j)) {
-				b |= uint8(j) << (i * 2)
-			}
-		}
-	}
-
-	return b
 }
 
 func (p Palette) GetColour(index uint8) [3]uint8 {
