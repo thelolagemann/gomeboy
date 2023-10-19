@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/92/?scale=100&title=passing%20168,%20failing%2014&width=500)
+![progress](https://progress-bar.dev/92/?scale=100&title=passing%20169,%20failing%2013&width=500)
 
-#### This document was automatically generated from commit 70d600a4
+#### This document was automatically generated from commit 99045eec
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -36,7 +36,7 @@ is compared against a reference image from a known good emulator.
 | bully | 50% | 1 | 1 | 2 |
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
-| mooneye | 97% | 111 | 3 | 114 |
+| mooneye | 98% | 112 | 2 | 114 |
 | samesuite | 46% | 6 | 7 | 13 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -184,7 +184,7 @@ Explore the individual tests for each suite using the table of contents below.
 | tellinglys | ✅ |
 | tellinglys-cgb | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/97/?scale=100&title=passing%20111,%20failing%203&width=500)
+![progress](https://progress-bar.dev/98/?scale=100&title=passing%20112,%20failing%202&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -349,7 +349,7 @@ Explore the individual tests for each suite using the table of contents below.
 | Test | Passing |
 | ---- | ------- |
 | sprite_priority | ✅ |
-| sprite_priority | ❌ |
+| sprite_priority | ✅ |
 # samesuite
 ![progress](https://progress-bar.dev/46/?scale=100&title=passing%206,%20failing%207&width=500)
 ## apu
