@@ -141,7 +141,6 @@ var InstructionSet = [256]Instruction{
 			if c.b.Model() == types.CGB0 || c.b.Model() == types.CGBABC &&
 				c.b.Get(types.KEY1)&types.Bit0 == types.Bit0 {
 				// TODO unimplemented
-
 				c.doubleSpeed = !c.doubleSpeed
 				c.s.ChangeSpeed(c.doubleSpeed)
 
@@ -150,6 +149,9 @@ var InstructionSet = [256]Instruction{
 				} else {
 					c.b.ClearBit(types.KEY1, types.Bit7)
 				}
+
+				// clear armed bit
+				c.b.ClearBit(types.KEY1, types.Bit0)
 			}
 		},
 	},

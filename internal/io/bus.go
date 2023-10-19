@@ -156,12 +156,9 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 			return 0xFF
 		})
 		b.ReserveAddress(types.KEY1, func(v byte) byte {
-			// only least significant bit is writable
-			// TODO handle speed switching
-
-			// KEY1 always reads 0xFF?
-			return 0xFF
+			return b.Get(types.KEY1)&types.Bit7 | v&0x1 | 0x7e
 		})
+		b.Set(types.KEY1, 0x7e)
 
 		// setup hdma registers
 		b.ReserveAddress(types.HDMA1, func(v byte) byte {
@@ -243,12 +240,15 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
 			// copy currently banked data to WRAM
 			copy(b.wRAM[b.data[types.SVBK]&0x7][:], b.data[0xD000:0xE000])
-
+			if v == 0 {
+				v = 1
+			}
 			// copy WRAM to currently banked data
 			copy(b.data[0xD000:0xE000], b.wRAM[v&0x7][:])
 
 			return v | 0b1111_1000
 		})
+		b.Set(types.SVBK, 0xF9)
 
 		for _, f := range b.gbcCartHandlers {
 			f()
