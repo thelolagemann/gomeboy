@@ -84,7 +84,7 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 
 func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	b.model = m
-	b.isGBC = (m == types.CGBABC || m == types.CGB0) && cartCGB
+	b.isGBC = m == types.CGBABC || m == types.CGB0
 	b.isGBCCart = cartCGB
 
 	b.ReserveAddress(types.DMA, func(v byte) byte {
@@ -202,11 +202,6 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 		}
 	}
 
-	b.writeHandlers[types.LCDC&0xFF](0x91)
-	b.writeHandlers[types.STAT&0xFF](0x87)
-	b.writeHandlers[types.BGP&0xFF](0xFC)
-	b.data[types.IF] = 0xE1
-
 	b.apuRead = apuRead
 }
 
@@ -268,6 +263,10 @@ func (b *Bus) Boot() {
 	// handle special case registers
 	b.data[types.BDIS] = 0xFF
 	b.bootROMDone = true
+	b.writeHandlers[types.LCDC&0xFF](0x91)
+	b.writeHandlers[types.STAT&0xFF](0x87)
+	b.writeHandlers[types.BGP&0xFF](0xFC)
+	b.data[types.IF] = 0xE1
 }
 
 // ReserveAddress reserves a memory address on the bus.
@@ -313,6 +312,14 @@ func (b *Bus) Write(addr uint16, value byte) {
 			// and it should always read 0xFF
 			b.bootROMDone = true
 			value = 0xFF
+
+			// copy rom contents back
+			b.CopyTo(0, 0x900, b.data[0xE000:0xE900])
+
+			// load colourisation palette into PPU (if in CGB mode with a DMG cart)
+			if b.isGBC && !b.isGBCCart {
+				b.Write(0xFF7F, 0xFF)
+			}
 		case types.IF:
 			value = value | 0xE0 // upper bits are always 1
 		default:
@@ -336,7 +343,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 			return
 		// 0x8000 - 0x9FFF VRAM
 		case addr >= 0x8000 && addr <= 0x9FFF:
-			// if locked or value is not changed, return
+			// if locked, return
 			if b.wLocks[addr&0x8000] {
 				return
 			}
@@ -483,6 +490,7 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 	// If a DMA is active and transferring from a bus, any reads
 	// will return the last transferred byte
 	case b.isDMATransferring() && b.dmaConflicts[addr>>12]:
+
 		return b.dmaConflict
 	// VRAM can be read locked by the PPU
 	case addr >= 0x8000 && addr <= 0x9FFF:

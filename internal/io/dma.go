@@ -31,6 +31,7 @@ func (b *Bus) startDMATransfer() {
 // PPU's OAM.
 // todo conflict
 // todo oam changed
+// todo increment
 func (b *Bus) doDMATransfer() {
 	// handle restarting latch
 	b.dmaRestarting = false
@@ -52,15 +53,22 @@ func (b *Bus) doDMATransfer() {
 	b.oamChanged = true
 }
 
+// isDMATransferring returns true if the CPU is currently
+// executing a DMA transfer.
 func (b *Bus) isDMATransferring() bool {
 	return b.dmaActive || b.dmaRestarting
 }
 
+// OAMChanged returns true when the OAM memory is updated.
+// This is used by the PPU to determine when to recalculate
+// its sprites.
 func (b *Bus) OAMChanged() bool {
 	return b.oamChanged
 }
 
+// OAMCatchup sets the OAMChanged flag to false. This is used
+// by the PPU to indicate to the bus that it has caught up to
+// the current values in the OAM.
 func (b *Bus) OAMCatchup() {
-
 	b.oamChanged = false
 }

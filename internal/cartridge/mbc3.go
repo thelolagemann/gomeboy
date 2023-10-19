@@ -194,8 +194,10 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 				m.ramBank = -1
 			}
 		} else if value <= 0x03 && m.ramEnabled {
-			// ram bank could change so we need to copy the bus to the ram
-			m.header.b.CopyFrom(0xA000, 0xC000, m.ram[m.ramBank*0x2000:])
+			if m.ramBank >= 0 {
+				// ram bank could change so we need to copy the bus to the ram
+				m.header.b.CopyFrom(0xA000, 0xC000, m.ram[m.ramBank*0x2000:])
+			}
 
 			m.ramBank = int32(value & 0x03)
 			if len(m.ram) <= 0 {

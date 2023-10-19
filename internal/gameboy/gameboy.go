@@ -64,6 +64,7 @@ type GameBoy struct {
 	Printer         *accessories.Printer
 	save            *emulator.Save
 	Scheduler       *scheduler.Scheduler
+	dontBoot        bool
 }
 
 func (g *GameBoy) State() emulator.State {
@@ -378,9 +379,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		opt(g)
 	}
 
-	sound.SetModel(g.model)
-	processor.SetModel(g.model)
-
 	// does the cartridge have RAM? (and therefore a save file)
 	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok && cart.Header().RAMSize > 0 {
 		// try to load the save file
@@ -408,26 +406,28 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 			ram.LoadRAM(g.save.Bytes())
 		}
 	}
+	if !g.dontBoot {
+		g.CPU.Boot(g.model)
+		g.b.Boot()
+
+		// handle colourisation
+		if !cart.Header().GameboyColor() && (g.model == types.CGBABC || g.model == types.CGB0) {
+			video.BGColourisationPalette = &palette.Palette{}
+			video.OBJ0ColourisationPalette = &palette.Palette{}
+			video.OBJ1ColourisationPalette = &palette.Palette{}
+			colourisationPalette := palette.LoadColourisationPalette([]byte(cart.Header().Title))
+
+			for i := 0; i < 4; i++ {
+				video.BGColourisationPalette[i] = colourisationPalette.BG[i]
+				video.OBJ0ColourisationPalette[i] = colourisationPalette.OBJ0[i]
+				video.OBJ1ColourisationPalette[i] = colourisationPalette.OBJ1[i]
+			}
+
+		}
+	}
 
 	// try to load cheats using filename of rom
 	g.b.Map(g.model, cart.Header().GameboyColor(), g.APU.Read)
-	g.CPU.Boot(g.model)
-	g.b.Boot()
-
-	// handle colourisation
-	if !cart.Header().GameboyColor() && (g.model == types.CGBABC || g.model == types.CGB0) {
-		video.BGColourisationPalette = &palette.Palette{}
-		video.OBJ0ColourisationPalette = &palette.Palette{}
-		video.OBJ1ColourisationPalette = &palette.Palette{}
-		colourisationPalette := palette.LoadColourisationPalette([]byte(cart.Header().Title))
-
-		for i := 0; i < 4; i++ {
-			video.BGColourisationPalette[i] = colourisationPalette.BG[i]
-			video.OBJ0ColourisationPalette[i] = colourisationPalette.OBJ0[i]
-			video.OBJ1ColourisationPalette[i] = colourisationPalette.OBJ1[i]
-		}
-
-	}
 
 	return g
 }

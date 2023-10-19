@@ -233,6 +233,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 		p.dirtyBackground(bgp)
 
+		// if launched without a boot ROM, then check to see if a colourisation palette is loaded
 		if p.BGColourisationPalette != nil {
 			p.ColourPalette.Palettes[0] = palette.ByteToPalette(*p.BGColourisationPalette, v)
 		} else {
@@ -280,32 +281,37 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	b.WhenGBC(func() {
+		// special address handler for colourisation (not on real hardware)
+		b.ReserveAddress(0xFF7F, func(b byte) byte {
+			p.BGColourisationPalette = &palette.Palette{}
+			p.OBJ0ColourisationPalette = &palette.Palette{}
+			p.OBJ1ColourisationPalette = &palette.Palette{}
+			*p.BGColourisationPalette = p.ColourPalette.Palettes[0]
+			*p.OBJ0ColourisationPalette = p.ColourSpritePalette.Palettes[0]
+			*p.OBJ1ColourisationPalette = p.ColourSpritePalette.Palettes[1]
+
+			return 0xff
+		})
 		// setup CGB only registers
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
-			if p.b.IsGBCCart() {
-				p.ColourPalette.SetIndex(v)
-				p.dirtyBackground(bcps)
-				p.b.Set(types.BCPD, p.ColourPalette.Read())
-				return p.ColourPalette.GetIndex() | 0x40
-			}
+			p.ColourPalette.SetIndex(v)
+			p.dirtyBackground(bcps)
+			p.b.Set(types.BCPD, p.ColourPalette.Read())
+			return p.ColourPalette.GetIndex() | 0x40
 
-			return 0xFF
 		})
 		b.ReserveSetAddress(types.BCPS, func(a any) {
 			p.ColourPalette.SetIndex(a.(byte))
 			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
-			if p.b.IsGBCCart() {
-				p.ColourPalette.Write(v)
-				p.dirtyBackground(bcpd)
+			p.ColourPalette.Write(v)
+			p.dirtyBackground(bcpd)
 
-				// update bcps
-				p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
-				return p.ColourPalette.Read()
-			}
+			// update bcps
+			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
+			return p.ColourPalette.Read()
 
-			return 0xFF
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
@@ -325,14 +331,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.OCPS, a.(byte)|0x40)
 		})
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
-			if p.b.IsGBCCart() {
-				p.ColourSpritePalette.Write(v)
-				p.dirtyBackground(ocpd)
-				p.b.Set(types.OCPS, p.ColourSpritePalette.GetIndex()|0x40)
-				return p.ColourSpritePalette.Read()
-			}
+			p.ColourSpritePalette.Write(v)
+			p.dirtyBackground(ocpd)
+			p.b.Set(types.OCPS, p.ColourSpritePalette.GetIndex()|0x40)
+			return p.ColourSpritePalette.Read()
 
-			return 0xFF
 		})
 		b.Set(types.OCPD, p.ColourSpritePalette.Read())
 
@@ -1058,13 +1061,10 @@ func (p *PPU) renderBackgroundScanline() {
 	var scanline [ScreenWidth][3]uint8
 
 	for i := uint8(0); i < ScreenWidth; i++ {
-		if p.Debug.BackgroundDisabled {
-			scanline[i] = [3]uint8{255, 255, 255}
-		} else {
-			// set scanline using unsafe to copy 4 bytes at a time
-			//scanline[i] = pal[colourLUT[xPixelPos]]
-			*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
-		}
+		// set scanline using unsafe to copy 4 bytes at a time
+		//scanline[i] = pal[colourLUT[xPixelPos]]
+		*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
+
 		bgPriorityLine[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]
 

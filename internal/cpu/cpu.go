@@ -27,11 +27,11 @@ type CPU struct {
 	instructions   [256]func(cpu *CPU)
 	instructionsCB [256]func(cpu *CPU)
 
-	hasFrame bool
 	s        *scheduler.Scheduler
 	model    types.Model
 	ppu      *ppu.PPU
 	stopped  bool
+	hasFrame bool
 }
 
 func (c *CPU) SetModel(model types.Model) {

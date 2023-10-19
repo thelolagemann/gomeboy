@@ -1,6 +1,7 @@
 package gameboy
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -71,21 +72,26 @@ func WithState(b []byte) Opt {
 // WithBootROM sets the boot ROM for the emulator.
 func WithBootROM(rom []byte) Opt {
 	return func(gb *GameBoy) {
-		// if we have a boot ROM, we need to reset the CPU
-		// otherwise the emulator will start at 0x100 with
-		// the registers set to the values upon completion
-		// of the boot ROM
-		gb.CPU.PC = 0x0000
-		gb.CPU.SP = 0x0000
-		gb.CPU.A = 0x00
-		gb.CPU.F = 0x00
-		gb.CPU.B = 0x00
-		gb.CPU.C = 0x00
-		gb.CPU.D = 0x00
-		gb.CPU.E = 0x00
-		gb.CPU.H = 0x00
-		gb.CPU.L = 0x0
+		// flag the gameboy not to lle the boot process
+		gb.dontBoot = true
 
+		// this is a cheeky hack to handle remapping the rom
+		// copy to the WRAM mirror (which *should* never be accessed
+		// by the bus as reads will wrap around) then on writes
+		// to types.BDIS the rom contents will be copied back
+		romContents := make([]byte, 0x0900)
+		gb.b.CopyFrom(0, 0x0900, romContents)
+		gb.b.CopyTo(0xE000, 0xE900, romContents)
+
+		// is it a DMG or CGB boot ROM?
+		if len(rom) == 0x100 {
+			gb.b.CopyTo(0, 0x0100, rom)
+		} else if len(rom) == 0x900 {
+			gb.b.CopyTo(0, 0x0100, rom)
+			gb.b.CopyTo(0x0200, 0x0900, rom[0x200:])
+		}
+
+		gb.model = io.Which(rom)
 	}
 }
 

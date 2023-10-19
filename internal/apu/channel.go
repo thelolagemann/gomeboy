@@ -1,7 +1,6 @@
 package apu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -38,7 +37,6 @@ func whenEnabled(a *APU, addr uint16, f func(byte) byte) func(byte) byte {
 		if a.enabled {
 			return f(b)
 		}
-		fmt.Printf("APU IO Block %04x <- %02x\n", addr, b)
 		return a.b.Get(addr)
 	}
 }

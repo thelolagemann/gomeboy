@@ -3,7 +3,7 @@ package display
 import (
 	"flag"
 	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -29,7 +29,7 @@ type Driver interface {
 	// the emulator that is using it.
 	Initialize(emu Emulator)
 	// Start the display driver.
-	Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- joypad.Button) error
+	Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- io.Button) error
 	// Stop the display driver.
 	Stop() error
 }

@@ -32,5 +32,4 @@ func (p *PPU) dirtyBackground(cause dirtyCause) {
 	}
 	p.lastDirty++
 	p.backgroundDirty = true
-	// fmt.Println("dirty background", cause, p.CurrentCycle)
 }

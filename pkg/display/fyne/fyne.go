@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	dialog2 "github.com/sqweek/dialog"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -64,7 +64,7 @@ func (f *fyneDriver) Initialize(gb display.Emulator) {
 	f.gb = gb
 }
 
-func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed chan<- joypad.Button, released chan<- joypad.Button) error {
+func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed chan<- io.Button, released chan<- io.Button) error {
 	// create new fyne application
 	fyneApp := app.NewWithID("gomeboy.thelolagemann.com")
 
@@ -471,15 +471,15 @@ func (f *fyneDriver) newWindow(name string, view View) fyne.Window {
 	return b
 }
 
-var keyMap = map[fyne.KeyName]joypad.Button{
-	fyne.KeyA:         joypad.ButtonA,
-	fyne.KeyB:         joypad.ButtonB,
-	fyne.KeyUp:        joypad.ButtonUp,
-	fyne.KeyDown:      joypad.ButtonDown,
-	fyne.KeyLeft:      joypad.ButtonLeft,
-	fyne.KeyRight:     joypad.ButtonRight,
-	fyne.KeyReturn:    joypad.ButtonStart,
-	fyne.KeyBackspace: joypad.ButtonSelect,
+var keyMap = map[fyne.KeyName]io.Button{
+	fyne.KeyA:         io.ButtonA,
+	fyne.KeyB:         io.ButtonB,
+	fyne.KeyUp:        io.ButtonUp,
+	fyne.KeyDown:      io.ButtonDown,
+	fyne.KeyLeft:      io.ButtonLeft,
+	fyne.KeyRight:     io.ButtonRight,
+	fyne.KeyReturn:    io.ButtonStart,
+	fyne.KeyBackspace: io.ButtonSelect,
 }
 
 var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
@@ -523,7 +523,6 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 		fmt.Printf("APU: %d\n", unsafe.Sizeof(*gb.APU))
 		fmt.Printf("Timer: %d\n", unsafe.Sizeof(gb.Timer))
 		//fmt.Printf("Cartridge: %d\n", unsafe.Sizeof(*gb.MMU.Cart))
-		fmt.Printf("Joypad: %d\n", unsafe.Sizeof(*gb.Joypad))
 		fmt.Printf("GameBoy: %d\n", unsafe.Sizeof(*gb))
 
 		// print the size of the various types used throughout the gameboy

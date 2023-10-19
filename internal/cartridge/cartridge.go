@@ -73,9 +73,7 @@ func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 	b.ReserveBlockWriter(0xB000, cart.Write)
 
 	// set initial ROM contents
-	for i := 0; i < 0x8000; i++ {
-		b.Set(uint16(i), rom[i])
-	}
+	b.CopyTo(0x0000, 0x8000, rom)
 
 	return cart
 }

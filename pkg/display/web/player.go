@@ -6,7 +6,7 @@ import (
 	"github.com/cespare/xxhash"
 	"github.com/google/brotli/go/cbrotli"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/joypad"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/pkg/display"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
@@ -68,7 +68,7 @@ type Player struct {
 	clientSync    chan *Client
 
 	gb                     display.Emulator
-	pressed, release       chan<- joypad.Button
+	pressed, release       chan<- io.Button
 	patchCache, frameCache *cache
 	currentFrame           []byte
 
@@ -83,7 +83,7 @@ func (p *Player) Attach(gb *gameboy.GameBoy) {
 	p.gb = gb
 }
 
-func (p *Player) Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- joypad.Button) error {
+func (p *Player) Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- io.Button) error {
 	// setup keys
 	p.pressed = pressed
 	p.release = released
