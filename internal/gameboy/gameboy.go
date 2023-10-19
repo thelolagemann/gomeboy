@@ -379,6 +379,9 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		opt(g)
 	}
 
+	processor.SetModel(g.model)
+	sound.SetModel(g.model)
+
 	// does the cartridge have RAM? (and therefore a save file)
 	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok && cart.Header().RAMSize > 0 {
 		// try to load the save file
@@ -406,6 +409,8 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 			ram.LoadRAM(g.save.Bytes())
 		}
 	}
+	// try to load cheats using filename of rom
+	g.b.Map(g.model, cart.Header().GameboyColor(), g.APU.Read)
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
 		g.b.Boot()
@@ -425,9 +430,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 		}
 	}
-
-	// try to load cheats using filename of rom
-	g.b.Map(g.model, cart.Header().GameboyColor(), g.APU.Read)
 
 	return g
 }

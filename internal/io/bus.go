@@ -84,7 +84,7 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 
 func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	b.model = m
-	b.isGBC = m == types.CGBABC || m == types.CGB0
+	b.isGBC = (m == types.CGBABC || m == types.CGB0)
 	b.isGBCCart = cartCGB
 
 	b.ReserveAddress(types.DMA, func(v byte) byte {
@@ -139,7 +139,7 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	})
 
 	// setup CGB only registers
-	if b.isGBC {
+	if b.isGBC && b.isGBCCart {
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -203,6 +203,7 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	}
 
 	b.apuRead = apuRead
+	b.data[0xff7f] = 0xff
 }
 
 // Boot sets up the bus to the state that it would be
@@ -308,6 +309,9 @@ func (b *Bus) Write(addr uint16, value byte) {
 
 			value = d
 		case types.BDIS:
+			if b.bootROMDone {
+				return
+			}
 			// any write to BDIS will unmap the boot ROM,
 			// and it should always read 0xFF
 			b.bootROMDone = true
@@ -490,7 +494,6 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 	// If a DMA is active and transferring from a bus, any reads
 	// will return the last transferred byte
 	case b.isDMATransferring() && b.dmaConflicts[addr>>12]:
-
 		return b.dmaConflict
 	// VRAM can be read locked by the PPU
 	case addr >= 0x8000 && addr <= 0x9FFF:
@@ -522,4 +525,8 @@ func (b *Bus) ClockedWrite(address uint16, value byte) {
 	b.s.Tick(4)
 
 	b.Write(address, value)
+}
+
+func (b *Bus) IsBooting() bool {
+	return !b.bootROMDone
 }

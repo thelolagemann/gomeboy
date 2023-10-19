@@ -283,21 +283,27 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	b.WhenGBC(func() {
 		// special address handler for colourisation (not on real hardware)
 		b.ReserveAddress(0xFF7F, func(b byte) byte {
+			if p.BGColourisationPalette != nil {
+				return 0xff
+			}
 			p.BGColourisationPalette = &palette.Palette{}
 			p.OBJ0ColourisationPalette = &palette.Palette{}
 			p.OBJ1ColourisationPalette = &palette.Palette{}
 			*p.BGColourisationPalette = p.ColourPalette.Palettes[0]
 			*p.OBJ0ColourisationPalette = p.ColourSpritePalette.Palettes[0]
 			*p.OBJ1ColourisationPalette = p.ColourSpritePalette.Palettes[1]
-
 			return 0xff
 		})
 		// setup CGB only registers
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
-			p.ColourPalette.SetIndex(v)
-			p.dirtyBackground(bcps)
-			p.b.Set(types.BCPD, p.ColourPalette.Read())
-			return p.ColourPalette.GetIndex() | 0x40
+			if p.b.IsGBCCart() || p.b.IsBooting() {
+				p.ColourPalette.SetIndex(v)
+				p.dirtyBackground(bcps)
+				p.b.Set(types.BCPD, p.ColourPalette.Read())
+				return p.ColourPalette.GetIndex() | 0x40
+			}
+
+			return 0xff
 
 		})
 		b.ReserveSetAddress(types.BCPS, func(a any) {
@@ -305,12 +311,16 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
-			p.ColourPalette.Write(v)
-			p.dirtyBackground(bcpd)
+			if p.b.IsGBCCart() || p.b.IsBooting() {
+				p.ColourPalette.Write(v)
+				p.dirtyBackground(bcpd)
 
-			// update bcps
-			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
-			return p.ColourPalette.Read()
+				// update bcps
+				p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
+				return p.ColourPalette.Read()
+			}
+
+			return 0xff
 
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
@@ -331,10 +341,14 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.OCPS, a.(byte)|0x40)
 		})
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
-			p.ColourSpritePalette.Write(v)
-			p.dirtyBackground(ocpd)
-			p.b.Set(types.OCPS, p.ColourSpritePalette.GetIndex()|0x40)
-			return p.ColourSpritePalette.Read()
+			if p.b.IsGBCCart() || p.b.IsBooting() {
+				p.ColourSpritePalette.Write(v)
+				p.dirtyBackground(ocpd)
+				p.b.Set(types.OCPS, p.ColourSpritePalette.GetIndex()|0x40)
+				return p.ColourSpritePalette.Read()
+			}
+
+			return 0xff
 
 		})
 		b.Set(types.OCPD, p.ColourSpritePalette.Read())
@@ -454,7 +468,7 @@ func (p *PPU) continueGlitchedFirstLine() {
 	p.b.WLock(0xFE00)
 	p.b.WLock(0x8000)
 
-	if p.b.IsGBC() {
+	if p.b.IsGBCCart() {
 		p.b.Set(types.BCPD, 0xFF)
 	}
 
@@ -501,12 +515,12 @@ func (p *PPU) endVRAMTransfer() {
 	p.b.WUnlock(0xFE00)
 	p.b.WUnlock(0x8000)
 
-	if p.b.IsGBC() {
+	if p.b.IsGBCCart() {
 		p.b.Set(types.BCPD, p.ColourPalette.Read())
 	}
 	p.renderScanline()
 
-	if p.b.IsGBC() {
+	if p.b.IsGBCCart() {
 		if p.hdma.hdmaRemaining > 0 && !p.hdma.hdmaPaused {
 			p.b.Set(types.HDMA5, p.b.Get(types.HDMA5)&0x80|(p.hdma.hdmaRemaining-1)&0x7F)
 			p.hdma.newDMA(1)
@@ -584,7 +598,7 @@ func (p *PPU) endOAM() {
 	p.b.WLock(0xFE00)
 	p.b.WLock(0x8000)
 
-	if p.b.IsGBC() {
+	if p.b.IsGBCCart() {
 		p.b.Set(types.BCPD, 0xFF)
 	}
 
@@ -894,7 +908,7 @@ func (p *PPU) renderScanline() {
 	if p.b.Get(types.LY) >= ScreenHeight {
 		return
 	}
-	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.spriteScanlines[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBC()) {
+	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.spriteScanlines[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBCCart()) {
 		p.renderBackgroundScanline()
 
 		//fmt.Printf("%v rendered: %v sprite (dirty): %v (%v) background (dirty): %v (%v)\n", p.b.Get(types.LY), p.backgroundLineRendered[p.b.Get(types.LY)], p.oam.spriteScanlines[p.b.Get(types.LY)], p.oam.dirtyScanlines[p.b.Get(types.LY)], p.BackgroundEnabled, p.backgroundDirty)
