@@ -1401,6 +1401,7 @@ var InstructionSet = [256]Instruction{
 		"RETI",
 		func(c *CPU) {
 			c.ime = true
+			c.canFastStep = false
 			c.ret(true)
 		},
 	},
