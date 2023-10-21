@@ -2,6 +2,7 @@ package cartridge
 
 import (
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -67,8 +68,7 @@ func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridg
 		bank1:  0x01,
 	}
 	m.checkMultiCart()
-	m.header.b.RLock(0xA000)
-	m.header.b.WLock(0xA000)
+	m.header.b.Lock(io.RAM)
 	return m
 }
 
@@ -149,9 +149,9 @@ func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 			offset := uint16(m.bank2&0x03) * 0x2000 // only use the lower 2 bits
 			m.header.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
 		}
-		m.header.b.RUnlock(0xA000)
+		m.header.b.Unlock(io.RAM)
 	} else if !m.ramg {
-		m.header.b.RLock(0xA000)
+		m.header.b.Lock(io.RAM)
 	}
 }
 

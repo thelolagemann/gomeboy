@@ -118,10 +118,8 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.changeMode(lcd.HBlank)
 
 			// unlock OAM/VRAM
-			p.b.RUnlock(0xFE00)
-			p.b.WUnlock(0xFE00)
-			p.b.RUnlock(0x8000)
-			p.b.WUnlock(0x8000)
+			p.b.Unlock(io.OAM)
+			p.b.Unlock(io.VRAM)
 			p.b.Set(types.BCPD, p.ColourPalette.Read())
 
 		} else if !p.Enabled && v&types.Bit7 != 0 {
@@ -367,23 +365,22 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
 	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
-		p.b.RLock(0x8000)
+		p.b.RLock(io.VRAM)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
-		p.b.RUnlock(0x8000)
+		p.b.RUnlock(io.VRAM)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
-		p.b.WLock(0x8000)
+		p.b.WLock(io.VRAM)
 	})
 	s.RegisterEvent(scheduler.PPUVRAMWriteUnlocked, func() {
-		p.b.WUnlock(0x8000)
+		p.b.WUnlock(io.VRAM)
 	})
 	s.RegisterEvent(scheduler.PPUOAMLocked, func() {
-		p.b.RLock(0xFE00)
-		p.b.WLock(0xFE00)
+		p.b.Lock(io.OAM)
 	})
 	s.RegisterEvent(scheduler.PPUOAMUnlocked, func() {
-		p.b.WUnlock(0xFE00)
+		p.b.WUnlock(io.OAM)
 
 	})
 
@@ -461,10 +458,8 @@ func (p *PPU) changeMode(mode lcd.Mode) {
 // to the real hardware.
 func (p *PPU) continueGlitchedFirstLine() {
 	// OAM & VRAM are blocked until the end of VRAM transfer
-	p.b.RLock(0xFE00)
-	p.b.RLock(0x8000)
-	p.b.WLock(0xFE00)
-	p.b.WLock(0x8000)
+	p.b.Lock(io.OAM)
+	p.b.Lock(io.VRAM)
 
 	if p.b.IsGBCCart() {
 		p.b.Set(types.BCPD, 0xFF)
@@ -508,10 +503,8 @@ func (p *PPU) endVRAMTransfer() {
 	p.modeToInterrupt = lcd.HBlank
 	p.statUpdate()
 
-	p.b.RUnlock(0xFE00)
-	p.b.RUnlock(0x8000)
-	p.b.WUnlock(0xFE00)
-	p.b.WUnlock(0x8000)
+	p.b.Unlock(io.OAM)
+	p.b.Unlock(io.VRAM)
 
 	if p.b.IsGBCCart() {
 		p.b.Set(types.BCPD, p.ColourPalette.Read())
@@ -550,8 +543,8 @@ func (p *PPU) startOAM() {
 
 	// OAM read is blocked until the end of OAM search,
 	// OAM write is not blocked for another 4 cycles
-	p.b.RLock(0xFE00)
-	p.b.WUnlock(0xFE00)
+	p.b.RLock(io.OAM)
+	p.b.WUnlock(io.OAM)
 
 	p.s.ScheduleEvent(scheduler.PPUContinueOAMSearch, 4)
 }
@@ -567,7 +560,7 @@ func (p *PPU) continueOAM() {
 	p.modeToInterrupt = 255
 	p.statUpdate()
 
-	p.b.WLock(0xFE00)
+	p.b.WLock(io.OAM)
 
 	p.s.ScheduleEvent(scheduler.PPUVRAMReadLocked, 76)
 	p.s.ScheduleEvent(scheduler.PPUOAMUnlocked, 76)
@@ -583,10 +576,8 @@ func (p *PPU) endOAM() {
 	p.modeToInterrupt = lcd.VRAM
 	p.statUpdate()
 
-	p.b.RLock(0xFE00)
-	p.b.RLock(0x8000)
-	p.b.WLock(0xFE00)
-	p.b.WLock(0x8000)
+	p.b.Lock(io.OAM)
+	p.b.Lock(io.VRAM)
 
 	if p.b.IsGBCCart() {
 		p.b.Set(types.BCPD, 0xFF)

@@ -2,6 +2,7 @@ package cartridge
 
 import (
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"time"
 )
@@ -172,9 +173,9 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 			m.rtcEnabled = (value & 0xF) == 0xA
 		}
 		if m.ramEnabled {
-			m.header.b.RUnlock(0xA000)
+			m.header.b.Unlock(io.RAM)
 		} else {
-			m.header.b.RLock(0xA000)
+			m.header.b.Lock(io.RAM)
 		}
 	case address < 0x4000:
 		m.romBank = uint32(value)

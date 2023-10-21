@@ -61,7 +61,6 @@ func (m *MemoryBankedCartridge5) Write(address uint16, value uint8) {
 		// copy data from bank to bus
 		m.header.b.CopyTo(0x4000, 0x8000, m.rom[int(m.romBank)*0x4000:])
 	case address < 0x4000:
-
 		// ROM bank number (upper 1 bit)
 		m.romBank = m.romBank&0x00FF + uint16(value&0x1)<<8
 

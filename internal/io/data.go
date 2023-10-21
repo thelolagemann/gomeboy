@@ -48,3 +48,28 @@ type WriteHandler func(byte) byte
 
 // SetHandler is a function that handles setting a value at a memory address.
 type SetHandler func(any)
+
+// MemoryRegion represents a region of memory on the bus. This is currently
+// used to handle r/w locking on the bus.
+type MemoryRegion uint8
+
+const (
+	// VRAM 0x8000-0x9FFF
+	VRAM MemoryRegion = iota
+	// RAM 0xA000-0xBFFF
+	RAM
+	// OAM 0xFE00-0xFE9F
+	OAM
+)
+
+func (d MemoryRegion) BusLocks() []uint8 {
+	switch d {
+	case VRAM:
+		return []uint8{0x8, 0x9}
+	case RAM:
+		return []uint8{0xA, 0xB}
+	case OAM:
+		return []uint8{0xF}
+	}
+	return nil
+}

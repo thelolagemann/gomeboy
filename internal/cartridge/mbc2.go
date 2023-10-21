@@ -1,6 +1,7 @@
 package cartridge
 
 import (
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -30,7 +31,7 @@ func (m *MemoryBankedCartridge2) Save(s *types.State) {
 
 // NewMemoryBankedCartridge2 returns a new MemoryBankedCartridge2 cartridge.
 func NewMemoryBankedCartridge2(rom []byte, header *Header) *MemoryBankedCartridge2 {
-	header.b.Lock(0xA000)
+	header.b.Lock(io.RAM)
 	return &MemoryBankedCartridge2{
 		rom:    rom,
 		ram:    make([]byte, 512),
@@ -68,9 +69,9 @@ func (m *MemoryBankedCartridge2) Write(address uint16, value uint8) {
 				for i := 0; i < 16; i++ {
 					m.header.b.CopyTo(0xA000+(uint16(i)*0x200), 0xA200+(uint16(i)*0x200), m.ram)
 				}
-				m.header.b.Unlock(0xA000)
+				m.header.b.Unlock(io.RAM)
 			} else {
-				m.header.b.Lock(0xA000)
+				m.header.b.Lock(io.RAM)
 			}
 		}
 	case address >= 0xA000 && address <= 0xBFFF:
