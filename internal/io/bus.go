@@ -27,16 +27,15 @@ import (
 //		0xFF80 | 0xFFFE | High RAM
 //		0xFFFF | 0xFFFF | Interrupt Enable Register
 type Bus struct {
-	data       [0x10000]byte   // 64 KiB memory
-	lockedData [0x10000]byte   // 64 KiB memory lock buffer
-	wRAM       [8][0x1000]byte // 8 banks of 4 KiB each
-	vRAM       [2][0x2000]byte // 2 banks of 8 KiB each
+	data [0x10000]byte   // 64 KiB memory
+	wRAM [8][0x1000]byte // 8 banks of 4 KiB each
+	vRAM [2][0x2000]byte // 2 banks of 8 KiB each
 
 	apuRead func(addr uint16) byte
 
 	writeHandlers [0x100]WriteHandler
-	blockWriters  [16]func(uint16, byte)
 	setHandlers   [0x100]SetHandler
+	blockWriters  [16]func(uint16, byte)
 
 	model     types.Model
 	isGBC     bool
@@ -45,8 +44,6 @@ type Bus struct {
 
 	gbcHandlers     []func()
 	gbcCartHandlers []func()
-	rLocks          [0x10000]bool
-	wLocks          [0x10000]bool
 
 	// DMA related stuff
 	dmaSource, dmaDestination uint16
@@ -55,6 +52,8 @@ type Bus struct {
 	dmaEnabled                bool
 	oamChanged                bool
 	dmaConflicts              [16]bool
+	rLocks                    [16]bool
+	wLocks                    [16]bool
 
 	// HDMA/GDMA related stuff
 	hdmaSource, hdmaDestination uint16
@@ -73,6 +72,7 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 	b := &Bus{
 		s:           s,
 		gbcHandlers: make([]func(), 0),
+		dmaConflict: 0xff,
 	}
 
 	// setup DMA events
@@ -84,6 +84,7 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 
 		// clear any conflicts
 		b.dmaConflicts = noConflicts
+		b.dmaConflict = 0xff
 	})
 
 	return b
@@ -91,7 +92,7 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 
 func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 	b.model = m
-	b.isGBC = (m == types.CGBABC || m == types.CGB0)
+	b.isGBC = m == types.CGBABC || m == types.CGB0
 	b.isGBCCart = cartCGB
 
 	b.ReserveAddress(types.DMA, func(v byte) byte {
@@ -421,7 +422,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 			}
 		}
 	default:
-		// address <= 0xFEFF can be locked or conflicted
+		// address <= 0xFDFF can be locked or conflicted
 		if b.isDMATransferring() && b.dmaConflicts[addr>>12] {
 			return
 		}
@@ -434,18 +435,19 @@ func (b *Bus) Write(addr uint16, value byte) {
 		// 0x8000 - 0x9FFF VRAM
 		case addr >= 0x8000 && addr <= 0x9FFF:
 			// if locked, return
-			if b.wLocks[addr&0x8000] {
+			if b.wLocks[addr>>12] {
 				return
 			}
 			b.blockWriters[addr/0x1000](addr, value)
 		// 0xC000-0xFDFF WRAM & mirror
 		case addr >= 0xC000 && addr <= 0xFDFF:
 			b.data[addr&0xDFFF] = value
+			b.data[addr&0xDDFF|0xE000] = value
 
 			return
 		// 0xFE00-0xFE9F OAM
 		case addr >= 0xFE00 && addr <= 0xFE9F:
-			if b.wLocks[addr&0xFE00] || b.isDMATransferring() {
+			if b.wLocks[0xF] || b.isDMATransferring() {
 				return
 			}
 			b.oamChanged = true
@@ -488,36 +490,44 @@ func (b *Bus) TestBit(addr uint16, bit byte) bool {
 }
 
 // RLock locks the specified bus from being read.
-func (b *Bus) RLock(start uint16) {
-	b.rLocks[start] = true
+func (b *Bus) RLock(bus MemoryRegion) {
+	for _, lock := range bus.BusLocks() {
+		b.rLocks[lock] = true
+	}
 }
 
 // RUnlock unlocks the specified bus from being read.
-func (b *Bus) RUnlock(start uint16) {
+func (b *Bus) RUnlock(bus MemoryRegion) {
 	//b.UnlockRange(start, end)
-	b.rLocks[start] = false
+	for _, lock := range bus.BusLocks() {
+		b.rLocks[lock] = false
+	}
 }
 
 // WLock locks the specified bus from being written.
-func (b *Bus) WLock(bus uint16) {
-	b.wLocks[bus] = true
+func (b *Bus) WLock(bus MemoryRegion) {
+	for _, lock := range bus.BusLocks() {
+		b.wLocks[lock] = true
+	}
 }
 
 // WUnlock unlocks the specified bus from being written.
-func (b *Bus) WUnlock(bus uint16) {
-	b.wLocks[bus] = false
+func (b *Bus) WUnlock(bus MemoryRegion) {
+	for _, lock := range bus.BusLocks() {
+		b.wLocks[lock] = false
+	}
 }
 
 // Lock locks the specified bus from being read and written.
-func (b *Bus) Lock(bus uint16) {
-	b.rLocks[bus] = true
-	b.wLocks[bus] = true
+func (b *Bus) Lock(bus MemoryRegion) {
+	b.RLock(bus)
+	b.WLock(bus)
 }
 
 // Unlock unlocks the specified bus from being read and written.
-func (b *Bus) Unlock(bus uint16) {
-	b.rLocks[bus] = false
-	b.wLocks[bus] = false
+func (b *Bus) Unlock(bus MemoryRegion) {
+	b.RUnlock(bus)
+	b.WUnlock(bus)
 }
 
 // Model returns the current model.
@@ -564,41 +574,36 @@ func (b *Bus) IsGBCCart() bool {
 func (b *Bus) ClockedRead(addr uint16) byte {
 	b.s.Tick(4)
 
+	value := b.data[addr]
+
 	switch {
+	case addr <= 0x9FFF || addr >= 0xC000 && addr <= 0xFDFF:
+		if b.rLocks[(addr>>12)&0xe] || (b.isDMATransferring() && b.dmaConflicts[addr>>12]) {
+			value = b.dmaConflict
+		}
+	case addr <= 0xBFFF:
+		// ERAM can't be conflicted so additional check for rLock here
+		if b.rLocks[addr>>12] {
+			value = 0xff
+		}
 	// HRAM/IO can't be locked or conflicted
 	case addr >= 0xFF00:
 		if addr == types.DIV {
-			return byte(b.s.SysClock() >> 8)
+			value = byte(b.s.SysClock() >> 8)
 		}
 		if addr == types.NR52 || addr >= 0xFF30 && addr <= 0xFF3F {
-			return b.apuRead(addr)
+			value = b.apuRead(addr)
 		}
-	// If a DMA is active and transferring from a bus, any reads
-	// will return the last transferred byte
-	case b.isDMATransferring() && b.dmaConflicts[addr>>12]:
-		return b.dmaConflict
-	// VRAM can be read locked by the PPU
-	case addr >= 0x8000 && addr <= 0x9FFF:
-		if b.rLocks[addr&0x8000] {
-			return 0xFF
-		}
-	case addr >= 0xA000 && addr <= 0xBFFF:
-		if b.rLocks[addr&0xA000] {
-			return 0xFF
-		}
-	// 0xE000 - 0xFDFF is the WRAM mirror, so wrap around
-	case addr >= 0xE000 && addr <= 0xFDFF:
-		addr &= 0xDDFF
 	// OAM can be read locked by the PPU and a DMA transfer
 	case addr >= 0xFE00 && addr <= 0xFE9F:
-		if b.rLocks[addr&0xFE00] || b.isDMATransferring() {
-			return 0xff
+		if b.rLocks[0xF] || b.isDMATransferring() {
+			value = 0xff
 		}
 	}
 
 	// if we've managed to fall through to here, we should be
 	// able to read the data as it is on the bus
-	return b.data[addr]
+	return value
 }
 
 // ClockedWrite clocks the Game Boy and writes a byte to the
@@ -611,4 +616,8 @@ func (b *Bus) ClockedWrite(address uint16, value byte) {
 
 func (b *Bus) IsBooting() bool {
 	return !b.bootROMDone
+}
+
+func (b *Bus) Bus() *[65536]byte {
+	return &b.data
 }
