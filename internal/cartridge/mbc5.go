@@ -1,5 +1,7 @@
 package cartridge
 
+import "github.com/thelolagemann/gomeboy/internal/io"
+
 type MemoryBankedCartridge5 struct {
 	*memoryBankedCartridge
 }
@@ -17,6 +19,12 @@ func (m *MemoryBankedCartridge5) Write(address uint16, value uint8) {
 		switch m.CartridgeType {
 		case MBC5RAM, MBC5RAMBATT:
 			m.ramEnabled = value&0x0F == 0x0A
+		}
+
+		if m.ramEnabled {
+			m.b.Unlock(io.RAM)
+		} else {
+			m.b.Lock(io.RAM)
 		}
 	case address < 0x3000:
 		m.setROMBank(m.romBank&0xFF00+uint16(value), true)

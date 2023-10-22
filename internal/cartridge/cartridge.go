@@ -3,8 +3,6 @@
 package cartridge
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 )
@@ -12,7 +10,6 @@ import (
 type Cartridge struct {
 	MemoryBankController
 	header *Header
-	MD5    string
 }
 
 func (c *Cartridge) Header() *Header {
@@ -22,13 +19,6 @@ func (c *Cartridge) Header() *Header {
 // Title returns an escaped string of the cartridge title.
 func (c *Cartridge) Title() string {
 	return c.header.Title
-}
-
-// Filename returns the filename for the save file. This is
-// simply an md5 hash of the cartridge title.
-func (c *Cartridge) Filename() string {
-	hash := md5.Sum([]byte(c.Title()))
-	return fmt.Sprintf("%s", hex.EncodeToString(hash[:]))
 }
 
 func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
@@ -55,10 +45,6 @@ func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 	default:
 		panic(fmt.Sprintf("cartridge type %s (%02x) not implemented", header.CartridgeType.String(), header.CartridgeType))
 	}
-
-	// calculate the md5 hash of the cartridge
-	hash := md5.Sum(rom)
-	cart.MD5 = hex.EncodeToString(hash[:])
 
 	var writeFn func(uint16, byte)
 	if cart.MemoryBankController != nil {
