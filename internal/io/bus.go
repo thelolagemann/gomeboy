@@ -63,6 +63,7 @@ type Bus struct {
 
 	// various IO
 	buttonState uint8
+	ime         bool
 	bootROMDone bool
 	wRAMBank    uint8 // 1 - 7 in CGB mode
 }
@@ -412,6 +413,13 @@ func (b *Bus) Write(addr uint16, value byte) {
 			}
 		case types.IF:
 			value = value | 0xE0 // upper bits are always 1
+			if b.ime && b.data[types.IE]&value&0x1f != 0 {
+				b.Write(0xFF7e, 0)
+			}
+		case types.IE:
+			if b.ime && b.data[types.IF]&value != 0 {
+				b.Write(0xFF7e, 0)
+			}
 		default:
 			// check to see if a component has reserved this address
 			if handler := b.writeHandlers[addr&0xFF]; handler != nil {

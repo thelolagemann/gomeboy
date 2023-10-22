@@ -354,7 +354,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		opt(g)
 	}
 
-	processor.SetModel(g.model)
 	sound.SetModel(g.model)
 
 	// does the cartridge have RAM? (and therefore a save file)

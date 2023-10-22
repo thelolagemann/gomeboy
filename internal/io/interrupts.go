@@ -1,6 +1,8 @@
 package io
 
-import "github.com/thelolagemann/gomeboy/internal/types"
+import (
+	"github.com/thelolagemann/gomeboy/internal/types"
+)
 
 const (
 	// VBlankINT is the VBlank interrupt flag (bit 0),
@@ -68,9 +70,35 @@ func (b *Bus) IRQVector(irq byte) uint16 {
 // the flag in the types.IF register.
 func (b *Bus) RaiseInterrupt(interrupt byte) {
 	b.data[types.IF] |= interrupt
+
+	// if IME is enabled, then we need to notify the CPU
+	if b.CanInterrupt() {
+		b.Write(0xFF7E, 0)
+	}
 }
 
 // HasInterrupts returns true if there are pending interrupts.
 func (b *Bus) HasInterrupts() bool {
 	return b.data[types.IE]&b.data[types.IF]&0x1F != 0
+}
+
+func (b *Bus) CanInterrupt() bool {
+	return b.ime && b.HasInterrupts()
+}
+
+func (b *Bus) EnableInterrupts() {
+	b.ime = true
+
+	// determine if we should tell the CPU to interrupt
+	if b.HasInterrupts() {
+		b.Write(0xff7e, 0)
+	}
+}
+
+func (b *Bus) DisableInterrupts() {
+	b.ime = false
+}
+
+func (b *Bus) InterruptsEnabled() bool {
+	return b.ime
 }

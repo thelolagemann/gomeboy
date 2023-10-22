@@ -25,7 +25,7 @@ func (c *CPU) doHALTBug() {
 // conditions are met, the corruption will be emulated
 // depending on the model.
 func (c *CPU) handleOAMCorruption(pos uint16) {
-	if c.model == types.CGBABC || c.model == types.CGB0 {
+	if c.b.Model() == types.CGBABC || c.b.Model() == types.CGB0 {
 		return // no corruption on CGB
 	}
 	if pos >= 0xFE00 && pos < 0xFEFF {
