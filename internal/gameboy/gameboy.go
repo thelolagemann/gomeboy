@@ -184,21 +184,6 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	renderTimes := make([]time.Duration, 0, int(FrameRate))
 	g.APU.Play()
 
-	// check if the cartridge has a ram controller and start a ticker to save the ram
-	var saveTicker *time.Ticker
-	var ram cartridge.RAMController
-	if r, ok := g.Cartridge.MemoryBankController.(cartridge.RAMController); ok && g.Cartridge.Header().RAMSize > 0 {
-		// start a ticker
-		saveTicker = time.NewTicker(time.Second * 3)
-		ram = r
-
-	} else {
-		// create a fake ticker that never ticks
-		saveTicker = &time.Ticker{
-			C: make(chan time.Time),
-		}
-	}
-
 	// set initial image
 	avgRenderTimes := make([]time.Duration, 0, int(FrameRate))
 
@@ -258,7 +243,7 @@ emuLoop:
 
 				// close the save file
 				if g.save != nil {
-					b := ram.SaveRAM()
+					b := g.Cartridge.MemoryBankController.RAM()
 					if err := g.save.SetBytes(b); err != nil {
 						g.Logger.Errorf("error saving emulator: %v", err)
 					}
@@ -268,16 +253,6 @@ emuLoop:
 				}
 				g.running = false
 				break emuLoop
-			}
-			g.Unlock()
-		case <-saveTicker.C:
-			g.Lock()
-			// get the data from the RAM
-			data := ram.SaveRAM()
-			// write the data to the save
-			if err := g.save.SetBytes(data); err != nil {
-				g.Logger.Errorf("error saving emulator: %v", err)
-				g.Unlock()
 			}
 			g.Unlock()
 		default:
@@ -383,30 +358,16 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	sound.SetModel(g.model)
 
 	// does the cartridge have RAM? (and therefore a save file)
-	if ram, ok := cart.MemoryBankController.(cartridge.RAMController); ok && cart.Header().RAMSize > 0 {
+	if cart.Header().RAMSize > 0 {
 		// try to load the save file
-		saveFiles, err := emulator.LoadSaves(g.Cartridge.Title())
+		var err error
+		g.save, err = emulator.NewSave(g.Cartridge.Title(), g.Cartridge.Header().RAMSize)
 
 		if err != nil {
 			// was there an error loading the save files?
-			g.Logger.Errorf("error loading save files: %s", err)
+			g.Logger.Fatal(fmt.Sprintf("error loading save files: %s", err))
 		} else {
-			// if there are no save files, create one
-			if saveFiles == nil || len(saveFiles) == 0 {
-				g.Logger.Debugf("no save file found for %s", g.Cartridge.Title())
-
-				g.save, err = emulator.NewSave(g.Cartridge.Title(), g.Cartridge.Header().RAMSize)
-				if err != nil {
-					g.Logger.Errorf("error creating save file: %s", err)
-				} else {
-					g.Logger.Debugf("created save file %s : (%dKiB)", g.save.Path, len(g.save.Bytes())/1024)
-				}
-			} else {
-				// load the save file
-				g.save = saveFiles[0]
-				// g.Logger.Debugf("loading save file %s", g.save.Path)
-			}
-			ram.LoadRAM(g.save.Bytes())
+			g.Cartridge.LoadRAM(g.save.Bytes(), g.b)
 		}
 	}
 	// try to load cheats using filename of rom

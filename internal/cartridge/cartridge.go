@@ -3,8 +3,6 @@
 package cartridge
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 )
@@ -12,13 +10,6 @@ import (
 type Cartridge struct {
 	MemoryBankController
 	header *Header
-	MD5    string
-}
-
-// TODO add IsDirty() bool to RAMController interface
-type RAMController interface {
-	LoadRAM([]byte)
-	SaveRAM() []byte
 }
 
 func (c *Cartridge) Header() *Header {
@@ -30,16 +21,9 @@ func (c *Cartridge) Title() string {
 	return c.header.Title
 }
 
-// Filename returns the filename for the save file. This is
-// simply an md5 hash of the cartridge title.
-func (c *Cartridge) Filename() string {
-	hash := md5.Sum([]byte(c.Title()))
-	return fmt.Sprintf("%s", hex.EncodeToString(hash[:]))
-}
-
 func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 	if len(rom) < 0x150 {
-		return NewEmptyCartridge()
+		return NewEmptyCartridge(b)
 	}
 	// parse the cartridge header (0x0100 - 0x014F)
 	header := parseHeader(rom[0x100:0x150])
@@ -49,7 +33,7 @@ func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 	cart := &Cartridge{header: header}
 	switch header.CartridgeType {
 	case ROM:
-		cart.MemoryBankController = NewROMCartridge(rom)
+		b.CopyTo(0x0000, 0x8000, rom)
 	case MBC1, MBC1RAM, MBC1RAMBATT:
 		cart.MemoryBankController = NewMemoryBankedCartridge1(rom, header)
 	case MBC2, MBC2BATT:
@@ -62,30 +46,33 @@ func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 		panic(fmt.Sprintf("cartridge type %s (%02x) not implemented", header.CartridgeType.String(), header.CartridgeType))
 	}
 
-	// calculate the md5 hash of the cartridge
-	hash := md5.Sum(rom)
-	cart.MD5 = hex.EncodeToString(hash[:])
-
-	for i := 0; i < 8; i++ {
-		b.ReserveBlockWriter(uint16(i*0x1000), cart.Write)
+	var writeFn func(uint16, byte)
+	if cart.MemoryBankController != nil {
+		writeFn = cart.Write
+	} else {
+		writeFn = func(u uint16, b byte) {}
 	}
-	b.ReserveBlockWriter(0xA000, cart.Write)
-	b.ReserveBlockWriter(0xB000, cart.Write)
+	for i := 0; i < 8; i++ {
+		b.ReserveBlockWriter(uint16(i*0x1000), writeFn)
+	}
+	b.ReserveBlockWriter(0xA000, writeFn)
+	b.ReserveBlockWriter(0xB000, writeFn)
 
 	// set initial ROM contents
 	b.CopyTo(0x0000, 0x8000, rom)
+
+	// RAM always starts disabled
+	b.Lock(io.RAM)
 
 	return cart
 }
 
 // NewEmptyCartridge returns an empty cartridge.
-func NewEmptyCartridge() *Cartridge {
-	r := NewROMCartridge(make([]byte, 65536)) // default to blank 64KB ROM
-	for i := range r.rom {
-		r.rom[i] = 0xFF // empty cart should read 0xFF
+func NewEmptyCartridge(b *io.Bus) *Cartridge {
+	for i := 0; i < 0x8000; i++ {
+		b.Set(uint16(i), 0xFF)
 	}
 	return &Cartridge{
-		MemoryBankController: r,
-		header:               &Header{},
+		header: &Header{},
 	}
 }

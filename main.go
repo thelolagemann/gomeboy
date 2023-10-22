@@ -12,8 +12,10 @@ import (
 	_ "github.com/thelolagemann/gomeboy/pkg/display/fyne"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/glfw"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/web"
+	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
+	"time"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -117,5 +119,14 @@ func main() {
 
 	if err := driver.Start(fb, events, pressed, released); err != nil {
 		logger.Fatal(err.Error())
+	}
+
+	gb.SendCommand(display.Close)
+	// wait until gb is no longer running
+	for {
+		if gb.State() == emulator.Stopped {
+			break
+		}
+		time.Sleep(time.Millisecond * 10)
 	}
 }
