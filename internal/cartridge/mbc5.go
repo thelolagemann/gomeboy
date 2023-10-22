@@ -1,30 +1,9 @@
 package cartridge
 
-import (
-	"github.com/thelolagemann/gomeboy/internal/types"
-)
-
 type MemoryBankedCartridge5 struct {
-	rom []byte
-	ram []byte
-
-	ramEnabled bool
-	romBank    uint16
-	ramBank    uint8
+	*memoryBankedCartridge
 
 	header *Header
-}
-
-func (m *MemoryBankedCartridge5) Load(s *types.State) {
-	m.ramEnabled = s.ReadBool()
-	m.romBank = s.Read16()
-	m.ramBank = s.Read8()
-}
-
-func (m *MemoryBankedCartridge5) Save(s *types.State) {
-	s.WriteBool(m.ramEnabled)
-	s.Write16(m.romBank)
-	s.Write8(m.ramBank)
 }
 
 func NewMemoryBankedCartridge5(rom []byte, header *Header) *MemoryBankedCartridge5 {
@@ -32,10 +11,8 @@ func NewMemoryBankedCartridge5(rom []byte, header *Header) *MemoryBankedCartridg
 		header.b.Set(uint16(i), 0xFF) // ram starts disabled
 	}
 	return &MemoryBankedCartridge5{
-		rom:     rom,
-		header:  header,
-		romBank: 1,
-		ram:     make([]byte, header.RAMSize),
+		memoryBankedCartridge: newMemoryBankedCartridge(rom, header.RAMSize),
+		header:                header,
 	}
 }
 
@@ -88,12 +65,4 @@ func (m *MemoryBankedCartridge5) Write(address uint16, value uint8) {
 	default:
 		m.header.b.Set(address, value)
 	}
-}
-
-func (m *MemoryBankedCartridge5) LoadRAM(data []byte) {
-	copy(m.ram, data)
-}
-
-func (m *MemoryBankedCartridge5) SaveRAM() []byte {
-	return m.ram
 }

@@ -9,15 +9,8 @@ import (
 // MemoryBankedCartridge1 represents a MemoryBankedCartridge1 cartridge. This cartridge type has external RAM and
 // supports switching between 2 ROM banks and 4 RAM banks.
 type MemoryBankedCartridge1 struct {
-	rom    []byte
-	ram    []byte
 	header *Header
-
-	// the ramg register is used to enable access to the cartridge SRAM
-	// if one exists on the cartridge. RAM access is disabled by default,
-	// but can be enabled by writing 0b1010 to the lower 4 bits of the
-	// ramg register, and disabled by writing any other value.
-	ramg bool // 0x0000 - 0x1FFF
+	*memoryBankedCartridge
 
 	// bank1 is a 5-bit value that selects the lower 5 bits of the ROM bank
 	// when the CPU accesses 0x4000 - 0x7FFF. bank1 is initialized to 0x01
@@ -28,8 +21,8 @@ type MemoryBankedCartridge1 struct {
 	// these banks will instead request the next bank in the sequence.
 	bank1 uint8 // 0x2000 - 0x3FFF
 
-	// bank2 can be used as the upper bits of the ROM bank number, os as the
-	// 2-bit RAM bank number. Unlinke bank1, bank2 doesn't disallow 0, so all
+	// bank2 can be used as the upper bits of the ROM bank number, or as the
+	// 2-bit RAM bank number. Unlike bank1, bank2 doesn't disallow 0, so all
 	// 2-bit values are valid.
 	bank2 uint8 // 0x4000 - 0x5FFF
 
@@ -42,8 +35,6 @@ type MemoryBankedCartridge1 struct {
 }
 
 func (m *MemoryBankedCartridge1) Load(s *types.State) {
-	s.ReadData(m.ram)
-	m.ramg = s.ReadBool()
 	m.bank1 = s.Read8()
 	m.bank2 = s.Read8()
 	m.mode = s.ReadBool()
@@ -51,8 +42,6 @@ func (m *MemoryBankedCartridge1) Load(s *types.State) {
 }
 
 func (m *MemoryBankedCartridge1) Save(s *types.State) {
-	s.WriteData(m.ram)
-	s.WriteBool(m.ramg)
 	s.Write8(m.bank1)
 	s.Write8(m.bank2)
 	s.WriteBool(m.mode)
@@ -62,10 +51,9 @@ func (m *MemoryBankedCartridge1) Save(s *types.State) {
 // NewMemoryBankedCartridge1 returns a new MemoryBankedCartridge1 cartridge.
 func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridge1 {
 	m := &MemoryBankedCartridge1{
-		rom:    rom,
-		ram:    make([]byte, header.RAMSize),
-		header: header,
-		bank1:  0x01,
+		memoryBankedCartridge: newMemoryBankedCartridge(rom, header.RAMSize),
+		header:                header,
+		bank1:                 0x01,
 	}
 	m.checkMultiCart()
 	m.header.b.Lock(io.RAM)
@@ -77,7 +65,7 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 	switch {
 	case address < 0x2000:
 		m.handleRAMBank(func() {
-			m.ramg = value&0x0f == 0x0a
+			m.ramEnabled = value&0x0f == 0x0a
 		})
 	case address < 0x4000:
 		// bank1 is a 5-bit value, so the upper 3 bits are ignored.
@@ -117,7 +105,7 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 
 	case address >= 0xA000 && address < 0xC000:
 		// if there is no RAM or RAM is disabled, do nothing
-		if len(m.ram) == 0 || !m.ramg {
+		if len(m.ram) == 0 || !m.ramEnabled {
 			return
 		}
 
@@ -131,7 +119,7 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 	// if RAM is enabled and banked, we need to copy from the bus to
 	// the cartridge RAM before changing the bank
-	if m.ramg && len(m.ram) > 0 {
+	if m.ramEnabled && len(m.ram) > 0 {
 		if !m.mode || m.header.RAMSize == 8192 {
 			m.header.b.CopyFrom(0xA000, 0xC000, m.ram)
 		} else if m.mode {
@@ -142,7 +130,7 @@ func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 	f()
 
 	// now if RAM is enabled, we need to copy data from bank to bus
-	if m.ramg && len(m.ram) > 0 {
+	if m.ramEnabled && len(m.ram) > 0 {
 		if !m.mode || m.header.RAMSize == 8192 {
 			m.header.b.CopyTo(0xA000, 0xC000, m.ram)
 		} else if m.mode {
@@ -150,7 +138,7 @@ func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 			m.header.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
 		}
 		m.header.b.Unlock(io.RAM)
-	} else if !m.ramg {
+	} else if !m.ramEnabled {
 		m.header.b.Lock(io.RAM)
 	}
 }
@@ -163,16 +151,6 @@ func (m *MemoryBankedCartridge1) handleBanking() {
 
 	// copy data from bank to bus
 	m.header.b.CopyTo(0x4000, 0x8000, m.rom[int(bankNumber)*0x4000:])
-}
-
-// SaveRAM returns the RAM of the cartridge.
-func (m *MemoryBankedCartridge1) SaveRAM() []byte {
-	return m.ram
-}
-
-// LoadRAM loads the RAM of the cartridge.
-func (m *MemoryBankedCartridge1) LoadRAM(data []byte) {
-	copy(m.ram, data)
 }
 
 var logo = [48]byte{
