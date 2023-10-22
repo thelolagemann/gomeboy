@@ -1,7 +1,6 @@
 package cartridge
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 )
 
@@ -63,7 +62,6 @@ func (m *memoryBankedCartridge) setRAMBank(bank uint8) {
 }
 
 func newMemoryBankedCartridge(rom []byte, h *Header) *memoryBankedCartridge {
-	fmt.Println(h.RAMSize)
 	return &memoryBankedCartridge{
 		rom:     rom,
 		ram:     make([]byte, h.RAMSize),

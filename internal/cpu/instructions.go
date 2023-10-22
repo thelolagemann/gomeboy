@@ -481,6 +481,7 @@ var InstructionSet = [256]Instruction{
 			// LD B, B is often used as a debug breakpoint
 			if c.Debug {
 				c.DebugBreakpoint = true
+				c.shouldInt = true
 			}
 		},
 	},
@@ -795,14 +796,14 @@ var InstructionSet = [256]Instruction{
 	0x76: {
 		"HALT",
 		func(c *CPU) {
-			if c.ime {
+			if c.b.InterruptsEnabled() {
 				//panic("halt with interrupts enabled")
 				c.skipHALT()
 			} else {
 				if c.b.HasInterrupts() {
 					c.doHALTBug()
 				} else {
-					switch c.model {
+					switch c.b.Model() {
 					case types.MGB: // TODO handle MGB oam HALT weirdness
 						c.DebugBreakpoint = true
 					default:
@@ -1400,8 +1401,7 @@ var InstructionSet = [256]Instruction{
 	0xD9: {
 		"RETI",
 		func(c *CPU) {
-			c.ime = true
-			c.canFastStep = false
+			c.b.EnableInterrupts()
 			c.ret(true)
 		},
 	},
@@ -1528,7 +1528,7 @@ var InstructionSet = [256]Instruction{
 	0xF3: {
 		"DI",
 		func(c *CPU) {
-			c.ime = false
+			c.b.DisableInterrupts()
 		},
 	},
 	0xF4: disallowedOpcode(0xF4),

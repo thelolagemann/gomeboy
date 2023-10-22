@@ -18,7 +18,8 @@ type CPU struct {
 	Debug           bool
 	DebugBreakpoint bool
 
-	ime bool
+	shouldInt bool
+	hasFrame  bool
 
 	doubleSpeed bool
 
@@ -27,16 +28,8 @@ type CPU struct {
 	instructions   [256]func(cpu *CPU)
 	instructionsCB [256]func(cpu *CPU)
 
-	s                    *scheduler.Scheduler
-	model                types.Model
-	ppu                  *ppu.PPU
-	stopped              bool
-	hasFrame             bool
-	canFastStep, canStep bool
-}
-
-func (c *CPU) SetModel(model types.Model) {
-	c.model = model
+	s   *scheduler.Scheduler
+	ppu *ppu.PPU
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
@@ -63,13 +56,18 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 		c.instructionsCB[i] = InstructionSetCB[i].fn
 	}
 
+	b.ReserveAddress(0xFF7E, func(b byte) byte {
+		c.shouldInt = true
+
+		return 0xff
+	})
+	b.Set(0xff7e, 0xff)
+
 	sched.RegisterEvent(scheduler.EIPending, func() {
-		c.ime = true
-		c.canFastStep = false
+		c.b.EnableInterrupts()
 	})
 	sched.RegisterEvent(scheduler.EIHaltDelay, func() {
-		c.ime = true
-		c.canFastStep = false
+		c.b.EnableInterrupts()
 
 		c.PC--
 	})
@@ -83,8 +81,6 @@ func (c *CPU) Boot(m types.Model) {
 	// PC, SP is the same across all models
 	c.PC = 0x100
 	c.SP = 0xFFFE
-	c.canStep = true
-	c.canFastStep = true
 
 	// get the CPU registers
 	startingRegs := m.Registers()
@@ -121,44 +117,28 @@ func (c *CPU) skipHALT() {
 
 // Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
-	// fast stepping is allowed when IME = 0, hasFrame = false &
-	// debugBreakpoint = false. the performance gains from this
-	// approach varies greatly from game to game, with some games
-	// enabling ime then waiting tens of thousands of cycles for
-	// an interrupt, and others enabling ime a few hundred cycles
-	// or so before an interrupt occurs.
-fastStep:
-	for ; c.canFastStep; c.instructions[c.readOperand()](c) {
+	// shouldInt is triggered on 3 conditions
+	// 1. IME = 1 && types.IE & types.IF &0x1f != 0
+	// 2. DebugBreakpoint = true
+	// 3. hasFrame = true
+step:
+	for ; !c.shouldInt; c.instructions[c.readOperand()](c) {
 	}
 
-	// fastStep could have been turned off by IME, we need to check for an interrupt here
-	if c.ime && c.b.HasInterrupts() {
+	// check to see if shouldInt was triggered by an interrupt
+	if c.b.CanInterrupt() {
 		c.executeInterrupt()
 
-		// if no other conditions prevent us from fast stepping, go back to fastStep
-		if c.canFastStep {
-			goto fastStep
+		// if no other conditions prevent us from stepping, then go back to stepping
+		if !c.shouldInt {
+			goto step
 		}
 	}
 
-	// IME = 1. hasFrame = false. debugBreakpoint = false.
-	for ; c.canStep; c.instructions[c.readOperand()](c) {
-
-		// did we get an interrupt?
-		if c.ime && c.b.HasInterrupts() {
-			c.executeInterrupt()
-
-			if !c.hasFrame {
-				goto fastStep
-			}
-		}
-	}
-
-	// if we can no longer fastStep or step, then we have either rendered
-	// a frame, or hit a debug breakpoint
+	// if we have handled the interrupt and shouldInt is still true
+	// then we have either rendered a frame, or hit a debug breakpoint
 	c.hasFrame = false
-	c.canStep = !c.DebugBreakpoint
-	c.canFastStep = !c.ime && !c.DebugBreakpoint
+	c.shouldInt = c.DebugBreakpoint
 }
 
 // readOperand reads the next operand from memory.
@@ -174,9 +154,6 @@ func (c *CPU) skipOperand() {
 }
 
 func (c *CPU) executeInterrupt() {
-	// disable interrupts
-	c.ime = false
-
 	// 8 cycles
 	c.s.Tick(4)
 	c.s.Tick(4)
@@ -196,9 +173,8 @@ func (c *CPU) executeInterrupt() {
 	// final 4 cycles
 	c.s.Tick(4)
 
-	c.canFastStep = !c.hasFrame && !c.DebugBreakpoint
-
-	// fmt.Println(c.canFastStep, c.hasFrame, c.DebugBreakpoint)
+	c.b.DisableInterrupts()
+	c.shouldInt = c.hasFrame || c.DebugBreakpoint
 }
 
 // clearFlag clears the given flag in the F register,
@@ -266,6 +242,5 @@ func (c *CPU) Save(s *types.State) {
 
 func (c *CPU) HasFrame() {
 	c.hasFrame = true
-	c.canFastStep = false
-	c.canStep = false
+	c.shouldInt = true
 }
