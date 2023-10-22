@@ -47,6 +47,21 @@ func (m *memoryBankedCartridge) setROMBank(bank uint16, canBeZero bool) {
 	m.b.CopyTo(0x4000, 0x8000, m.rom[int(m.romBank)*0x4000:])
 }
 
+// setRAMBank updates the RAM bank of the cartridge and copies
+// the new RAM bank to the bus.
+func (m *memoryBankedCartridge) setRAMBank(bank uint8) {
+	m.ramBank = bank
+
+	if int(m.ramBank)*0x2000 >= len(m.ram) {
+		m.ramBank = uint8(int(m.ramBank) % (len(m.ram) / 0x2000))
+	}
+
+	if m.ramEnabled {
+		// copy from bank to bus
+		m.b.CopyTo(0xA000, 0xC000, m.ram[int(m.ramBank)*0x2000:])
+	}
+}
+
 func newMemoryBankedCartridge(rom []byte, h *Header) *memoryBankedCartridge {
 	fmt.Println(h.RAMSize)
 	return &memoryBankedCartridge{

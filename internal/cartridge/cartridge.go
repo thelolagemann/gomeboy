@@ -75,6 +75,9 @@ func NewCartridge(rom []byte, b *io.Bus) *Cartridge {
 	// set initial ROM contents
 	b.CopyTo(0x0000, 0x8000, rom)
 
+	// RAM always starts disabled
+	b.Lock(io.RAM)
+
 	return cart
 }
 

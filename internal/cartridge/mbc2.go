@@ -13,8 +13,6 @@ type MemoryBankedCartridge2 struct {
 
 // NewMemoryBankedCartridge2 returns a new MemoryBankedCartridge2 cartridge.
 func NewMemoryBankedCartridge2(rom []byte, header *Header) *MemoryBankedCartridge2 {
-	header.b.Lock(io.RAM)
-
 	// override RAM
 	header.RAMSize = 2048
 

@@ -92,7 +92,6 @@ func (m *MemoryBankedCartridge3) Save(s *types.State) {
 
 // NewMemoryBankedCartridge3 returns a new MemoryBankedCartridge3 cartridge.
 func NewMemoryBankedCartridge3(rom []byte, header *Header) *MemoryBankedCartridge3 {
-	header.b.Lock(io.RAM)
 	return &MemoryBankedCartridge3{
 		memoryBankedCartridge: newMemoryBankedCartridge(rom, header),
 		hasRTC:                header.CartridgeType == MBC3TIMERBATT || header.CartridgeType == MBC3TIMERRAMBATT, // MBC3 + RTC or MBC3 + RAM + RTC
@@ -132,15 +131,7 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 				m.ramBank = 0xff
 			}
 		} else if value <= 0x03 && m.ramEnabled {
-			m.ramBank = value & 0x03
-			if int(m.ramBank)*0x2000 >= len(m.ram) {
-				m.ramBank = uint8(int(m.ramBank) % (len(m.ram) / 0x2000))
-			}
-
-			if m.ramEnabled {
-				// copy new ram bank to bus
-				m.b.CopyTo(0xA000, 0xC000, m.ram[int(m.ramBank)*0x2000:])
-			}
+			m.setRAMBank(value & 0x03)
 		}
 	case address < 0x8000:
 		if m.hasRTC {

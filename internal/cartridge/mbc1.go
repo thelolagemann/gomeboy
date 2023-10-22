@@ -54,7 +54,6 @@ func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridg
 		bank1:                 0x01,
 	}
 	m.checkMultiCart()
-	m.b.Lock(io.RAM)
 	return m
 }
 
