@@ -1,6 +1,7 @@
 package cartridge
 
 import (
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 )
 
@@ -16,6 +17,8 @@ type memoryBankedCartridge struct {
 	ramBank  uint8
 
 	ramEnabled bool
+
+	*Header
 }
 
 func (m *memoryBankedCartridge) LoadRAM(b []byte, bu *io.Bus) {
@@ -27,10 +30,29 @@ func (m *memoryBankedCartridge) RAM() []byte {
 	return m.ram
 }
 
-func newMemoryBankedCartridge(rom []byte, ramSize uint) *memoryBankedCartridge {
+// setROMBank updates the ROM bank of the cartridge and copies
+// the new ROM bank to the bus.
+func (m *memoryBankedCartridge) setROMBank(bank uint16, canBeZero bool) {
+	m.romBank = bank
+
+	if !canBeZero && m.romBank == 0 {
+		m.romBank = 1
+	}
+
+	if int(m.romBank)*0x4000 >= len(m.rom) {
+		m.romBank = uint16(int(m.romBank) % (len(m.rom) / 0x4000))
+	}
+
+	// copy from bank to bus
+	m.b.CopyTo(0x4000, 0x8000, m.rom[int(m.romBank)*0x4000:])
+}
+
+func newMemoryBankedCartridge(rom []byte, h *Header) *memoryBankedCartridge {
+	fmt.Println(h.RAMSize)
 	return &memoryBankedCartridge{
 		rom:     rom,
-		ram:     make([]byte, ramSize),
+		ram:     make([]byte, h.RAMSize),
 		romBank: 1,
+		Header:  h,
 	}
 }

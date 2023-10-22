@@ -76,7 +76,6 @@ type MemoryBankedCartridge3 struct {
 	rtcEnabled bool
 	latchedRTC []byte
 	latched    bool
-	header     *Header
 }
 
 func (m *MemoryBankedCartridge3) Load(s *types.State) {
@@ -95,13 +94,12 @@ func (m *MemoryBankedCartridge3) Save(s *types.State) {
 func NewMemoryBankedCartridge3(rom []byte, header *Header) *MemoryBankedCartridge3 {
 	header.b.Lock(io.RAM)
 	return &MemoryBankedCartridge3{
-		memoryBankedCartridge: newMemoryBankedCartridge(rom, header.RAMSize),
+		memoryBankedCartridge: newMemoryBankedCartridge(rom, header),
 		hasRTC:                header.CartridgeType == MBC3TIMERBATT || header.CartridgeType == MBC3TIMERRAMBATT, // MBC3 + RTC or MBC3 + RAM + RTC
 		rtc: &RTC{
 			LastUpdate: time.Now(),
 		},
 		latchedRTC: make([]byte, 0x10),
-		header:     header,
 	}
 }
 
@@ -111,7 +109,7 @@ func NewMemoryBankedCartridge3(rom []byte, header *Header) *MemoryBankedCartridg
 func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 	switch {
 	case address < 0x2000:
-		switch m.header.CartridgeType {
+		switch m.CartridgeType {
 		case MBC3RAM, MBC3RAMBATT:
 			m.ramEnabled = (value & 0xF) == 0xA
 		case MBC3TIMERBATT:
@@ -121,22 +119,12 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 			m.rtcEnabled = (value & 0xF) == 0xA
 		}
 		if m.ramEnabled && m.ramBank != 0xff {
-			m.header.b.Unlock(io.RAM)
-			m.header.b.CopyTo(0xA000, 0xC000, m.ram[int(m.ramBank)*0x2000:])
+			m.b.Unlock(io.RAM)
 		} else {
-			m.header.b.Lock(io.RAM)
+			m.b.Lock(io.RAM)
 		}
 	case address < 0x4000:
-		m.romBank = uint16(value)
-		if int(m.romBank)*0x4000 >= len(m.rom) {
-			m.romBank = uint16(int(m.romBank) % (len(m.rom) / 0x4000))
-		}
-		if m.romBank == 0 {
-			m.romBank = 1
-		}
-
-		// copy data from bank to bus
-		m.header.b.CopyTo(0x4000, 0x8000, m.rom[int(m.romBank)*0x4000:])
+		m.setROMBank(uint16(value), false)
 	case address < 0x6000:
 		if value >= 0x08 && value <= 0x0C {
 			if m.hasRTC && m.rtcEnabled {
@@ -151,7 +139,7 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 
 			if m.ramEnabled {
 				// copy new ram bank to bus
-				m.header.b.CopyTo(0xA000, 0xC000, m.ram[int(m.ramBank)*0x2000:])
+				m.b.CopyTo(0xA000, 0xC000, m.ram[int(m.ramBank)*0x2000:])
 			}
 		}
 	case address < 0x8000:
@@ -169,7 +157,7 @@ func (m *MemoryBankedCartridge3) Write(address uint16, value uint8) {
 	case address >= 0xA000 && address < 0xC000:
 		if m.ramBank != 0xff {
 			if m.ramEnabled {
-				m.header.b.Set(address, value)
+				m.b.Set(address, value)
 				m.ram[int(m.ramBank)*0x2000+int(address&0x1fff)] = value
 			} else if m.hasRTC && m.rtcEnabled {
 				switch m.rtc.Register {

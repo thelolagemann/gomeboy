@@ -9,7 +9,6 @@ import (
 // MemoryBankedCartridge1 represents a MemoryBankedCartridge1 cartridge. This cartridge type has external RAM and
 // supports switching between 2 ROM banks and 4 RAM banks.
 type MemoryBankedCartridge1 struct {
-	header *Header
 	*memoryBankedCartridge
 
 	// bank1 is a 5-bit value that selects the lower 5 bits of the ROM bank
@@ -51,12 +50,11 @@ func (m *MemoryBankedCartridge1) Save(s *types.State) {
 // NewMemoryBankedCartridge1 returns a new MemoryBankedCartridge1 cartridge.
 func NewMemoryBankedCartridge1(rom []byte, header *Header) *MemoryBankedCartridge1 {
 	m := &MemoryBankedCartridge1{
-		memoryBankedCartridge: newMemoryBankedCartridge(rom, header.RAMSize),
-		header:                header,
+		memoryBankedCartridge: newMemoryBankedCartridge(rom, header),
 		bank1:                 0x01,
 	}
 	m.checkMultiCart()
-	m.header.b.Lock(io.RAM)
+	m.b.Lock(io.RAM)
 	return m
 }
 
@@ -93,9 +91,9 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 					bankNumber = bankNumber % (uint8(len(m.rom) / 0x4000))
 				}
 
-				m.header.b.CopyTo(0x0000, 0x4000, m.rom[int(bankNumber)*0x4000:])
+				m.b.CopyTo(0x0000, 0x4000, m.rom[int(bankNumber)*0x4000:])
 			} else {
-				m.header.b.CopyTo(0x0000, 0x4000, m.rom[0x0000:])
+				m.b.CopyTo(0x0000, 0x4000, m.rom[0x0000:])
 			}
 		})
 	case address < 0x8000:
@@ -109,7 +107,7 @@ func (m *MemoryBankedCartridge1) Write(address uint16, value uint8) {
 			return
 		}
 
-		m.header.b.Set(address, value)
+		m.b.Set(address, value)
 
 	default:
 		panic(fmt.Sprintf("mbc1: illegal write to address: %X", address))
@@ -120,26 +118,26 @@ func (m *MemoryBankedCartridge1) handleRAMBank(f func()) {
 	// if RAM is enabled and banked, we need to copy from the bus to
 	// the cartridge RAM before changing the bank
 	if m.ramEnabled && len(m.ram) > 0 {
-		if !m.mode || m.header.RAMSize == 8192 {
-			m.header.b.CopyFrom(0xA000, 0xC000, m.ram)
+		if !m.mode || m.RAMSize == 8192 {
+			m.b.CopyFrom(0xA000, 0xC000, m.ram)
 		} else if m.mode {
 			offset := uint16(m.bank2&0x03) * 0x2000 // only use the lower 2 bits
-			m.header.b.CopyFrom(0xA000, 0xC000, m.ram[offset:offset+0x2000])
+			m.b.CopyFrom(0xA000, 0xC000, m.ram[offset:offset+0x2000])
 		}
 	}
 	f()
 
 	// now if RAM is enabled, we need to copy data from bank to bus
 	if m.ramEnabled && len(m.ram) > 0 {
-		if !m.mode || m.header.RAMSize == 8192 {
-			m.header.b.CopyTo(0xA000, 0xC000, m.ram)
+		if !m.mode || m.RAMSize == 8192 {
+			m.b.CopyTo(0xA000, 0xC000, m.ram)
 		} else if m.mode {
 			offset := uint16(m.bank2&0x03) * 0x2000 // only use the lower 2 bits
-			m.header.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
+			m.b.CopyTo(0xA000, 0xC000, m.ram[offset:offset+0x2000])
 		}
-		m.header.b.Unlock(io.RAM)
+		m.b.Unlock(io.RAM)
 	} else if !m.ramEnabled {
-		m.header.b.Lock(io.RAM)
+		m.b.Lock(io.RAM)
 	}
 }
 
@@ -150,7 +148,7 @@ func (m *MemoryBankedCartridge1) handleBanking() {
 	}
 
 	// copy data from bank to bus
-	m.header.b.CopyTo(0x4000, 0x8000, m.rom[int(bankNumber)*0x4000:])
+	m.b.CopyTo(0x4000, 0x8000, m.rom[int(bankNumber)*0x4000:])
 }
 
 var logo = [48]byte{
@@ -164,7 +162,7 @@ var logo = [48]byte{
 
 func (m *MemoryBankedCartridge1) checkMultiCart() {
 	// heuristics to detect multicart
-	if m.header.ROMSize == (1024 * 1024) {
+	if m.ROMSize == (1024 * 1024) {
 		count := 0
 		compare := true
 
