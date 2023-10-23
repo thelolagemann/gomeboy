@@ -2,7 +2,6 @@ package apu
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -10,6 +9,7 @@ type channel4 struct {
 	*volumeChannel
 
 	lfsr uint16
+	a    *APU
 
 	// NR41
 	lengthLoad uint8
@@ -20,11 +20,13 @@ type channel4 struct {
 	divisorCode uint8
 
 	isScheduled bool
+	lastCatchup uint64
 }
 
 func newChannel4(a *APU, b *io.Bus) *channel4 {
 	c := &channel4{
 		lfsr: 0x7FFF,
+		a:    a,
 	}
 	c2 := newChannel()
 	c2.channelBit = types.Bit3
@@ -53,6 +55,7 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 		if !a.enabled {
 			return b.Get(types.NR43)
 		}
+		c.catchup()
 		c.clockShift = v >> 4
 		c.widthMode = v&types.Bit3 != 0
 		c.divisorCode = v & 0x7
@@ -69,6 +72,7 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 		if !a.enabled {
 			return b.Get(types.NR44)
 		}
+		c.catchup()
 		lengthCounterEnabled := v&types.Bit6 != 0
 		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
 			c.lengthCounter--
@@ -85,10 +89,6 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 				}
 			}
 
-			// reload frequency timer
-			a.s.DescheduleEvent(scheduler.APUChannel4)
-			a.s.ScheduleEvent(scheduler.APUChannel4, c.frequencyTimer)
-
 			c.initVolumeEnvelope()
 			// reset LFSR
 			c.lfsr = 0x7FFF
@@ -104,7 +104,15 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 
 	c.volumeChannel = newVolumeChannel(c2)
 	c.frequencyTimer = 8 // TODO figure out correct starting value (good enough for now)
-	a.s.RegisterEvent(scheduler.APUChannel4, func() {
+
+	return c
+}
+
+func (c *channel4) catchup() {
+	// determine how many steps we should perform
+	steps := (c.a.s.Cycle() - c.lastCatchup) / c.frequencyTimer
+
+	for i := uint64(0); i < steps; i++ {
 		// step the LFSR
 		newBit := (c.lfsr & 0b01) ^ ((c.lfsr & 0b10) >> 1)
 		c.lfsr >>= 1
@@ -113,15 +121,15 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 			c.lfsr &^= 1 << 6
 			c.lfsr |= newBit << 6
 		}
+	}
 
-		a.s.ScheduleEvent(scheduler.APUChannel4, c.frequencyTimer)
-	})
-
-	return c
+	// how many cycles do we have left to catch up?
+	c.lastCatchup = c.a.s.Cycle() - (c.a.s.Cycle()-c.lastCatchup)%c.frequencyTimer
 }
 
 func (c *channel4) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
+		c.catchup()
 		return uint8(c.lfsr&0b1) ^ 0b1*c.currentVolume
 	} else {
 		return 0

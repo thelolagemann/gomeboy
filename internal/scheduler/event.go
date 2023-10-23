@@ -11,10 +11,6 @@ const (
 	APUChannel1
 	APUChannel2
 	APUChannel3
-	APUChannel3WaveRAMReadCorruption
-	APUChannel3WaveRAMWriteCorruption
-	APUChannel3WaveRAMWriteCorruptionEnd
-	APUChannel4
 	APUSample
 
 	EIPending
@@ -53,7 +49,6 @@ const (
 	DMAEndTransfer
 	DMATransfer
 
-	TimerInterrupt
 	TimerTIMAReload
 	TimerTIMAFinishReload
 	TimerTIMAIncrement
@@ -89,10 +84,6 @@ var eventTypeNames = []string{
 	"APUChannel1",
 	"APUChannel2",
 	"APUChannel3",
-	"APUChannel3WaveRAMReadCorruption",
-	"APUChannel3WaveRAMWriteCorruption",
-	"APUChannel3WaveRAMWriteCorruptionEnd",
-	"APUChannel4",
 	"APUSample",
 
 	"EIPending",
@@ -131,7 +122,6 @@ var eventTypeNames = []string{
 	"DMAEndTransfer",
 	"DMATransfer",
 
-	"TimerInterrupt",
 	"TimerTIMAReload",
 	"TimerTIMAFinishReload",
 	"TimerTIMAIncrement",
