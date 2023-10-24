@@ -364,13 +364,13 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 		if err != nil {
 			// was there an error loading the save files?
-			g.Logger.Fatal(fmt.Sprintf("error loading save files: %s", err))
+			g.Logger.Errorf(fmt.Sprintf("error loading save files: %s", err))
 		} else {
 			g.Cartridge.LoadRAM(g.save.Bytes(), g.b)
 		}
 	}
 	// try to load cheats using filename of rom
-	g.b.Map(g.model, cart.Header().GameboyColor(), g.APU.Read)
+	g.b.Map(g.model, cart.Header().GameboyColor())
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
 		g.b.Boot()

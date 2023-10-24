@@ -18,20 +18,12 @@ type Scheduler struct {
 	divTimer uint64 // the cycle at which the DIV register was last reset
 	root     *Event
 
-	events      [256]*Event // only one event of each type can be scheduled at a time
-	nextEventAt uint64      // the cycle at which the next event should be executed
+	sampler     func()
+	events      [eventTypes]*Event // only one event of each type can be scheduled at a time
+	nextEventAt uint64             // the cycle at which the next event should be executed
 
 	doubleSpeed bool // whether the scheduler is running at double speed (TODO: implement)
 
-	debugLogging bool
-}
-
-func (s *Scheduler) EnableDebugLogging() {
-	s.debugLogging = true
-}
-
-func (s *Scheduler) DisableDebugLogging() {
-	s.debugLogging = false
 }
 
 func (s *Scheduler) OverrideDiv(div uint16) {
@@ -41,7 +33,7 @@ func (s *Scheduler) OverrideDiv(div uint16) {
 func NewScheduler() *Scheduler {
 	s := &Scheduler{ // 0x = DMG magic value,
 		cycles: 0,
-		events: [256]*Event{},
+		events: [eventTypes]*Event{},
 		root: &Event{
 			next:  nil,
 			cycle: math.MaxUint64,
@@ -73,6 +65,10 @@ func (s *Scheduler) Cycle() uint64 {
 func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 	s.events[eventType].handler = fn
 	s.events[eventType].eventType = eventType
+
+	if eventType == APUSample {
+		s.sampler = fn
+	}
 }
 
 // Tick advances the scheduler by the given number of cycles. This will
@@ -84,6 +80,11 @@ func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 func (s *Scheduler) Tick(c uint64) {
 	// what cycle are we advancing to
 	s.cycles += c
+
+	// handle sampling
+	if s.cycles%64 == 0 {
+		s.sampler()
+	}
 
 	// get the current cycle at which the next event occurs
 	nextEvent := s.nextEventAt
@@ -260,7 +261,7 @@ func (s *Scheduler) ChangeSpeed(speed bool) {
 		// is affected by the speed change (APU, PPU, Serial)
 		event := s.root
 		for event != nil {
-			if event.eventType >= APUFrameSequencer && event.eventType <= PPUOAMInterrupt {
+			if event.eventType <= PPUOAMInterrupt {
 				if eventsProcessed[event.eventType] {
 					event = event.next
 					continue
@@ -297,7 +298,7 @@ func (s *Scheduler) ChangeSpeed(speed bool) {
 		// is affected by the speed change (APU, PPU, Serial)
 		event := s.root
 		for event != nil {
-			if event.eventType >= APUFrameSequencer && event.eventType <= PPUOAMInterrupt {
+			if event.eventType <= PPUOAMInterrupt {
 				// first we need to get the cycle at which the event
 				// would be executed at double speed
 				cycleToExecute := event.cycle

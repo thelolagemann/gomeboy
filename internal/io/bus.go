@@ -31,10 +31,9 @@ type Bus struct {
 	wRAM [8][0x1000]byte // 8 banks of 4 KiB each
 	vRAM [2][0x2000]byte // 2 banks of 8 KiB each
 
-	apuRead func(addr uint16) byte
-
 	writeHandlers [0x100]WriteHandler
 	setHandlers   [0x100]SetHandler
+	lazyReaders   [0x100]LazyReader
 	blockWriters  [16]func(uint16, byte)
 
 	model     types.Model
@@ -79,23 +78,19 @@ func NewBus(s *scheduler.Scheduler) *Bus {
 	// setup DMA events
 	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
 	s.RegisterEvent(scheduler.DMAStartTransfer, b.startDMATransfer)
-	s.RegisterEvent(scheduler.DMAEndTransfer, func() {
-		b.dmaActive = false
-		b.dmaEnabled = false
-
-		// clear any conflicts
-		b.dmaConflicts = noConflicts
-		b.dmaConflict = 0xff
-	})
+	s.RegisterEvent(scheduler.DMAEndTransfer, b.endDMATransfer)
 
 	return b
 }
 
-func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
+func (b *Bus) Map(m types.Model, cartCGB bool) {
 	b.model = m
 	b.isGBC = m == types.CGBABC || m == types.CGB0
 	b.isGBCCart = cartCGB
 
+	b.ReserveLazyReader(types.DIV, func() byte {
+		return byte(b.s.SysClock() >> 8)
+	})
 	b.ReserveAddress(types.DMA, func(v byte) byte {
 		// source address is v << 8
 		b.dmaSource = uint16(v) << 8
@@ -211,7 +206,7 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 				// if the PPU is already in the HBlank period, then the HDMA would not be
 				// performed by the scheduler until the next HBlank period, so we perform
 				// the transfer immediately here and decrement the remaining length
-				if b.Get(types.LCDC)&types.Bit7 == types.Bit7 && b.Get(types.STAT)&0b11 == lcd.HBlank && b.dmaRemaining > 0 {
+				if b.Get(types.LCDC)&types.Bit7 == types.Bit7 && b.LazyRead(types.STAT)&0b11 == lcd.HBlank && b.dmaRemaining > 0 {
 					b.newDMA(1)
 					b.dmaRemaining--
 				}
@@ -288,7 +283,6 @@ func (b *Bus) Map(m types.Model, cartCGB bool, apuRead func(uint16) byte) {
 		}
 	}
 
-	b.apuRead = apuRead
 	b.data[0xff7f] = 0xff
 }
 
@@ -367,6 +361,10 @@ func (b *Bus) ReserveAddress(addr uint16, handler func(byte) byte) {
 		}
 	}
 	b.writeHandlers[addr&0xFF] = handler
+}
+
+func (b *Bus) ReserveLazyReader(addr uint16, handler LazyReader) {
+	b.lazyReaders[addr&0xFF] = handler
 }
 
 func (b *Bus) ReserveSetAddress(addr uint16, handler SetHandler) {
@@ -476,6 +474,14 @@ func (b *Bus) Get(addr uint16) byte {
 	return b.data[addr]
 }
 
+func (b *Bus) LazyRead(addr uint16) byte {
+	if handler := b.lazyReaders[addr&0xFF]; handler != nil {
+		return handler()
+	}
+
+	return b.data[addr]
+}
+
 // Set sets the value at the specified memory address. This function
 // ignores the write handler and just sets the value.
 func (b *Bus) Set(addr uint16, value byte) {
@@ -492,11 +498,6 @@ func (b *Bus) ClearBit(addr uint16, bit byte) {
 	b.data[addr] &^= bit
 }
 
-// TestBit tests the bit at the specified memory address.
-func (b *Bus) TestBit(addr uint16, bit byte) bool {
-	return b.data[addr]&bit != 0
-}
-
 // RLock locks the specified bus from being read.
 func (b *Bus) RLock(bus MemoryRegion) {
 	for _, lock := range bus.BusLocks() {
@@ -506,7 +507,6 @@ func (b *Bus) RLock(bus MemoryRegion) {
 
 // RUnlock unlocks the specified bus from being read.
 func (b *Bus) RUnlock(bus MemoryRegion) {
-	//b.UnlockRange(start, end)
 	for _, lock := range bus.BusLocks() {
 		b.rLocks[lock] = false
 	}
@@ -596,12 +596,11 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 		}
 	// HRAM/IO can't be locked or conflicted
 	case addr >= 0xFF00:
-		if addr == types.DIV {
-			value = byte(b.s.SysClock() >> 8)
+		// does this register need evaluating?
+		if f := b.lazyReaders[addr&0xff]; f != nil {
+			value = f()
 		}
-		if addr == types.NR52 || addr >= 0xFF30 && addr <= 0xFF3F {
-			value = b.apuRead(addr)
-		}
+
 	// OAM can be read locked by the PPU and a DMA transfer
 	case addr >= 0xFE00 && addr <= 0xFE9F:
 		if b.rLocks[0xF] || b.isDMATransferring() {
@@ -624,8 +623,4 @@ func (b *Bus) ClockedWrite(address uint16, value byte) {
 
 func (b *Bus) IsBooting() bool {
 	return !b.bootROMDone
-}
-
-func (b *Bus) Bus() *[65536]byte {
-	return &b.data
 }

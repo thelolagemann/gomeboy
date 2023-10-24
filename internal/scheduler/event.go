@@ -14,35 +14,22 @@ const (
 	APUSample
 
 	EIPending
-	HaltDI
 	EIHaltDelay
 
 	PPUHBlank
 	PPUHBlankInterrupt
-	PPUVBlank
-	PPUVBlankInterrupt
-	PPUVBlankLast
 	PPUStartOAMSearch
 	PPUEndFrame
 	PPUContinueOAMSearch
+	PPUPrepareEndOAMSearch
 	PPUEndOAMSearch
-	PPULine153Start
 	PPULine153Continue
 	PPULine153End
 	PPUStartVBlank
 	PPUContinueVBlank
-	PPUVRAMReadLocked
-	PPUVRAMReadUnlocked
-	PPUVRAMWriteLocked
-	PPUVRAMWriteUnlocked
 	PPUVRAMTransfer
-	PPUOAMLocked
-	PPUOAMUnlocked
-	PPULYReset
-	PPUGlitchedLine0
 	PPUStartGlitchedLine0
 	PPUContinueGlitchedLine0
-	PPUGlitchedLine0End
 	PPUOAMInterrupt
 
 	DMAStartTransfer
@@ -76,7 +63,7 @@ const (
 )
 
 const (
-	eventTypes = 64
+	eventTypes = 46
 )
 
 var eventTypeNames = []string{
@@ -87,35 +74,22 @@ var eventTypeNames = []string{
 	"APUSample",
 
 	"EIPending",
-	"HaltDI",
 	"EIHaltDelay",
 
 	"PPUHBlank",
 	"PPUHBlankInterrupt",
-	"PPUVBlank",
-	"PPUVBlankInterrupt",
-	"PPUVBlankLast",
 	"PPUStartOAMSearch",
 	"PPUEndFrame",
 	"PPUContinueOAMSearch",
+	"PPUPrepareEndOAMSearch",
 	"PPUEndOAMSearch",
-	"PPULine153Start",
 	"PPULine153Continue",
 	"PPULine153End",
 	"PPUStartVBlank",
 	"PPUContinueVBlank",
-	"PPUVRAMReadLocked",
-	"PPUVRAMReadUnlocked",
-	"PPUVRAMWriteLocked",
-	"PPUVRAMWriteUnlocked",
 	"PPUVRAMTransfer",
-	"PPUOAMLocked",
-	"PPUOAMUnlocked",
-	"PPULYReset",
-	"PPUGlitchedLine0",
 	"PPUStartGlitchedLine0",
 	"PPUContinueGlitchedLine0",
-	"PPUGlitchedLine0End",
 	"PPUOAMInterrupt",
 
 	"DMAStartTransfer",

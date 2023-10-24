@@ -29,7 +29,7 @@ func (c *CPU) handleOAMCorruption(pos uint16) {
 		return // no corruption on CGB
 	}
 	if pos >= 0xFE00 && pos < 0xFEFF {
-		if (c.b.Get(types.STAT)&0b11 == lcd.OAM ||
+		if (c.b.LazyRead(types.STAT)&0b11 == lcd.OAM ||
 			c.s.Until(scheduler.PPUContinueOAMSearch) == 4) &&
 			c.s.Until(scheduler.PPUEndOAMSearch) != 8 {
 			// TODO
