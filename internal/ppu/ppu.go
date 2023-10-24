@@ -36,6 +36,9 @@ type PPU struct {
 	// Window
 	windowInternal uint8
 
+	mode   lcd.Mode
+	status byte
+
 	oam                 *OAM
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
@@ -99,7 +102,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.Enabled = false
 
 			// the screen should only be turned off in VBlank
-			if p.b.Get(types.STAT)&0b11 != lcd.VBlank {
+			if p.mode != lcd.VBlank {
 				// warn user of incorrect behaviour TODO
 			}
 
@@ -115,13 +118,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.LY, 0)
 			p.currentLine = 0
 
-			p.changeMode(lcd.HBlank)
+			p.mode = lcd.HBlank
 
 			// unlock OAM/VRAM
 			p.b.Unlock(io.OAM)
 			p.b.Unlock(io.VRAM)
-			p.b.Set(types.BCPD, p.ColourPalette.Read())
-
 		} else if !p.Enabled && v&types.Bit7 != 0 {
 			// turn on the screen
 			p.Enabled = true
@@ -172,21 +173,20 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		// maybe add a warning for users trying to play Road
 		// Rash in CGB mode
 		if !p.b.IsGBC() {
-			oldStat := p.b.Get(types.STAT)
-			p.b.Set(types.STAT, 0xFF)
+			oldStat := p.status
+			p.status = 0xff
 			p.statUpdate()
-			p.b.Set(types.STAT, oldStat)
+			p.status = oldStat
 		}
 
 		// clear INT bits from stat
-		p.b.Set(types.STAT, p.b.Get(types.STAT)&^0b0111_1000)
-		p.b.Set(types.STAT, p.b.Get(types.STAT)|v&0b0111_1000|types.Bit7)
+		p.status = p.status&0b1000_0111 | v&0b0111_1000
 		p.statUpdate()
 
-		return p.b.Get(types.STAT)
+		return types.Bit7 | p.status | p.mode
 	})
-	b.ReserveSetAddress(types.STAT, func(v any) {
-		p.b.Set(types.STAT, v.(byte)&0b0111_1111|types.Bit7)
+	b.ReserveLazyReader(types.STAT, func() byte {
+		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
 		// do we need to force a re-render on background
@@ -295,7 +295,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			if p.b.IsGBCCart() || p.b.IsBooting() {
 				p.ColourPalette.SetIndex(v)
 				p.dirtyBackground(bcps)
-				p.b.Set(types.BCPD, p.ColourPalette.Read())
 				return p.ColourPalette.GetIndex() | 0x40
 			}
 
@@ -320,8 +319,15 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
+		b.ReserveLazyReader(types.BCPD, func() byte {
+			if !p.b.IsGBCCart() || p.mode == lcd.VRAM {
+				return 0xff
+			}
+
+			return p.ColourPalette.Read()
+		})
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
-			if p.b.Get(types.STAT)&0b11 != lcd.VRAM {
+			if p.mode != lcd.VRAM {
 				p.ColourSpritePalette.SetIndex(v)
 				p.dirtyBackground(ocps)
 				p.b.Set(types.OCPD, p.ColourSpritePalette.Read())
@@ -357,37 +363,26 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPUVRAMTransfer, p.endVRAMTransfer)
 	s.RegisterEvent(scheduler.PPUStartOAMSearch, p.startOAM)
 	s.RegisterEvent(scheduler.PPUContinueOAMSearch, p.continueOAM)
+	s.RegisterEvent(scheduler.PPUPrepareEndOAMSearch, func() {
+		p.b.RLock(io.VRAM)
+		p.b.WUnlock(io.OAM)
+
+		// schedule end of OAM search for (4 cycles later)
+		p.s.ScheduleEvent(scheduler.PPUEndOAMSearch, 4)
+	})
 	s.RegisterEvent(scheduler.PPUEndOAMSearch, p.endOAM)
 	s.RegisterEvent(scheduler.PPUStartVBlank, p.startVBlank)
 	s.RegisterEvent(scheduler.PPUContinueVBlank, p.continueVBlank)
-	s.RegisterEvent(scheduler.PPULine153Start, p.startLine153)
 	s.RegisterEvent(scheduler.PPULine153Continue, p.continueLine153)
 	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
-	s.RegisterEvent(scheduler.PPUVRAMReadLocked, func() {
-		p.b.RLock(io.VRAM)
-	})
-	s.RegisterEvent(scheduler.PPUVRAMReadUnlocked, func() {
-		p.b.RUnlock(io.VRAM)
-	})
-	s.RegisterEvent(scheduler.PPUVRAMWriteLocked, func() {
-		p.b.WLock(io.VRAM)
-	})
-	s.RegisterEvent(scheduler.PPUVRAMWriteUnlocked, func() {
-		p.b.WUnlock(io.VRAM)
-	})
-	s.RegisterEvent(scheduler.PPUOAMLocked, func() {
-		p.b.Lock(io.OAM)
-	})
-	s.RegisterEvent(scheduler.PPUOAMUnlocked, func() {
-		p.b.WUnlock(io.OAM)
-
-	})
 
 	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
 		p.modeToInterrupt = lcd.HBlank
 		p.statUpdate()
 		p.modeToInterrupt = lcd.VRAM
+
+		p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 4)
 	})
 
 	b.ReserveBlockWriter(0x8000, p.writeVRAM)
@@ -438,21 +433,6 @@ func (p *PPU) startGlitchedFirstLine() {
 	p.s.ScheduleEvent(scheduler.PPUContinueGlitchedLine0, 4)
 }
 
-func (p *PPU) changeMode(mode lcd.Mode) {
-	// clear mode from STAT
-	p.b.Set(types.STAT, p.b.Get(types.STAT)&0b1111_1100)
-
-	// set new mode
-	p.b.Set(types.STAT, p.b.Get(types.STAT)|mode)
-
-	// if we're changing to mode 3, we need to block BCPD
-	if mode == lcd.VRAM {
-		p.b.Set(types.BCPD, 0xFF)
-	} else {
-		p.b.Set(types.BCPD, p.ColourPalette.Read())
-	}
-}
-
 // continueGlitchedFirstLine is called 4 cycles after startGlitchedFirstLine,
 // continuing the first line of the screen in a glitched manner, accurate
 // to the real hardware.
@@ -461,11 +441,7 @@ func (p *PPU) continueGlitchedFirstLine() {
 	p.b.Lock(io.OAM)
 	p.b.Lock(io.VRAM)
 
-	if p.b.IsGBCCart() {
-		p.b.Set(types.BCPD, 0xFF)
-	}
-
-	p.changeMode(lcd.VRAM)
+	p.mode = lcd.VRAM
 
 	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 172)
 }
@@ -499,16 +475,13 @@ func (p *PPU) endHBlank() {
 }
 
 func (p *PPU) endVRAMTransfer() {
-	p.changeMode(lcd.HBlank)
+	p.mode = lcd.HBlank
 	p.modeToInterrupt = lcd.HBlank
 	p.statUpdate()
 
 	p.b.Unlock(io.OAM)
 	p.b.Unlock(io.VRAM)
 
-	if p.b.IsGBCCart() {
-		p.b.Set(types.BCPD, p.ColourPalette.Read())
-	}
 	p.renderScanline()
 
 	if p.b.IsGBCCart() {
@@ -529,7 +502,7 @@ func (p *PPU) endVRAMTransfer() {
 func (p *PPU) startOAM() {
 	p.b.Set(types.LY, p.currentLine) // update LY
 
-	p.changeMode(lcd.HBlank)
+	p.mode = lcd.HBlank
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
 	if p.currentLine != 0 {
 		p.modeToInterrupt = 2
@@ -552,7 +525,7 @@ func (p *PPU) startOAM() {
 // continueOAM is performed 4 cycles after startOAM, and performs the
 // rest of the OAM search.
 func (p *PPU) continueOAM() {
-	p.changeMode(lcd.OAM)
+	p.mode = lcd.OAM
 	p.lyForComparison = p.currentLine
 	p.modeToInterrupt = lcd.OAM
 	p.statUpdate()
@@ -562,30 +535,21 @@ func (p *PPU) continueOAM() {
 
 	p.b.WLock(io.OAM)
 
-	p.s.ScheduleEvent(scheduler.PPUVRAMReadLocked, 76)
-	p.s.ScheduleEvent(scheduler.PPUOAMUnlocked, 76)
-
-	// schedule end of OAM search for (80 cycles later)
-	p.s.ScheduleEvent(scheduler.PPUEndOAMSearch, 80)
+	p.s.ScheduleEvent(scheduler.PPUPrepareEndOAMSearch, 76)
 }
 
 // endOAM is performed 80 cycles after startOAM, and performs the
 // rest of the OAM search.
 func (p *PPU) endOAM() {
-	p.changeMode(lcd.VRAM)
+	p.mode = lcd.VRAM
 	p.modeToInterrupt = lcd.VRAM
 	p.statUpdate()
 
 	p.b.Lock(io.OAM)
 	p.b.Lock(io.VRAM)
 
-	if p.b.IsGBCCart() {
-		p.b.Set(types.BCPD, 0xFF)
-	}
-
 	// schedule end of VRAM search
-	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7])-4)
-	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7]))
+	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7]))
 }
 
 func (p *PPU) WriteCorruptionOAM() {
@@ -672,7 +636,7 @@ func (p *PPU) continueVBlank() {
 	p.lyForComparison = p.currentLine
 	p.statUpdate()
 	if p.currentLine == 144 {
-		p.changeMode(lcd.VBlank)
+		p.mode = lcd.VBlank
 
 		// trigger vblank interrupt
 		if p.b.Model() == types.CGBABC || p.b.Model() == types.CGB0 {
@@ -680,7 +644,7 @@ func (p *PPU) continueVBlank() {
 		}
 
 		// entering vblank also triggers the OAM STAT interrupt if enabled
-		if !p.statInterruptLine && p.b.TestBit(types.STAT, 0x20) {
+		if !p.statInterruptLine && p.status&0x20 != 0 {
 			p.b.RaiseInterrupt(io.LCDINT)
 		}
 		p.modeToInterrupt = lcd.VBlank
@@ -849,28 +813,28 @@ func (p *PPU) statUpdate() {
 	// handle LY=LYC
 	if p.lyForComparison == p.b.Get(types.LYC) {
 		p.lycInterruptLine = true
-		p.b.SetBit(types.STAT, types.Bit2)
+		p.status |= types.Bit2
 	} else {
 		if p.lyForComparison != 255 {
 			p.lycInterruptLine = false
 		}
-		p.b.ClearBit(types.STAT, types.Bit2)
+		p.status &^= types.Bit2
 	}
 
 	// handle mode to interrupt
 	switch p.modeToInterrupt {
 	case lcd.HBlank:
-		p.statInterruptLine = p.b.TestBit(types.STAT, 0x08)
+		p.statInterruptLine = p.status&0x08 != 0
 	case lcd.VBlank:
-		p.statInterruptLine = p.b.TestBit(types.STAT, 0x10)
+		p.statInterruptLine = p.status&0x10 != 0
 	case lcd.OAM:
-		p.statInterruptLine = p.b.TestBit(types.STAT, 0x20)
+		p.statInterruptLine = p.status&0x20 != 0
 	default:
 		p.statInterruptLine = false
 	}
 
 	// LY=LYC interrupt
-	if p.b.TestBit(types.STAT, 0x40) && p.lycInterruptLine {
+	if p.status&0x40 != 0 && p.lycInterruptLine {
 		p.statInterruptLine = true
 	}
 
@@ -882,7 +846,7 @@ func (p *PPU) statUpdate() {
 
 var (
 	scrollXHblank = [8]uint16{200, 196, 196, 196, 196, 192, 192, 192}
-	scrollXvRAM   = [8]uint16{172, 176, 176, 176, 176, 180, 180, 180}
+	scrollXvRAM   = [8]uint16{168, 172, 172, 172, 172, 176, 176, 176}
 )
 
 func (p *PPU) renderScanline() {

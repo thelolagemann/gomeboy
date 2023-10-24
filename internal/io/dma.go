@@ -41,6 +41,12 @@ func (b *Bus) doDMATransfer() {
 
 	// copy byte from source to OAM
 	b.dmaConflict = b.data[b.dmaSource]
+
+	if b.data[b.dmaDestination] != b.dmaConflict {
+		// set OAM changed so PPU knows to update
+		b.oamChanged = true
+	}
+
 	b.data[b.dmaDestination] = b.dmaConflict
 
 	// increment source and destination
@@ -51,9 +57,15 @@ func (b *Bus) doDMATransfer() {
 	if b.dmaDestination < 0xFEA0 {
 		b.s.ScheduleEvent(scheduler.DMATransfer, 4)
 	}
+}
 
-	// set OAM changed so PPU knows to update
-	b.oamChanged = true
+func (b *Bus) endDMATransfer() {
+	b.dmaActive = false
+	b.dmaEnabled = false
+
+	// clear any conflicts
+	b.dmaConflicts = noConflicts
+	b.dmaConflict = 0xff
 }
 
 // isDMATransferring returns true if the CPU is currently

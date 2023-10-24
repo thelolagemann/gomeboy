@@ -49,6 +49,18 @@ type WriteHandler func(byte) byte
 // SetHandler is a function that handles setting a value at a memory address.
 type SetHandler func(any)
 
+// LazyReader is a function that returns a byte from memory.
+//
+// This is a function instead of a value so that the value can be lazily
+// evaluated. This is useful for registers that frequently change, but for
+// which most games would not rely on the precision afforded by doing so.
+//
+// For example, the PPU's status register is constantly changing, but
+// most games would not rely on the precise value of the status register.
+// Instead, the PPU's status register is lazily evaluated and only updated
+// when it is read.
+type LazyReader func() byte
+
 // MemoryRegion represents a region of memory on the bus. This is currently
 // used to handle r/w locking on the bus.
 type MemoryRegion uint8

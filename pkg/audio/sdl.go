@@ -12,9 +12,8 @@ import (
 )
 
 var (
-	buffer   = newBuffer(1024 * 1024)
-	paused   = false
-	disabled = false
+	buffer = newBuffer(1024 * 1024)
+	paused = false
 )
 
 // circularBuffer is a circular buffer of bytes.
@@ -61,8 +60,6 @@ func (b *circularBuffer) read(data []byte) {
 		copy(data[remaining:], b.buffer)
 	}
 
-	// fmt.Println(b.writeCursor, b.readCursor, len(data), b.bytesRead, b.bytesWritten)
-
 	b.readCursor = (b.readCursor + uint64(n)) % b.size
 }
 
@@ -107,7 +104,7 @@ var (
 
 const (
 	bufferSize = 512
-	sampleRate = 44100
+	sampleRate = 65536
 )
 
 func PlaySDL(data []byte) {

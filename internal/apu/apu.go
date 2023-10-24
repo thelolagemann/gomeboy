@@ -1,7 +1,6 @@
 package apu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -10,7 +9,7 @@ import (
 
 const (
 	bufferSize           = 256
-	emulatedSampleRate   = 44100
+	emulatedSampleRate   = 65536
 	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
@@ -164,24 +163,14 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 				b.Write(i, 0)
 			}
 			a.enabled = false
-			b.ClearBit(types.NR52, types.Bit7)
-
-			// check to see if any channels went from enabled -> disabled
-			for i, ch := range aChans {
-				if oldVals[i] && !ch.enabled {
-					// clear bit in NR52
-					a.b.ClearBit(types.NR52, uint8(1<<i))
-				}
-			}
 		} else if v&types.Bit7 != 0 && !a.enabled {
 			// power on
 			a.enabled = true
 			a.frameSequencerStep = 0
-			b.SetBit(types.NR52, types.Bit7)
 		}
 
 		//fmt.Printf("NR52: %08b %08b\n", b.Get(types.NR52)|0x70, v)
-		return b.Get(types.NR52) | 0x70
+		return b.LazyRead(types.NR52) | 0x70
 
 		// TODO onset
 	})
@@ -195,6 +184,28 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		//b.Set(types.NR52, v|0x70)
 	})
+	b.ReserveLazyReader(types.NR52, func() byte {
+		b := uint8(0x70)
+		if a.enabled {
+			b |= types.Bit7
+		}
+
+		aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
+		for i, ch := range aChans {
+			if ch.enabled {
+				b |= uint8(1 << i)
+			}
+		}
+
+		return b
+	})
+
+	for i := uint16(0xff30); i <= 0xff3f; i++ {
+		cI := i
+		b.ReserveLazyReader(cI, func() byte {
+			return a.chan3.readWaveRAM(cI)
+		})
+	}
 	b.WhenGBC(func() {
 
 		b.ReserveAddress(types.PCM12, func(v byte) byte {
@@ -330,32 +341,6 @@ func (a *APU) sample() {
 		}
 		a.bufferPos = 0
 	}
-
-	// schedule next sample in samplePeriod cycles
-	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)
-}
-
-// Read returns the value at the given address.
-func (a *APU) Read(address uint16) uint8 {
-	if address == types.NR52 {
-		b := uint8(0x70)
-		if a.enabled {
-			b |= types.Bit7
-		}
-
-		aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
-		for i, ch := range aChans {
-			if ch.enabled {
-				b |= uint8(1 << i)
-			}
-		}
-
-		return b
-	}
-	if address >= 0xFF30 && address <= 0xFF3F {
-		return a.chan3.readWaveRAM(address)
-	}
-	panic(fmt.Sprintf("unhandled APU read at address: 0x%04X", address))
 }
 
 // Pause pauses the APU.
