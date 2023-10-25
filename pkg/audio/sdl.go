@@ -104,7 +104,7 @@ var (
 
 const (
 	bufferSize = 512
-	sampleRate = 65536
+	sampleRate = 44100
 )
 
 func PlaySDL(data []byte) {
