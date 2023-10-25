@@ -84,7 +84,10 @@ func (b *Bus) OAMChanged() bool {
 // OAMCatchup sets the OAMChanged flag to false. This is used
 // by the PPU to indicate to the bus that it has caught up to
 // the current values in the OAM.
-func (b *Bus) OAMCatchup() {
+func (b *Bus) OAMCatchup(f func(uint16, byte)) {
+	for i := uint16(0); i < 160; i++ {
+		f(i, b.data[0xfe00+i])
+	}
 	b.oamChanged = false
 }
 

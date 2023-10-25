@@ -83,6 +83,7 @@ type PPU struct {
 	modeToInterrupt       uint8
 	currentLine           uint8
 	backgroundLineChanged [256]bool
+	lyCompare             byte
 }
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
@@ -213,7 +214,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		p.b.Set(types.LY, v.(uint8))
 	})
 	b.ReserveAddress(types.LYC, func(v byte) byte {
-		p.b.Set(types.LYC, v) // so STAT update is aware
+		p.lyCompare = v
 		// do we need to force a re-render on background
 		if b.Get(types.LYC) != v {
 			p.dirtyBackground(lyc)
@@ -811,7 +812,7 @@ func (p *PPU) statUpdate() {
 	prevInterruptLine := p.statInterruptLine
 
 	// handle LY=LYC
-	if p.lyForComparison == p.b.Get(types.LYC) {
+	if p.lyForComparison == p.lyCompare {
 		p.lycInterruptLine = true
 		p.status |= types.Bit2
 	} else {
@@ -853,10 +854,9 @@ func (p *PPU) renderScanline() {
 	if p.b.Get(types.LY) >= ScreenHeight {
 		return
 	}
-	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.spriteScanlines[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBCCart()) {
+	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBCCart()) {
 		p.renderBackgroundScanline()
 
-		//fmt.Printf("%v rendered: %v sprite (dirty): %v (%v) background (dirty): %v (%v)\n", p.b.Get(types.LY), p.backgroundLineRendered[p.b.Get(types.LY)], p.oam.spriteScanlines[p.b.Get(types.LY)], p.oam.dirtyScanlines[p.b.Get(types.LY)], p.BackgroundEnabled, p.backgroundDirty)
 	}
 
 	if !p.Debug.WindowDisabled {
@@ -1080,13 +1080,7 @@ func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) 
 
 func (p *PPU) renderSpritesScanline(scanline uint8) {
 	if p.b.OAMChanged() {
-		// copy new data to oam
-		data := make([]byte, 160)
-		p.b.CopyFrom(0xFE00, 0xFEA0, data)
-		for i := 0; i < 160; i++ {
-			p.oam.Write(uint16(i), data[i])
-		}
-		p.b.OAMCatchup()
+		p.b.OAMCatchup(p.oam.Write)
 	}
 
 	spriteXPerScreen := [ScreenWidth]uint8{}
@@ -1180,12 +1174,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 				}
 			}
 
-			// has the sprite changed the background?
-			if p.PreparedFrame[scanline][pixelPos] != pal[color] {
-				p.backgroundLineRendered[scanline] = false
-				// draw the pixel
-				p.PreparedFrame[scanline][pixelPos] = pal[color]
-			}
+			p.PreparedFrame[scanline][pixelPos] = pal[color]
 
 			// mark the pixel as occupied
 			spriteXPerScreen[pixelPos] = spriteX + 10

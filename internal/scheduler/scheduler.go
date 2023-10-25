@@ -79,26 +79,21 @@ func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 // should be executed.
 func (s *Scheduler) Tick(c uint64) {
 	// what cycle are we advancing to
-	s.cycles += c
-
-	// handle sampling
-	if s.cycles%64 == 0 {
-		s.sampler()
-	}
-
-	// get the current cycle at which the next event occurs
-	nextEvent := s.nextEventAt
+	cycleToAdvance := s.cycles + c
 
 	// if the next event occurs in the future, simply increment
 	// the cycle count and return
-	if nextEvent > s.cycles {
+	if s.nextEventAt > cycleToAdvance {
+		s.cycles = cycleToAdvance
 		return
 	}
+
+	// get the cycle at which the next event occurs
+	nextEvent := s.nextEventAt
 
 	// otherwise perform accurate loop, jumping from each event
 	// (mostly to pass blarggs wave read/write/trigger - maybe make
 	// this optional in the future?)
-	cycleToAdvance := s.cycles
 	for nextEvent <= cycleToAdvance {
 		s.cycles = nextEvent
 

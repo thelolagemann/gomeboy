@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	bufferSize           = 256
-	emulatedSampleRate   = 65536
+	bufferSize           = 512
+	emulatedSampleRate   = 44100
 	samplePeriod         = 4194304 / emulatedSampleRate
 	frameSequencerRate   = 512
 	frameSequencerPeriod = 4194304 / frameSequencerRate
@@ -341,6 +341,8 @@ func (a *APU) sample() {
 		}
 		a.bufferPos = 0
 	}
+
+	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)
 }
 
 // Pause pauses the APU.
