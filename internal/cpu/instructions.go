@@ -481,7 +481,6 @@ var InstructionSet = [256]Instruction{
 			// LD B, B is often used as a debug breakpoint
 			if c.Debug {
 				c.DebugBreakpoint = true
-				c.shouldInt = true
 			}
 		},
 	},
