@@ -7,6 +7,7 @@ package audio
 import "C"
 import (
 	"github.com/veandco/go-sdl2/sdl"
+	"math"
 	"reflect"
 	"unsafe"
 )
@@ -18,11 +19,10 @@ var (
 
 // circularBuffer is a circular buffer of bytes.
 type circularBuffer struct {
-	buffer                  []byte
-	size                    uint64
-	readCursor              uint64
-	writeCursor             uint64
-	bytesRead, bytesWritten uint64
+	buffer      []byte
+	size        uint64
+	readCursor  uint64
+	writeCursor uint64
 }
 
 func newBuffer(size uint64) *circularBuffer {
@@ -35,9 +35,6 @@ func newBuffer(size uint64) *circularBuffer {
 }
 
 func (b *circularBuffer) write(data []byte) {
-	n := len(data)
-	b.bytesWritten += uint64(n)
-
 	remaining := b.size - b.writeCursor
 	copy(b.buffer[b.writeCursor:], data)
 	if uint64(len(data)) > remaining {
@@ -48,11 +45,38 @@ func (b *circularBuffer) write(data []byte) {
 }
 
 func (b *circularBuffer) read(data []byte) {
-	if paused || b.bytesWritten == 0 {
+	if paused {
 		return
 	}
 	n := len(data)
-	b.bytesRead += uint64(n)
+
+	if b.writeCursor-b.readCursor < bufferSize {
+		// if there is less than the bufferSize available to read, then
+		// we need to copy the currently buffered data, and repeat the last
+		// sample until the  buffer is full again - very cursed approach to handling
+		// audio desync, but it works enough to not make my ears bleed anymore :D
+
+		// how many samples are buffered? (U16)
+		samplesBuffered := (b.writeCursor - b.readCursor) / 4
+
+		// how many samples does data want?
+		samplesWanted := uint64(len(data) / 4)
+
+		// copy the buffered samples to data
+		copy(data, b.buffer[b.readCursor:b.readCursor+(samplesBuffered*4)])
+
+		// get the last buffered sample
+		bufferedSample := b.buffer[b.readCursor+(samplesBuffered*4) : b.readCursor+(samplesBuffered*4)+4]
+
+		// for each remaining wanted sample, copy the last buffered sample
+		for i := samplesBuffered; i < samplesWanted; i++ {
+			copy(data[i*4:], bufferedSample)
+		}
+
+		// update the read cursor to reflect the new data
+		b.readCursor = (b.readCursor + samplesBuffered*4) % b.size
+		return
+	}
 
 	remaining := b.size - b.readCursor
 	copy(data, b.buffer[b.readCursor:])
@@ -85,7 +109,7 @@ func OpenAudio() error {
 	var err error
 	if audioDeviceID, err = sdl.OpenAudioDevice("", false, &sdl.AudioSpec{
 		Freq:     sampleRate,
-		Format:   sdl.AUDIO_U16SYS,
+		Format:   sdl.AUDIO_F32SYS,
 		Channels: 2,
 		Samples:  bufferSize,
 		Callback: sdl.AudioCallback(C.AudioData),
@@ -103,13 +127,20 @@ var (
 )
 
 const (
-	bufferSize = 512
-	sampleRate = 44100
+	bufferSize = 128
+	sampleRate = 96000
 )
 
-func PlaySDL(data []byte) {
+func PlaySDL(data []float32) {
 	if !paused {
-		buffer.write(data)
+		var b []byte
+		for i := range data {
+			n := math.Float32bits(data[i])
+			b = append(b, byte(n), byte(n>>8))
+			b = append(b, byte(n>>16), byte(n>>24))
+		}
+
+		buffer.write(b)
 	}
 }
 

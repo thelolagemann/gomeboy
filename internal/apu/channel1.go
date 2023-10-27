@@ -161,19 +161,21 @@ func (c *channel1) frequencyCalculation() uint16 {
 	return calculated
 }
 
-func (c *channel1) getAmplitude() uint8 {
+func (c *channel1) getAmplitude() float32 {
 	if c.enabled && c.dacEnabled {
-		return channel1Duty[c.duty][c.waveDutyPosition] * c.currentVolume
+		dacInput := channel1Duty[c.duty][c.waveDutyPosition] * c.currentVolume
+		dacOutput := (float32(dacInput) / 7.5) - 1
+		return dacOutput
 	} else {
 		return 0
 	}
 }
 
 var (
-	channel1Duty = [256][256]uint8{
-		{0, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 0, 0, 1},
-		{1, 0, 0, 0, 0, 1, 1, 1},
-		{0, 1, 1, 1, 1, 1, 1, 0},
+	channel1Duty = [4][8]uint8{
+		{0, 0, 0, 0, 0, 0, 0, 1}, // 12.5% duty cycle
+		{1, 0, 0, 0, 0, 0, 0, 1}, // 25% duty cycle
+		{1, 0, 0, 0, 0, 1, 1, 1}, // 50% duty cycle
+		{0, 1, 1, 1, 1, 1, 1, 0}, // 75% duty cycle
 	}
 )
