@@ -139,13 +139,15 @@ func newChannel3(a *APU, b *io.Bus) *channel3 {
 	return c
 }
 
-func (c *channel3) getAmplitude() uint8 {
+func (c *channel3) getAmplitude() float32 {
 	if c.enabled && c.dacEnabled {
 		shift := 0
 		if c.waveRAMPosition&1 == 0 {
 			shift = 4
 		}
-		return ((c.waveRAMSampleBuffer >> shift) & 0x0F) >> c.volumeCodeShift
+		dacInput := ((c.waveRAMSampleBuffer >> shift) & 0x0f) >> c.volumeCodeShift
+		dacOutput := (float32(dacInput) / 7.5) - 1
+		return dacOutput
 	} else {
 		return 0
 	}
