@@ -86,8 +86,6 @@ type PPU struct {
 	lyCompare             byte
 }
 
-var counter = 0
-
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	oam := NewOAM()
 	p := &PPU{
@@ -189,7 +187,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveLazyReader(types.STAT, func() byte {
-		counter++
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
