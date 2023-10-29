@@ -77,7 +77,7 @@ type PPU struct {
 	lastDirty  uint16
 
 	s                     *scheduler.Scheduler
-	lyForComparison       uint8
+	lyForComparison       uint16
 	lycInterruptLine      bool
 	statInterruptLine     bool
 	modeToInterrupt       uint8
@@ -507,7 +507,7 @@ func (p *PPU) startOAM() {
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
 	if p.currentLine != 0 {
 		p.modeToInterrupt = 2
-		p.lyForComparison = 255
+		p.lyForComparison = 0xffff
 	} else { // line 0
 		p.lyForComparison = 0
 	}
@@ -527,7 +527,7 @@ func (p *PPU) startOAM() {
 // rest of the OAM search.
 func (p *PPU) continueOAM() {
 	p.mode = lcd.OAM
-	p.lyForComparison = p.currentLine
+	p.lyForComparison = uint16(p.currentLine)
 	p.modeToInterrupt = lcd.OAM
 	p.statUpdate()
 
@@ -612,7 +612,7 @@ func (p *PPU) startVBlank() {
 		return
 	}
 
-	p.lyForComparison = 255
+	p.lyForComparison = 0xffff
 	p.statUpdate()
 
 	// set the LY register to current scanline
@@ -634,7 +634,7 @@ func (p *PPU) startVBlank() {
 }
 
 func (p *PPU) continueVBlank() {
-	p.lyForComparison = p.currentLine
+	p.lyForComparison = uint16(p.currentLine)
 	p.statUpdate()
 	if p.currentLine == 144 {
 		p.mode = lcd.VBlank
@@ -661,7 +661,7 @@ func (p *PPU) continueVBlank() {
 
 func (p *PPU) startLine153() {
 	p.b.Set(types.LY, 153)
-	p.lyForComparison = 255
+	p.lyForComparison = 0xffff
 
 	p.statUpdate()
 
@@ -678,7 +678,7 @@ func (p *PPU) continueLine153() {
 
 func (p *PPU) endLine153() {
 	p.b.Set(types.LY, 0)
-	p.lyForComparison = 255
+	p.lyForComparison = 0xffff
 	p.statUpdate()
 
 	p.s.ScheduleEvent(scheduler.PPUEndFrame, 4)
@@ -812,11 +812,11 @@ func (p *PPU) statUpdate() {
 	prevInterruptLine := p.statInterruptLine
 
 	// handle LY=LYC
-	if p.lyForComparison == p.lyCompare {
+	if p.lyForComparison != 0xffff && uint8(p.lyForComparison) == p.lyCompare {
 		p.lycInterruptLine = true
 		p.status |= types.Bit2
 	} else {
-		if p.lyForComparison != 255 {
+		if p.lyForComparison != 0xffff {
 			p.lycInterruptLine = false
 		}
 		p.status &^= types.Bit2
