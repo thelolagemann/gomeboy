@@ -6,11 +6,7 @@ import (
 )
 
 var (
-	// bullyTest is a test for the bully rom
-	bullyTests = []ROMTest{
-		newImageTest("bully", withEmulatedSeconds(5)),
-		newImageTest("bully", withEmulatedSeconds(5), asModel(types.CGBABC)),
-	}
+	bullyTests = imageTestForModels("bully", 1, types.DMGABC, types.CGBABC)
 )
 
 func Test_Bully(t *testing.T) {

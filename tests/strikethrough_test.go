@@ -6,10 +6,7 @@ import (
 )
 
 var (
-	strikethroughTests = []ROMTest{
-		newImageTest("strikethrough"),
-		newImageTest("strikethrough", asModel(types.DMGABC)),
-	}
+	strikethroughTests = imageTestForModels("strikethrough", 1, types.DMGABC, types.CGBABC)
 )
 
 func Test_Strikethrough(t *testing.T) {
@@ -17,10 +14,7 @@ func Test_Strikethrough(t *testing.T) {
 }
 
 func testStrikethrough(t *TestTable) {
-	// create top level test
-	tS := t.NewTestSuite("strikethrough")
-
-	// strikethrough
-	strikethrough := tS.NewTestCollection("strikethrough")
-	strikethrough.AddTests(strikethroughTests...)
+	t.NewTestSuite("strikethrough").
+		NewTestCollection("strikethrough").
+		AddTests(strikethroughTests...)
 }
