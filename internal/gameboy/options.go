@@ -2,6 +2,7 @@ package gameboy
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/io"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -42,6 +43,12 @@ func SerialDebugger(output *string) Opt {
 func AsModel(m types.Model) func(gb *GameBoy) {
 	return func(gb *GameBoy) {
 		gb.SetModel(m)
+	}
+}
+
+func WithPalette(p palette.Palette) Opt {
+	return func(gb *GameBoy) {
+		gb.PPU.ColourPalettes[0] = p
 	}
 }
 

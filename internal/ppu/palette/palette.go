@@ -29,12 +29,6 @@ type Palette [4][3]uint8
 
 type Colour [4]color.RGBA
 
-// Current is the currently selected palette.
-var Current = Greyscale
-
-var latchedPalette = Greyscale
-var requestPaletteChange = false
-
 // ColourPalettes maps the shades of a palette to their RGBA values.
 var ColourPalettes = []Palette{
 	// Greyscale
@@ -89,19 +83,4 @@ func LoadPaletteFromState(s *types.State) Palette {
 		}
 	}
 	return p
-}
-
-func CyclePalette() {
-	latchedPalette++
-	if latchedPalette >= len(ColourPalettes) {
-		latchedPalette = Greyscale
-	}
-	requestPaletteChange = true
-}
-
-func UpdatePalette() {
-	if requestPaletteChange {
-		Current = latchedPalette
-		requestPaletteChange = false
-	}
 }
