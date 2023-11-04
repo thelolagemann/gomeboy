@@ -1,15 +1,12 @@
 package tests
 
 import (
-	"context"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/log"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 const (
@@ -17,10 +14,22 @@ const (
 )
 
 type mooneyeTest struct {
-	romPath string
-	name    string
-	passed  bool
-	model   types.Model
+	*basicTest
+	emulatedSeconds int
+}
+
+var modelSuffixes = map[string]types.Model{
+	"-dmg0":     types.DMG0,
+	"-mgb":      types.MGB,
+	"-sgb":      types.SGB,
+	"-S":        types.SGB,
+	"-sgb2":     types.SGB2,
+	"2-S":       types.SGB2,
+	"-cgb0":     types.CGB0,
+	"-cgb":      types.CGBABC,
+	"-C":        types.CGBABC,
+	"-A":        types.AGB,
+	"-cgbABCDE": types.CGBABC,
 }
 
 func assertModel(file os.DirEntry) types.Model {
@@ -28,50 +37,15 @@ func assertModel(file os.DirEntry) types.Model {
 	if len(file.Name()) < 8 {
 		return model
 	}
-	// try to determine the model
-	// ends with -dmg0.gb
-	if file.Name()[len(file.Name())-8:] == "-dmg0.gb" {
-		model = types.DMG0
-	}
-	// ends with -mgb.gb
-	if file.Name()[len(file.Name())-7:] == "-mgb.gb" {
-		model = types.MGB
-	}
-	// ends with -sgb.gb
-	if file.Name()[len(file.Name())-7:] == "-sgb.gb" {
-		model = types.SGB
-	}
-	// ends with -S.gb
-	if file.Name()[len(file.Name())-5:] == "-S.gb" {
-		model = types.SGB
-	}
-	// ends with -sgb2.gb
-	if file.Name()[len(file.Name())-8:] == "-sgb2.gb" {
-		model = types.SGB2
-	}
-	// ends with 2-S.gb
-	if file.Name()[len(file.Name())-6:] == "2-S.gb" {
-		model = types.SGB2
-	}
-	// ends with -cgb0.gb
-	if file.Name()[len(file.Name())-8:] == "-cgb0.gb" {
-		model = types.CGB0
-	}
-	// ends with -cgb.gb
-	if file.Name()[len(file.Name())-7:] == "-cgb.gb" {
-		model = types.CGBABC
-	}
-	// ends with -C.gb
-	if file.Name()[len(file.Name())-5:] == "-C.gb" {
-		model = types.CGBABC
-	}
-	// ends with -A.gb
-	if file.Name()[len(file.Name())-5:] == "-A.gb" {
-		model = types.AGB
-	}
-	// ends with -cgbABCDE.gb
-	if strings.Contains(file.Name(), "-cgbABCDE.gb") {
-		model = types.CGBABC
+	for s, m := range modelSuffixes {
+		if strings.HasSuffix(strings.Split(file.Name(), ".")[0], s) {
+			// handle -S and 2-S being matched as the same
+			if m == types.SGB && strings.HasSuffix(strings.Split(file.Name(), ".")[0], "2-S") {
+				m = types.SGB2
+			}
+			model = m
+			break
+		}
 	}
 
 	return model
@@ -93,26 +67,40 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 		}
 
 		tc.Add(&mooneyeTest{
-			romPath: filepath.Join(romDir, file.Name()),
-			name:    file.Name(),
-			model:   assertModel(file),
+			basicTest: &basicTest{
+				romPath: filepath.Join(romDir, file.Name()),
+				name:    strings.Split(file.Name(), ".")[0],
+				model:   assertModel(file),
+			},
 		})
 	}
 
 	return tc
 }
-func (m *mooneyeTest) Name() string {
-	return m.name
-}
 
 func (m *mooneyeTest) Run(t *testing.T) {
-	if pass := testMooneyeROM(t, m.romPath, m.model); pass {
-		m.passed = true
-	}
-}
+	m.passed = true
+	t.Run(filepath.Base(m.name), func(t *testing.T) {
+		var g *gameboy.GameBoy
+		var err error
+		if m.emulatedSeconds > 0 {
+			g, err = runGameboy(m.romPath, m.emulatedSeconds, CycleBreakpoint, gameboy.Debug(), gameboy.AsModel(m.model))
+		} else {
+			g, err = runGameboy(m.romPath, 5, DebugBreakpoint, gameboy.Debug(), gameboy.AsModel(m.model))
+		}
+		if err != nil {
+			m.passed = false
+			t.Errorf("failed to run gameboy: %s", err)
+		}
 
-func (m *mooneyeTest) Passed() bool {
-	return m.passed
+		expectedRegisters := []uint8{3, 5, 8, 13, 21, 34}
+		for i, r := range []uint8{g.CPU.B, g.CPU.C, g.CPU.D, g.CPU.E, g.CPU.H, g.CPU.L} {
+			if r != expectedRegisters[i] {
+				t.Errorf("expected register %d to be %d, got %d", i, expectedRegisters[i], r)
+				m.passed = false
+			}
+		}
+	})
 }
 
 func testMooneye(roms *TestTable) {
@@ -151,13 +139,7 @@ func testMooneye(roms *TestTable) {
 
 	// madness
 	madness := tS.NewTestCollection("madness")
-	madness.Add(&imageTest{
-		romPath:         filepath.Join(mooneyeROMPath, "madness", "mgb_oam_dma_halt_sprites.gb"),
-		expectedImage:   findImage("mgb_oam_dma_halt_sprites", types.MGB),
-		name:            "mgb_oam_dma_halt_sprites",
-		emulatedSeconds: 5,
-		model:           types.MGB,
-	})
+	madness.Add(newImageTest("mgb_oam_dma_halt_sprites", withEmulatedSeconds(2), asModel(types.MGB)))
 
 	// misc
 	misc := newMooneyeTestCollectionFromDir(tS, "misc")
@@ -166,20 +148,7 @@ func testMooneye(roms *TestTable) {
 
 	// sprite_priority (image test)
 	manualOnly := tS.NewTestCollection("manual-only")
-	manualOnly.Add(&imageTest{
-		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority.gb"),
-		expectedImage:   findImage("sprite_priority", types.DMGABC),
-		name:            "sprite_priority",
-		emulatedSeconds: 5,
-		model:           types.DMGABC,
-	})
-	manualOnly.Add(&imageTest{
-		romPath:         filepath.Join(mooneyeROMPath, "manual-only", "sprite_priority.gb"),
-		expectedImage:   findImage("sprite_priority", types.CGBABC),
-		name:            "sprite_priority",
-		emulatedSeconds: 5,
-		model:           types.CGBABC,
-	})
+	manualOnly.AddTests(imageTestForModels("sprite_priority", 1, types.DMGABC, types.CGBABC)...)
 }
 
 func newMooneyeTestCollectionFromCollection(collection *TestCollection, s string) *TestCollection {
@@ -198,55 +167,13 @@ func newMooneyeTestCollectionFromCollection(collection *TestCollection, s string
 		}
 
 		tc.Add(&mooneyeTest{
-			romPath: filepath.Join(romDir, file.Name()),
-			name:    file.Name(),
-			model:   assertModel(file),
+			basicTest: &basicTest{
+				romPath: filepath.Join(romDir, file.Name()),
+				name:    strings.Split(file.Name(), ".")[0],
+				model:   assertModel(file),
+			},
 		})
 	}
 
 	return tc
-}
-
-// testMooneyeROM tests a mooneye rom. A passing test will
-// execute the rom until the breakpoint is reached (LD B, B),
-// and writes the fibonacci sequence 3/5/8/13/21/34 to the
-// registers B, C, D, E, H, L. The test will then compare the
-// registers to the expected values.
-func testMooneyeROM(t *testing.T, romFile string, model types.Model) bool {
-	passed := true
-	t.Run(filepath.Base(romFile), func(t *testing.T) {
-		// load the rom
-		b, err := os.ReadFile(romFile)
-		if err != nil {
-			panic(err)
-		}
-
-		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(model), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		go func() {
-			<-ctx.Done()
-			g.CPU.DebugBreakpoint = true
-		}()
-		frame := 0
-		// run until breakpoint
-		for {
-			g.Frame()
-			if g.CPU.DebugBreakpoint || frame > (60*10) { // 10 seconds
-				break
-			}
-			frame++
-		}
-
-		expectedRegisters := []uint8{3, 5, 8, 13, 21, 34}
-		for i, r := range []uint8{g.CPU.B, g.CPU.C, g.CPU.D, g.CPU.E, g.CPU.H, g.CPU.L} {
-			if r != expectedRegisters[i] {
-				t.Errorf("expected register %d to be %d, got %d", i, expectedRegisters[i], r)
-				passed = false
-			}
-		}
-	})
-	return passed
 }
