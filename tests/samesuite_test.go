@@ -37,7 +37,7 @@ func newSamesuiteTestCollectionFromDir(suite *TestSuite, dir string) *TestCollec
 		if file.Name() == "blocking_bgpi_increase.gb" || strings.Contains(file.Name(), "dma") {
 			t.model = types.CGBABC
 		}
-		tc.Add(t)
+		tc.AddTests(t)
 	}
 
 	return tc

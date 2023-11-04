@@ -66,7 +66,7 @@ func newMooneyeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollecti
 			continue
 		}
 
-		tc.Add(&mooneyeTest{
+		tc.AddTests(&mooneyeTest{
 			basicTest: &basicTest{
 				romPath: filepath.Join(romDir, file.Name()),
 				name:    strings.Split(file.Name(), ".")[0],
@@ -139,7 +139,7 @@ func testMooneye(roms *TestTable) {
 
 	// madness
 	madness := tS.NewTestCollection("madness")
-	madness.Add(newImageTest("mgb_oam_dma_halt_sprites", withEmulatedSeconds(2), asModel(types.MGB)))
+	madness.AddTests(newImageTest("mgb_oam_dma_halt_sprites", withEmulatedSeconds(2), asModel(types.MGB)))
 
 	// misc
 	misc := newMooneyeTestCollectionFromDir(tS, "misc")
@@ -166,7 +166,7 @@ func newMooneyeTestCollectionFromCollection(collection *TestCollection, s string
 			continue
 		}
 
-		tc.Add(&mooneyeTest{
+		tc.AddTests(&mooneyeTest{
 			basicTest: &basicTest{
 				romPath: filepath.Join(romDir, file.Name()),
 				name:    strings.Split(file.Name(), ".")[0],

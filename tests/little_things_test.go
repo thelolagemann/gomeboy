@@ -8,26 +8,29 @@ import (
 
 const perCycle = 70224 * 30 // 70224 cycles per frame, 60 frames per second
 
-func littleThings() []ROMTest {
-	return []ROMTest{
-		newImageTest("firstwhite", asModel(types.DMGABC)),
-		newImageTest("firstwhite", asModel(types.CGBABC)),
+var (
+	littleThings = append(
+		imageTestForModels("firstwhite", 1, types.DMGABC, types.CGBABC),
 		&inputTest{
-			name:              "tellinglys",
-			romPath:           "roms/little-things-gb/tellinglys.gb",
+			basicTest: &basicTest{
+				name:    "tellinglys (DMG)",
+				romPath: "roms/little-things-gb/tellinglys.gb",
+				model:   types.DMGABC,
+			},
 			expectedImagePath: "roms/little-things-gb/tellinglys-dmg.png",
-			model:             types.DMGABC,
 			inputs:            tellingLysInputSequence,
 		},
 		&inputTest{
-			name:              "tellinglys-cgb",
-			romPath:           "roms/little-things-gb/tellinglys.gb",
+			basicTest: &basicTest{
+				name:    "tellinglys (CGB)",
+				romPath: "roms/little-things-gb/tellinglys.gb",
+				model:   types.CGBABC,
+			},
 			expectedImagePath: "roms/little-things-gb/tellinglys-cgb.png",
-			model:             types.CGBABC,
 			inputs:            tellingLysInputSequence,
 		},
-	}
-}
+	)
+)
 
 var (
 	tellingLysInputSequence = []testInput{
@@ -43,7 +46,7 @@ var (
 )
 
 func Test_LittleThings(t *testing.T) {
-	testROMs(t, littleThings()...)
+	testROMs(t, littleThings...)
 }
 
 func testLittleThings(t *TestTable) {
@@ -51,7 +54,7 @@ func testLittleThings(t *TestTable) {
 	tS := t.NewTestSuite("little-things-gb")
 
 	// firstwhite
-	tS.NewTestCollection("firstwhite").AddTests(littleThings()[:2]...)
+	tS.NewTestCollection("firstwhite").AddTests(littleThings[:2]...)
 	// tellinglys
-	tS.NewTestCollection("tellinglys").AddTests(littleThings()[2:]...)
+	tS.NewTestCollection("tellinglys").AddTests(littleThings[2:]...)
 }

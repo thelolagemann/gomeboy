@@ -82,12 +82,7 @@ func newBlarggTestCollectionFromDir(suite *TestSuite, dir string) *TestCollectio
 			continue
 		}
 
-		tc.Add(&blarrgTest{
-			basicTest: &basicTest{
-				romPath: filepath.Join(romDir, file.Name()),
-				name:    strings.Split(file.Name(), ".")[0],
-			},
-		})
+		tc.AddTests(&blarrgTest{newBasicTest(filepath.Join(romDir, file.Name()), types.DMGABC)})
 	}
 
 	return tc
@@ -119,7 +114,7 @@ func testBlarrg(table *TestTable) {
 	newBlarggTestCollectionFromDir(tS, "cpu_instrs")
 	tS.NewTestCollection("dmg_sound").AddTests(dmgSoundTests...)
 	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests[0], blarggImageTests[1])
-	tS.NewTestCollection("instr_timing").Add(blarggImageTests[4])
+	tS.NewTestCollection("instr_timing").AddTests(blarggImageTests[4])
 	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests[2], blarggImageTests[3])
 	newBlarggTestCollectionFromDir(tS, "mem_timing")
 }

@@ -3,8 +3,8 @@ package tests
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/log"
 	"image"
 	"image/color"
 	"image/draw"
@@ -18,12 +18,11 @@ import (
 
 // imageTest is a test that compares the output of a rom to an expected image
 type imageTest struct {
-	romPath         string
-	name            string
+	palette         *palette.Palette
 	emulatedSeconds int
 	expectedImage   string
-	passed          bool
-	model           types.Model
+
+	*basicTest
 }
 
 type imageTestOption func(*imageTest)
@@ -37,6 +36,18 @@ func withEmulatedSeconds(secs int) imageTestOption {
 func asModel(model types.Model) imageTestOption {
 	return func(t *imageTest) {
 		t.model = model
+	}
+}
+
+func asName(name string) imageTestOption {
+	return func(t *imageTest) {
+		t.name = name
+	}
+}
+
+func withPalette(palette palette.Palette) imageTestOption {
+	return func(t *imageTest) {
+		t.palette = &palette
 	}
 }
 
@@ -146,21 +157,16 @@ func findROM(name string) string {
 	return romPath
 }
 
-func newImageTest(name string, opts ...imageTestOption) *imageTest {
+func newImageTest(name string, opts ...imageTestOption) ROMTest {
 	// discover rom path
 	romPath := findROM(name)
 
 	t := &imageTest{
-		romPath:         romPath,
-		name:            name,
-		model:           types.DMGABC,
+		basicTest:       newBasicTest(romPath, types.DMGABC),
 		emulatedSeconds: 2,
 	}
 	for _, opt := range opts {
 		opt(t)
-	}
-	if t.model == types.CGBABC && !strings.Contains(t.name, "cgb") { // add cgb suffix to name if needed
-		t.name = t.name + "-cgb"
 	}
 
 	// discover expected image path based on name and model
@@ -171,20 +177,56 @@ func newImageTest(name string, opts ...imageTestOption) *imageTest {
 		panic("expected image does not exist: " + t.expectedImage)
 	}
 
+	// adjust name to remove any leading dirs
+	t.name = filepath.Base(t.name)
+
 	return t
 }
 
-func (t *imageTest) Run(tester *testing.T) {
-
-	t.passed = testROMWithExpectedImage(tester, t.romPath, t.expectedImage, t.model, t.emulatedSeconds, t.name)
+func imageTestForModels(name string, emulatedSeconds int, models ...types.Model) []ROMTest {
+	var tests []ROMTest
+	for _, m := range models {
+		t := newImageTest(name, asModel(m), withEmulatedSeconds(emulatedSeconds), asName(fmt.Sprintf("%s (%s)", name, m)))
+		tests = append(tests, t)
+	}
+	return tests
 }
 
-func (t *imageTest) Name() string {
-	return t.name
-}
+func (i *imageTest) Run(t *testing.T) {
+	i.passed = true
+	t.Run(i.name, func(t *testing.T) {
+		opts := []gameboy.Opt{gameboy.AsModel(i.model)}
+		if i.palette != nil {
+			opts = append(opts, gameboy.WithPalette(*i.palette))
+		}
+		g, err := runGameboy(i.romPath, i.emulatedSeconds, CycleBreakpoint, opts...)
+		if err != nil {
+			t.Errorf("Test %s failed: %s", i.name, err)
+			return
+		}
 
-func (t *imageTest) Passed() bool {
-	return t.passed
+		// compare the images
+		diff, diffImg, err := compareImage(i.expectedImage, g)
+		if err != nil {
+			i.passed = false
+			t.Fatal(err)
+		}
+
+		if diff > 0 {
+			i.passed = false
+			t.Errorf("Test %s failed. Difference: %d", i.name, diff)
+
+			// write output image to disk
+			outFile, err := os.Create(fmt.Sprintf("results/%s_output.png", i.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer outFile.Close()
+
+			if err := png.Encode(outFile, diffImg); err != nil {
+			}
+		}
+	})
 }
 
 func ImgCompare(img1, img2 image.Image) (int64, image.Image, error) {
@@ -230,112 +272,67 @@ func sqDiffUInt32(x, y uint32) uint64 {
 	return d * d
 }
 
-func testROMWithExpectedImage(t *testing.T, romPath string, expectedImagePath string, asModel types.Model, emulatedSeconds int, name string) bool {
-	if emulatedSeconds == 0 {
-		panic("emulatedSeconds must be > 0")
-	}
-	passed := true
-	t.Run(name, func(t *testing.T) {
-		// load the rom
-		b, err := os.ReadFile(romPath)
-		if err != nil {
-			panic(fmt.Sprintf("failed to read rom: %s", err))
-		}
-
-		// create the emulator
-		g := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(0), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
-
-		// custom test loop
-		for frame := 0; frame < 60*emulatedSeconds; frame++ {
-			g.CPU.Frame()
-		}
-
-		img := g.PPU.PreparedFrame
-
-		// create image.Image from the byte array
-		img1 := image.NewNRGBA(image.Rect(0, 0, 160, 144))
-		palette := []color.Color{}
-		for y := 0; y < 144; y++ {
-		next:
-			for x := 0; x < 160; x++ {
-
-				col := color.NRGBA{
-					R: img[y][x][0],
-					G: img[y][x][1],
-					B: img[y][x][2],
-					A: 255,
-				}
-				img1.Set(x, y, col)
-				// add color if it doesn't exist
-				for _, p := range palette {
-					r, g, b, _ := p.RGBA()
-					r2, g2, b2, _ := col.RGBA()
-					if r == r2 && g == g2 && b == b2 {
-						continue next
-					}
-				}
-				palette = append(palette, col)
-
-			}
-		}
-
-		img2 := imageFromFilename(expectedImagePath)
-		// create a new paletted image
-		img3 := image.NewPaletted(img1.Bounds(), palette)
-		draw.Draw(img3, img3.Bounds(), img1, image.Point{0, 0}, draw.Src)
-
-		// compare the images
-		diff, diffResult, err := ImgCompare(img2, img3)
-		if err != nil {
-			passed = false
-			t.Fatal(err)
-		}
-
-		if diff > 0 {
-			passed = false
-			t.Errorf("Test %s failed. Difference: %d", name, diff)
-			// save the diff image
-			f, err := os.Create("results/" + name + ".png")
-			if err != nil {
-				t.Error(err)
-			}
-			if err = png.Encode(f, diffResult); err != nil {
-				t.Error(err)
-			}
-
-			// save the actual image
-			f, err = os.Create("results/" + name + "_actual.png")
-			if err != nil {
-				t.Error(err)
-			}
-
-			if err = png.Encode(f, img3); err != nil {
-				t.Error(err)
-			}
-
-			// save the expected image
-			f, err = os.Create("results/" + name + "_expected.png")
-			if err != nil {
-				t.Error(err)
-			}
-			if err = png.Encode(f, img2); err != nil {
-				t.Error(err)
-			}
-		}
-	})
-	return passed
-}
-
-func imageFromFilename(filename string) image.Image {
+// imageFromFilename loads an image from a file.
+func imageFromFilename(filename string) (image.Image, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	defer file.Close()
 
 	img, _, err := image.Decode(file)
 	if err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+// compareImage compares an expected image with the output of the
+// provided gameboy.GameBoy.
+func compareImage(expectedImage string, gb *gameboy.GameBoy) (int64, image.Image, error) {
+	// create image.Image from the byte array
+	img1 := image.NewNRGBA(image.Rect(0, 0, 160, 144))
+	var palette []color.Color
+	for y := 0; y < 144; y++ {
+	next:
+		for x := 0; x < 160; x++ {
+			col := color.NRGBA{
+				R: gb.PPU.PreparedFrame[y][x][0],
+				G: gb.PPU.PreparedFrame[y][x][1],
+				B: gb.PPU.PreparedFrame[y][x][2],
+				A: 255,
+			}
+			img1.Set(x, y, col)
+			// add color if it doesn't exist
+			for _, p := range palette {
+				r, g, b, _ := p.RGBA()
+				r2, g2, b2, _ := col.RGBA()
+				if r == r2 && g == g2 && b == b2 {
+					continue next
+				}
+			}
+			palette = append(palette, col)
+		}
+	}
+
+	img2, err := imageFromFilename(expectedImage)
+	if err != nil {
+		return math.MaxInt64, nil, err
+	}
+	// create a new paletted image
+	img3 := image.NewPaletted(img1.Bounds(), palette)
+	draw.Draw(img3, img3.Bounds(), img1, img2.Bounds().Min, draw.Src)
+
+	out, err := os.Create(fmt.Sprintf("results/%s_out.png", filepath.Base(expectedImage)))
+	if err != nil {
 		panic(err)
 	}
-	return img
+
+	if err := png.Encode(out, img3); err != nil {
+		panic(err)
+	}
+
+	// TODO output results?
+
+	return ImgCompare(img2, img3)
 }
