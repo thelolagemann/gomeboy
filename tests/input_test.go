@@ -4,13 +4,8 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
-	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
-	"golang.org/x/image/draw"
-	"image"
-	"image/color"
-	"image/png"
 	"math/rand"
 	"os"
 	"sort"
@@ -19,44 +14,23 @@ import (
 )
 
 type inputTest struct {
-	name              string
-	romPath           string
 	expectedImagePath string
-	model             types.Model
 	inputs            []testInput
-	passed            bool
+
+	*basicTest
 }
 
 func (iT *inputTest) Run(t *testing.T) {
-	iT.passed = testROMWithInput(t, iT.romPath, iT.expectedImagePath, iT.model, iT.name, iT.inputs...)
-}
-
-func (iT *inputTest) Name() string {
-	return iT.name
-}
-
-func (iT *inputTest) Passed() bool {
-	return iT.passed
-}
-
-type testInput struct {
-	// the button to press
-	button io.Button
-	// the frame to press the button
-	atEmulatedCycle uint64
-}
-
-func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, asModel types.Model, name string, inputs ...testInput) bool {
-	passed := true
-	t.Run(name, func(t *testing.T) {
+	iT.passed = true
+	t.Run(iT.name, func(t *testing.T) {
 		// load the rom
-		b, err := os.ReadFile(romPath)
+		b, err := os.ReadFile(iT.romPath)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// create a new gameboy
-		gb := gameboy.NewGameBoy(b, gameboy.AsModel(asModel), gameboy.Speed(0), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
+		gb := gameboy.NewGameBoy(b, gameboy.AsModel(iT.model), gameboy.Speed(0), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
 
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)
@@ -65,13 +39,13 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		released := make(chan io.Button, 10)
 
 		// sort the inputs by cycle (so we can press them in order)
-		sort.Slice(inputs, func(i, j int) bool {
-			return inputs[i].atEmulatedCycle < inputs[j].atEmulatedCycle
+		sort.Slice(iT.inputs, func(i, j int) bool {
+			return iT.inputs[i].atEmulatedCycle < iT.inputs[j].atEmulatedCycle
 		})
 
 		var lastCycle uint64
 		// schedule input events on gameboy to occur at emulated cycles (with some degree of randomization TODO make configurable)
-		for _, input := range inputs {
+		for _, input := range iT.inputs {
 			adjustedCycle := input.atEmulatedCycle
 			adjustedCycle += (1024 + uint64(rand.Intn(4192))) * 4
 
@@ -125,59 +99,23 @@ func testROMWithInput(t *testing.T, romPath string, expectedImagePath string, as
 		// close the channels
 		close(done)
 
-		// create the actual image
-		img := gb.PPU.PreparedFrame
-
-		actualImage := image.NewNRGBA(image.Rect(0, 0, 160, 144))
-		palette := []color.Color{}
-		for y := 0; y < 144; y++ {
-		next:
-			for x := 0; x < 160; x++ {
-				col := color.NRGBA{
-					R: img[y][x][0],
-					G: img[y][x][1],
-					B: img[y][x][2],
-					A: 255,
-				}
-				actualImage.Set(x, y, col)
-
-				// add color if it doesn't exist
-				for _, p := range palette {
-					r, g, b, _ := p.RGBA()
-					r2, g2, b2, _ := col.RGBA()
-					if r == r2 && g == g2 && b == b2 {
-						continue next
-					}
-				}
-				palette = append(palette, col)
-			}
-		}
-
-		// compare the image to the expected image
-		expectedImage := imageFromFilename(expectedImagePath)
-		palImg := image.NewPaletted(actualImage.Bounds(), palette)
-		draw.Draw(palImg, palImg.Bounds(), actualImage, image.Point{0, 0}, draw.Src)
-		diff, _, err := ImgCompare(palImg, expectedImage)
+		diff, _, err := compareImage(iT.expectedImagePath, gb)
 		if err != nil {
-			passed = false
+			iT.passed = false
 			t.Fatal(err)
 		}
 
 		if diff > 0 {
-			passed = false
-			t.Errorf("images are different: %d%%", diff) // TODO percentage
-
-			// save the actual image
-			f, err := os.Create("results/" + name + "_actual.png")
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = png.Encode(f, palImg)
-			if err != nil {
-				t.Fatal(err)
-			}
+			iT.passed = false
+			t.Errorf("images are different: %d", diff) // TODO percentage
 		}
 	})
 
-	return passed
+}
+
+type testInput struct {
+	// the button to press
+	button io.Button
+	// the frame to press the button
+	atEmulatedCycle uint64
 }

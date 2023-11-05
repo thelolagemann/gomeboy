@@ -33,6 +33,8 @@ type PPU struct {
 	OBJ0ColourisationPalette *palette.Palette
 	OBJ1ColourisationPalette *palette.Palette
 
+	ColourPalettes []palette.Palette
+
 	// Window
 	windowInternal uint8
 
@@ -94,6 +96,22 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		b:   b,
 		s:   s,
 		oam: oam,
+		ColourPalettes: []palette.Palette{
+			// Greyscale
+			{
+				{0xFF, 0xFF, 0xFF},
+				{0xAA, 0xAA, 0xAA},
+				{0x55, 0x55, 0x55},
+				{0x00, 0x00, 0x00},
+			},
+			// Green (mimics original)
+			{
+				{0x9B, 0xBC, 0x0F},
+				{0x8B, 0xAC, 0x0F},
+				{0x30, 0x62, 0x30},
+				{0x0F, 0x38, 0x0F},
+			},
+		},
 	}
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
@@ -234,7 +252,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		if p.BGColourisationPalette != nil {
 			p.ColourPalette.Palettes[0] = palette.ByteToPalette(*p.BGColourisationPalette, v)
 		} else {
-			p.ColourPalette.Palettes[0] = palette.ByteToPalette(palette.ColourPalettes[palette.Greyscale], v)
+			p.ColourPalette.Palettes[0] = palette.ByteToPalette(p.ColourPalettes[palette.Greyscale], v)
 		}
 
 		return v
@@ -249,7 +267,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		if p.OBJ0ColourisationPalette != nil {
 			p.ColourSpritePalette.Palettes[0] = palette.ByteToPalette(*p.OBJ0ColourisationPalette, v)
 		} else {
-			p.ColourSpritePalette.Palettes[0] = palette.ByteToPalette(palette.ColourPalettes[palette.Greyscale], v)
+			p.ColourSpritePalette.Palettes[0] = palette.ByteToPalette(p.ColourPalettes[palette.Greyscale], v)
 		}
 
 		return v
@@ -265,7 +283,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		if p.OBJ1ColourisationPalette != nil {
 			p.ColourSpritePalette.Palettes[1] = palette.ByteToPalette(*p.OBJ1ColourisationPalette, v)
 		} else {
-			p.ColourSpritePalette.Palettes[1] = palette.ByteToPalette(palette.ColourPalettes[palette.Greyscale], v)
+			p.ColourSpritePalette.Palettes[1] = palette.ByteToPalette(p.ColourPalettes[palette.Greyscale], v)
 		}
 
 		return v

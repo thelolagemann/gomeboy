@@ -56,7 +56,7 @@ varying degrees of success.
 # Automated Test Results
 
 
-![progress](https://progress-bar.dev/92/?scale=100&title=passing%20169,%20failing%2013&width=500)
+![progress](https://progress-bar.dev/69/?scale=100&title=passing%20176,%20failing%2076&width=500)
 
 | Test Suite | Pass Rate | Tests Passed | Tests Failed | Tests Total |
 | --- | --- | --- | --- | --- |
@@ -65,7 +65,8 @@ varying degrees of success.
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 98% | 112 | 2 | 114 |
-| samesuite | 46% | 6 | 7 | 13 |
+| samesuite | 10% | 8 | 70 | 78 |
+| scribbltests | 100% | 5 | 0 | 5 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
 <sup>Visit the [tests](tests/README.md) directory for more information.</sup>

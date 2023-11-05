@@ -2,8 +2,13 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/log"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"io"
 	"net/http"
 	"os"
@@ -14,14 +19,26 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+func init() {
+	// check to see if roms exists
+	if _, err := os.Stat("roms"); err != nil {
+		// extract roms from roms.zip
+		if err := utils.Unzip("roms.zip", "roms"); err != nil {
+			panic(err)
+		}
+	}
+}
 
 const readmeBlurb = `<hr/>
 GomeBoy is automatically tested against the following test suites:
 
 * **[Blargg's test roms](https://github.com/retrio/gb-test-roms)**  
   <sup>by [Shay Green (a.k.a. Blargg)](http://www.slack.net/~ant/) </sup>
-* **[Bully](https://github.com/Hacktix/BullyGB)**
+* **[Bully](https://github.com/Hacktix/BullyGB)**, 
+  **[scribbltests](https://github.com/Hacktix/scribbltests)** 
   and **[Strikethrough](https://github.com/Hacktix/strikethrough.gb)**  
   <sup>by [Hacktix](https://github.com/Hacktix) </sup>
 * **[cgb-acid-hell](https://github.com/mattcurrie/cgb-acid-hell)**,
@@ -115,18 +132,15 @@ func Test_All(t *testing.T) {
 	})
 }
 
+var testers = []func(*TestTable){testAcid2, testBully, testBlarrg, testLittleThings, testMooneye, testSamesuite, testScribbl, testStrikethrough}
+
 func testAllTable() *TestTable {
 	testTable := &TestTable{
 		testSuites: make([]*TestSuite, 0),
 	}
-	testAcid2(testTable)
-	// testAge(testTable)
-	testBully(testTable)
-	testBlarrg(testTable)
-	testLittleThings(testTable)
-	testMooneye(testTable)
-	testSamesuite(testTable)
-	testStrikethrough(testTable)
+	for _, t := range testers {
+		t(testTable)
+	}
 
 	return testTable
 }
@@ -173,14 +187,11 @@ func Test_Regressions(t *testing.T) {
 		"image_test.go",
 		"input_test.go",
 		"little_things_test.go",
-		"mealybug_test.go",
-		"misc_test.go",
 		"mooneye_test.go",
 		"rom_test.go",
 		"samesuite_test.go",
 		"scribbl_test.go",
 		"strikethrough_test.go",
-		"wilbertpol_test.go",
 		"-run", "Test_All")
 	var exitError *exec.ExitError
 	var out strings.Builder
@@ -404,28 +415,10 @@ type TestCollection struct {
 	subCollections []*TestCollection
 }
 
-func (tC *TestCollection) Add(test ROMTest) {
-	tC.tests = append(tC.tests, test)
-}
-
 func (tC *TestCollection) AddTests(tests ...ROMTest) {
 	for _, test := range tests {
 		tC.tests = append(tC.tests, test)
 	}
-}
-
-func (tC *TestCollection) AllTests() []ROMTest {
-	tests := []ROMTest{}
-	for _, test := range tC.tests {
-		tests = append(tests, test)
-	}
-	for _, subCollection := range tC.subCollections {
-		// handle recursive sub collections
-		for _, subTest := range subCollection.AllTests() {
-			tests = append(tests, subTest)
-		}
-	}
-	return tests
 }
 
 // Run runs all the tests in the collection, including any tests in sub-collections.
@@ -444,10 +437,6 @@ func (tC *TestCollection) NewTestCollection(name string) *TestCollection {
 	collection := &TestCollection{name: name, tests: make([]ROMTest, 0)}
 	tC.subCollections = append(tC.subCollections, collection)
 	return collection
-}
-
-func (tC *TestCollection) AddTestCollection(dir *TestCollection) {
-	tC.subCollections = append(tC.subCollections, dir)
 }
 
 type ROMTest interface {
@@ -475,11 +464,94 @@ func testROMs(t *testing.T, roms ...ROMTest) {
 	}
 }
 
+// basicTest
+type basicTest struct {
+	romPath string
+	name    string
+	passed  bool
+	model   types.Model
+}
+
+func newBasicTest(path string, model types.Model) *basicTest {
+	return &basicTest{
+		romPath: path,
+		name:    strings.Split(filepath.Base(path), ".")[0],
+		model:   model,
+	}
+}
+
+func (b *basicTest) Passed() bool {
+	return b.passed
+}
+
+func (b *basicTest) Name() string {
+	return b.name
+}
+
+// breakpointStrategy defines the type of breakpoint to hit.
+type breakpointStrategy int
+
+const (
+	// DebugBreakpoint is a strategy that runs the Game Boy until the
+	// CPU.DebugBreakpoint is reached.
+	DebugBreakpoint breakpointStrategy = iota
+	// CycleBreakpoint is a strategy that runs the Game Boy until the
+	// scheduler.Cycle() is greater than the timeout.
+	CycleBreakpoint
+)
+
+// runGameboy runs a gameboy until it hits a breakpoint as defined
+// by the breakpointStrategy. It returns the gameboy instance after
+// the breakpoint is hit.
+func runGameboy(romPath string, timeout int, strat breakpointStrategy, opts ...gameboy.Opt) (*gameboy.GameBoy, error) {
+	// setup default options
+	defaultOpts := []gameboy.Opt{
+		gameboy.NoAudio(),
+		gameboy.WithLogger(log.NewNullLogger()),
+		gameboy.Speed(0),
+	}
+	opts = append(defaultOpts, opts...)
+
+	// load the rom
+	b, err := os.ReadFile(romPath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open rom %s", romPath)
+	}
+
+	// create the gameboy instance
+	g := gameboy.NewGameBoy(b, opts...)
+
+	// create timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	// run the gameboy until the breakpoint is reached
+gameLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break gameLoop
+		default:
+			g.Frame()
+			switch strat {
+			case DebugBreakpoint:
+				if g.CPU.DebugBreakpoint || g.Scheduler.Cycle() > 20*70240*60 {
+					break gameLoop
+				}
+			case CycleBreakpoint:
+				if int(g.Scheduler.Cycle()) > timeout*70240*60 {
+					break gameLoop
+				}
+			}
+		}
+	}
+
+	return g, nil
+}
+
 // TODO:
-// - add a way to run tests in parallel
 // - parse description from test roms (maybe)
 // - model differentiation (DMG, CGB, SGB)
-// - git commit hook to run tests and update README
 // - git clone to download test roms
 // - blurb for each test suite (maybe)
 // - tests have table entries for each test, with a link to the test rom, and a link to the expected image

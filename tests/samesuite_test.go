@@ -28,13 +28,16 @@ func newSamesuiteTestCollectionFromDir(suite *TestSuite, dir string) *TestCollec
 		}
 
 		t := &mooneyeTest{
-			romPath: filepath.Join(romDir, file.Name()),
-			name:    file.Name(),
+			basicTest: &basicTest{
+				romPath: filepath.Join(romDir, file.Name()),
+				name:    strings.Split(file.Name(), ".")[0],
+			},
+			emulatedSeconds: 5,
 		}
 		if file.Name() == "blocking_bgpi_increase.gb" || strings.Contains(file.Name(), "dma") {
 			t.model = types.CGBABC
 		}
-		tc.Add(t)
+		tc.AddTests(t)
 	}
 
 	return tc
@@ -46,6 +49,10 @@ func testSamesuite(roms *TestTable) {
 
 	// apu
 	newSamesuiteTestCollectionFromDir(tS, "apu")
+	newSamesuiteTestCollectionFromDir(tS, "apu/channel_1")
+	newSamesuiteTestCollectionFromDir(tS, "apu/channel_2")
+	newSamesuiteTestCollectionFromDir(tS, "apu/channel_3")
+	newSamesuiteTestCollectionFromDir(tS, "apu/channel_4")
 
 	// dma
 	newSamesuiteTestCollectionFromDir(tS, "dma")

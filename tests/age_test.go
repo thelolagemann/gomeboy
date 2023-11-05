@@ -1,15 +1,10 @@
 package tests
 
 import (
-	"context"
-	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/log"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 const (
@@ -60,64 +55,6 @@ func assertModelsPassed(file os.DirEntry) []types.Model {
 	return []types.Model{types.DMGABC}
 }
 
-type ageTest struct {
-	romPath string
-	name    string
-	passed  bool
-	model   types.Model
-}
-
-func (a *ageTest) Run(t *testing.T) {
-	a.passed = testAGERom(t, a.romPath, a.model)
-}
-
-func (a *ageTest) Passed() bool {
-	return a.passed
-}
-
-func (a *ageTest) Name() string {
-	return fmt.Sprintf("%s (%s)", a.name, a.model)
-}
-
-func testAGERom(t *testing.T, romFile string, model types.Model) bool {
-	passed := true
-	t.Run(fmt.Sprintf("%s (%s)", filepath.Base(romFile[:len(romFile)-len(filepath.Ext(romFile))]), model), func(t *testing.T) {
-		// load the rom
-		b, err := os.ReadFile(romFile)
-		if err != nil {
-			panic(err)
-		}
-
-		// create the gameboy
-		g := gameboy.NewGameBoy(b, gameboy.Debug(), gameboy.AsModel(model), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		go func() {
-			<-ctx.Done()
-			g.CPU.DebugBreakpoint = true
-		}()
-		frame := 0
-		// run until breakpoint
-		for {
-			g.Frame()
-			if g.CPU.DebugBreakpoint || frame > (60*10) { // 10 seconds
-				break
-			}
-			frame++
-		}
-
-		expectedRegisters := []uint8{3, 5, 8, 13, 21, 34}
-		for i, r := range []uint8{g.CPU.B, g.CPU.C, g.CPU.D, g.CPU.E, g.CPU.H, g.CPU.L} {
-			if r != expectedRegisters[i] {
-				t.Errorf("expected register %d to be %d, got %d", i, expectedRegisters[i], r)
-				passed = false
-			}
-		}
-	})
-	return passed
-}
-
 func newAgeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
 	romDir := filepath.Join(ageROMPath, dir)
 	tc := suite.NewTestCollection(dir)
@@ -138,11 +75,7 @@ func newAgeTestCollectionFromDir(suite *TestSuite, dir string) *TestCollection {
 
 		// create test for each model
 		for _, model := range models {
-			tc.Add(&ageTest{
-				romPath: filepath.Join(romDir, file.Name()),
-				name:    file.Name(),
-				model:   model,
-			})
+			tc.AddTests(&mooneyeTest{basicTest: newBasicTest(filepath.Join(romDir, file.Name()), model)})
 		}
 	}
 
