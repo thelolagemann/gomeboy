@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+func scribbl() []ROMTest {
+	return []ROMTest{
+		newImageTest("scribbl/lycscx", withPalette(scribblPalette)),
+		newImageTest("scribbl/lycscy", withPalette(scribblPalette)),
+		newImageTest("scribbl/palettely", withPalette(scribblPalette)),
+		newImageTest("scribbl/scxly", withPalette(scribblPalette)),
+		newImageTest("scribbl/statcount", withPalette(scribblPalette), withEmulatedSeconds(6)),
+	}
+}
+
 var (
 	scribblPalette = palette.Palette{
 		{0xe0, 0xf8, 0xd0},
@@ -12,20 +22,12 @@ var (
 		{0x34, 0x68, 0x56},
 		{0x08, 0x18, 0x20},
 	}
-
-	scribblTests = []ROMTest{
-		newImageTest("scribbl/lycscx", withPalette(scribblPalette)),
-		newImageTest("scribbl/lycscy", withPalette(scribblPalette)),
-		newImageTest("scribbl/palettely", withPalette(scribblPalette)),
-		newImageTest("scribbl/scxly", withPalette(scribblPalette)),
-		newImageTest("scribbl/statcount", withPalette(scribblPalette), withEmulatedSeconds(6)),
-	}
 )
 
 func Test_Scribbl(t *testing.T) {
-	testROMs(t, scribblTests...)
+	testROMs(t, scribbl()...)
 }
 
 func testScribbl(t *TestTable) {
-	t.NewTestSuite("scribbltests").NewTestCollection("scribbltests").AddTests(scribblTests...)
+	t.NewTestSuite("scribbltests").NewTestCollection("scribbltests").AddTests(scribbl()...)
 }

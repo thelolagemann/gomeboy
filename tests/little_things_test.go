@@ -8,8 +8,8 @@ import (
 
 const perCycle = 70224 * 30 // 70224 cycles per frame, 60 frames per second
 
-var (
-	littleThings = append(
+func littleThings() []ROMTest {
+	return append(
 		imageTestForModels("firstwhite", 1, types.DMGABC, types.CGBABC),
 		&inputTest{
 			basicTest: &basicTest{
@@ -30,7 +30,7 @@ var (
 			inputs:            tellingLysInputSequence,
 		},
 	)
-)
+}
 
 var (
 	tellingLysInputSequence = []testInput{
@@ -46,15 +46,16 @@ var (
 )
 
 func Test_LittleThings(t *testing.T) {
-	testROMs(t, littleThings...)
+	testROMs(t, littleThings()...)
 }
 
 func testLittleThings(t *TestTable) {
 	// create top level test
 	tS := t.NewTestSuite("little-things-gb")
 
+	te := littleThings()
 	// firstwhite
-	tS.NewTestCollection("firstwhite").AddTests(littleThings[:2]...)
+	tS.NewTestCollection("firstwhite").AddTests(te[:2]...)
 	// tellinglys
-	tS.NewTestCollection("tellinglys").AddTests(littleThings[2:]...)
+	tS.NewTestCollection("tellinglys").AddTests(te[2:]...)
 }

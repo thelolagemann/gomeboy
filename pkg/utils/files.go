@@ -99,3 +99,52 @@ func LoadFile(filename string) ([]byte, error) {
 
 	return data, nil
 }
+
+func Unzip(zipFile, destFolder string) error {
+	// Open the ZIP file for reading
+	r, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	// Create the destination folder if it doesn't exist
+	if err := os.MkdirAll(destFolder, os.ModePerm); err != nil {
+		return err
+	}
+
+	// Iterate through the files in the ZIP archive
+	for _, file := range r.File {
+		rc, err := file.Open()
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+
+		// Construct the path to the file in the destination folder
+		destPath := filepath.Join(destFolder, file.Name)
+
+		if file.FileInfo().IsDir() {
+			// If it's a directory, create it in the destination folder
+			os.MkdirAll(destPath, os.ModePerm)
+		} else {
+			// If it's a file, create the necessary directories and extract the file
+			if err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm); err != nil {
+				return err
+			}
+
+			destFile, err := os.Create(destPath)
+			if err != nil {
+				return err
+			}
+			defer destFile.Close()
+
+			_, err = io.Copy(destFile, rc)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

@@ -52,7 +52,7 @@ type GameBoy struct {
 	Timer     *timer.Controller
 	Serial    *serial.Controller
 
-	b *io.Bus
+	Bus *io.Bus
 
 	log.Logger
 
@@ -110,13 +110,13 @@ func (g *GameBoy) StartLinked(
 	for {
 		select {
 		case p := <-pressed1:
-			g.b.Press(p)
+			g.Bus.Press(p)
 		case r := <-released1:
-			g.b.Release(r)
+			g.Bus.Release(r)
 		case p := <-pressed2:
-			g.attachedGameBoy.b.Press(p)
+			g.attachedGameBoy.Bus.Press(p)
 		case r := <-released2:
-			g.attachedGameBoy.b.Release(r)
+			g.attachedGameBoy.Bus.Release(r)
 		case <-ticker.C:
 			// lock the gameboy
 			g.Lock()
@@ -210,10 +210,10 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	for i := io.ButtonA; i <= io.ButtonDown; i++ {
 		_i := i
 		g.Scheduler.RegisterEvent(scheduler.JoypadA+scheduler.EventType(_i), func() {
-			g.b.Press(_i)
+			g.Bus.Press(_i)
 		})
 		g.Scheduler.RegisterEvent(scheduler.JoypadARelease+scheduler.EventType(_i), func() {
-			g.b.Release(_i)
+			g.Bus.Release(_i)
 		})
 	}
 
@@ -222,12 +222,12 @@ emuLoop:
 		select {
 		case b := <-pressed:
 			// press button with some entropy by pressing at a random cycle in the future
-			g.b.Press(b)
-			//g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.bA)+b), uint64(1024+rand.Intn(4192)*4))
+			g.Bus.Press(b)
+			//g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.bA)+Bus), uint64(1024+rand.Intn(4192)*4))
 		case b := <-released:
-			g.b.Release(b)
-			//until := g.Scheduler.Until(scheduler.bA + scheduler.EventType(b))
-			//g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.bARelease)+b), until+uint64(1024+rand.Intn(1024)*4))
+			g.Bus.Release(b)
+			//until := g.Scheduler.Until(scheduler.bA + scheduler.EventType(Bus))
+			//g.Scheduler.ScheduleEvent(scheduler.EventType(uint8(scheduler.bARelease)+Bus), until+uint64(1024+rand.Intn(1024)*4))
 		case cmd := <-g.cmdChannel:
 			g.Lock()
 			switch cmd.Command {
@@ -338,7 +338,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		CPU:    processor,
 		PPU:    video,
 		Logger: log.New(),
-		b:      b,
+		Bus:    b,
 
 		APU:        sound,
 		Timer:      timerCtl,
@@ -366,14 +366,14 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 			// was there an error loading the save files?
 			g.Logger.Errorf(fmt.Sprintf("error loading save files: %s", err))
 		} else {
-			g.Cartridge.LoadRAM(g.save.Bytes(), g.b)
+			g.Cartridge.LoadRAM(g.save.Bytes(), g.Bus)
 		}
 	}
 	// try to load cheats using filename of rom
-	g.b.Map(g.model, cart.Header().GameboyColor())
+	g.Bus.Map(g.model, cart.Header().GameboyColor())
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
-		g.b.Boot()
+		g.Bus.Boot()
 
 		// handle colourisation
 		if !cart.Header().GameboyColor() && (g.model == types.CGBABC || g.model == types.CGB0) {

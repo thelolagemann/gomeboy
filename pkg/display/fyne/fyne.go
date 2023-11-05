@@ -13,7 +13,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/display"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
@@ -24,7 +23,6 @@ import (
 	"image/png"
 	"os"
 	"time"
-	"unsafe"
 )
 
 func init() {
@@ -143,8 +141,9 @@ func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed ch
 			// check if this is a Game Boy key or event handler
 			if k, isMapped := keyMap[e.Name]; isMapped {
 				pressed <- k
-			} else if _, isHandled := keyHandlers[e.Name]; isHandled {
+			} else if h, isHandled := keyHandlers[e.Name]; isHandled {
 				// TODO handle key handlers
+				h(f.gb.(*gameboy.GameBoy))
 			}
 		})
 		desk.SetOnKeyUp(func(e *fyne.KeyEvent) {
@@ -516,24 +515,7 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 		f.Close()
 	},
 	fyne.KeyT: func(gb *gameboy.GameBoy) {
-		// print the size of all the various components of the gameboy struct
-		fmt.Printf("CPU: %d\n", unsafe.Sizeof(*gb.CPU))
-		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
-		//fmt.Printf("MMU: %d\n", unsafe.Sizeof(*gb.MMU))
-		fmt.Printf("APU: %d\n", unsafe.Sizeof(*gb.APU))
-		fmt.Printf("Timer: %d\n", unsafe.Sizeof(gb.Timer))
-		//fmt.Printf("Cartridge: %d\n", unsafe.Sizeof(*gb.MMU.Cart))
-		fmt.Printf("GameBoy: %d\n", unsafe.Sizeof(*gb))
-
-		// print the size of the various types used throughout the gameboy
-		fmt.Printf("Palette: %d\n", unsafe.Sizeof(palette.Palette{}))
-		fmt.Printf("Color: %d\n", unsafe.Sizeof(palette.CGBPalette{}))
-		fmt.Printf("Tile: %d\n", unsafe.Sizeof(ppu.Tile{}))
-		fmt.Printf("Sprite: %d\n", unsafe.Sizeof(ppu.Sprite{}))
-		fmt.Printf("HardwareRegister: %d\n", unsafe.Sizeof(&types.Address{}))
-
-		// print the size of the various components of the PPU
-		fmt.Printf("PPU: %d\n", unsafe.Sizeof(*gb.PPU))
+		gb.Test()
 	},
 	fyne.KeyS: func(gb *gameboy.GameBoy) {
 		st := types.NewState()

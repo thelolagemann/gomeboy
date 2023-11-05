@@ -29,7 +29,7 @@ func NoAudio() Opt {
 func SerialDebugger(output *string) Opt {
 	return func(gb *GameBoy) {
 		// used to intercept serial output and store it in a string
-		gb.b.ReserveAddress(types.SB, func(v byte) byte {
+		gb.Bus.ReserveAddress(types.SB, func(v byte) byte {
 			*output += string(v)
 			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
 				gb.CPU.DebugBreakpoint = true
@@ -87,15 +87,15 @@ func WithBootROM(rom []byte) Opt {
 		// by the bus as reads will wrap around) then on writes
 		// to types.BDIS the rom contents will be copied back
 		romContents := make([]byte, 0x0900)
-		gb.b.CopyFrom(0, 0x0900, romContents)
-		gb.b.CopyTo(0xE000, 0xE900, romContents)
+		gb.Bus.CopyFrom(0, 0x0900, romContents)
+		gb.Bus.CopyTo(0xE000, 0xE900, romContents)
 
 		// is it a DMG or CGB boot ROM?
 		if len(rom) == 0x100 {
-			gb.b.CopyTo(0, 0x0100, rom)
+			gb.Bus.CopyTo(0, 0x0100, rom)
 		} else if len(rom) == 0x900 {
-			gb.b.CopyTo(0, 0x0100, rom)
-			gb.b.CopyTo(0x0200, 0x0900, rom[0x200:])
+			gb.Bus.CopyTo(0, 0x0100, rom)
+			gb.Bus.CopyTo(0x0200, 0x0900, rom[0x200:])
 		}
 
 		gb.model = io.Which(rom)

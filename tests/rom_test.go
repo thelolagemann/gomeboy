@@ -8,6 +8,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/log"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"io"
 	"net/http"
 	"os"
@@ -20,6 +21,16 @@ import (
 	"testing"
 	"time"
 )
+
+func init() {
+	// check to see if roms exists
+	if _, err := os.Stat("roms"); err != nil {
+		// extract roms from roms.zip
+		if err := utils.Unzip("roms.zip", "roms"); err != nil {
+			panic(err)
+		}
+	}
+}
 
 const readmeBlurb = `<hr/>
 GomeBoy is automatically tested against the following test suites:
@@ -176,7 +187,6 @@ func Test_Regressions(t *testing.T) {
 		"image_test.go",
 		"input_test.go",
 		"little_things_test.go",
-		"mealybug_test.go",
 		"mooneye_test.go",
 		"rom_test.go",
 		"samesuite_test.go",

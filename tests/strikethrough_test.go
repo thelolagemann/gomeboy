@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-var (
-	strikethroughTests = imageTestForModels("strikethrough", 1, types.DMGABC, types.CGBABC)
-)
+func strikethrough() []ROMTest {
+	return imageTestForModels("strikethrough", 1, types.DMGABC, types.CGBABC)
+}
 
 func Test_Strikethrough(t *testing.T) {
-	testROMs(t, strikethroughTests...)
+	testROMs(t, strikethrough()...)
 }
 
 func testStrikethrough(t *TestTable) {
 	t.NewTestSuite("strikethrough").
 		NewTestCollection("strikethrough").
-		AddTests(strikethroughTests...)
+		AddTests(strikethrough()...)
 }

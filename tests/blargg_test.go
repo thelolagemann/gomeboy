@@ -13,50 +13,12 @@ const (
 	blarggROMPath = "roms/blargg"
 )
 
-var (
-	dmgSoundTests = []ROMTest{
-		newImageTest("dmg_sound/01-registers", withEmulatedSeconds(2)),
-		newImageTest("dmg_sound/02-len ctr", withEmulatedSeconds(10)),
-		newImageTest("dmg_sound/03-trigger", withEmulatedSeconds(17)),
-		newImageTest("dmg_sound/04-sweep", withEmulatedSeconds(3)),
-		newImageTest("dmg_sound/05-sweep details", withEmulatedSeconds(3)),
-		newImageTest("dmg_sound/06-overflow on trigger", withEmulatedSeconds(2)),
-		newImageTest("dmg_sound/07-len sweep period sync", withEmulatedSeconds(1)),
-		newImageTest("dmg_sound/08-len ctr during power", withEmulatedSeconds(3)),
-		newImageTest("dmg_sound/09-wave read while on", withEmulatedSeconds(4)),
-		newImageTest("dmg_sound/10-wave trigger while on", withEmulatedSeconds(10)),
-		newImageTest("dmg_sound/11-regs after power", withEmulatedSeconds(2)),
-		newImageTest("dmg_sound/12-wave write while on", withEmulatedSeconds(10)),
-	}
-
-	cgbSoundTests = []ROMTest{
-		newImageTest("cgb_sound/01-registers", asModel(types.CGBABC), withEmulatedSeconds(2)),
-		newImageTest("cgb_sound/02-len ctr", asModel(types.CGBABC), withEmulatedSeconds(10)),
-		newImageTest("cgb_sound/03-trigger", asModel(types.CGBABC), withEmulatedSeconds(17)),
-		newImageTest("cgb_sound/04-sweep", asModel(types.CGBABC), withEmulatedSeconds(3)),
-		newImageTest("cgb_sound/05-sweep details", asModel(types.CGBABC), withEmulatedSeconds(3)),
-		newImageTest("cgb_sound/06-overflow on trigger", asModel(types.CGBABC), withEmulatedSeconds(2)),
-		newImageTest("cgb_sound/07-len sweep period sync", asModel(types.CGBABC), withEmulatedSeconds(1)),
-		newImageTest("cgb_sound/08-len ctr during power", asModel(types.CGBABC), withEmulatedSeconds(3)),
-		newImageTest("cgb_sound/09-wave read while on", asModel(types.CGBABC), withEmulatedSeconds(4)),
-		newImageTest("cgb_sound/10-wave trigger while on", asModel(types.CGBABC), withEmulatedSeconds(10)),
-		newImageTest("cgb_sound/11-regs after power", asModel(types.CGBABC), withEmulatedSeconds(2)),
-		newImageTest("cgb_sound/12-wave", asModel(types.CGBABC), withEmulatedSeconds(10)),
-	}
-
-	// blarggImageTests holds all the tests that are image based,
-	// as they don't output any data to the 0xFF01 register
-	blarggImageTests = append(
+func blarggImageTests() []ROMTest {
+	return append(
 		imageTestForModels("halt_bug", 20, types.DMGABC, types.CGBABC),
 		append(imageTestForModels("interrupt_time", 2, types.DMGABC, types.CGBABC),
 			newImageTest("instr_timing", withEmulatedSeconds(20)))...,
 	)
-)
-
-func Test_Blargg(t *testing.T) {
-	testROMs(t, blarggImageTests...)
-	testROMs(t, dmgSoundTests...)
-	testROMs(t, cgbSoundTests...)
 }
 
 type blarrgTest struct {
@@ -92,12 +54,18 @@ func (b *blarrgTest) Run(t *testing.T) {
 	b.passed = true
 	t.Run(filepath.Base(b.name), func(t *testing.T) {
 		output := ""
-		_, err := runGameboy(b.romPath, 5, DebugBreakpoint, gameboy.SerialDebugger(&output))
+		g, err := runGameboy(b.romPath, 5, DebugBreakpoint, gameboy.SerialDebugger(&output))
 		if err != nil {
 			t.Error(err)
 			return
 		}
 
+		// if serial output nothing, check the ram at 0xa000
+		if output == "" {
+			for i := uint16(0xa000); i < 0xb000; i++ {
+				output += string(g.Bus.Get(i))
+			}
+		}
 		// check if the test passed
 		if strings.Contains(output, "Failed") || !strings.Contains(output, "Passed") {
 			b.passed = false
@@ -110,11 +78,12 @@ func testBlarrg(table *TestTable) {
 	// create top level test suite
 	tS := table.NewTestSuite("blarrg")
 
-	tS.NewTestCollection("cgb_sound").AddTests(cgbSoundTests...)
 	newBlarggTestCollectionFromDir(tS, "cpu_instrs")
-	tS.NewTestCollection("dmg_sound").AddTests(dmgSoundTests...)
-	tS.NewTestCollection("halt_bug").AddTests(blarggImageTests[0], blarggImageTests[1])
-	tS.NewTestCollection("instr_timing").AddTests(blarggImageTests[4])
-	tS.NewTestCollection("interrupt_time").AddTests(blarggImageTests[2], blarggImageTests[3])
+	newBlarggTestCollectionFromDir(tS, "cgb_sound")
+	newBlarggTestCollectionFromDir(tS, "dmg_sound")
+	t := blarggImageTests()
+	tS.NewTestCollection("halt_bug").AddTests(t[0], t[1])
+	tS.NewTestCollection("instr_timing").AddTests(t[4])
+	tS.NewTestCollection("interrupt_time").AddTests(t[2], t[3])
 	newBlarggTestCollectionFromDir(tS, "mem_timing")
 }
