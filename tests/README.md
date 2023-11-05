@@ -1,13 +1,14 @@
 # Automated test results
-![progress](https://progress-bar.dev/92/?scale=100&title=passing%20169,%20failing%2013&width=500)
+![progress](https://progress-bar.dev/69/?scale=100&title=passing%20176,%20failing%2076&width=500)
 
-#### This document was automatically generated from commit 131cbe98
+#### This document was automatically generated from commit 875b24ba
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
 * **[Blargg's test roms](https://github.com/retrio/gb-test-roms)**  
   <sup>by [Shay Green (a.k.a. Blargg)](http://www.slack.net/~ant/) </sup>
-* **[Bully](https://github.com/Hacktix/BullyGB)**
+* **[Bully](https://github.com/Hacktix/BullyGB)**, 
+  **[scribbltests](https://github.com/Hacktix/scribbltests)** 
   and **[Strikethrough](https://github.com/Hacktix/strikethrough.gb)**  
   <sup>by [Hacktix](https://github.com/Hacktix) </sup>
 * **[cgb-acid-hell](https://github.com/mattcurrie/cgb-acid-hell)**,
@@ -37,7 +38,8 @@ is compared against a reference image from a known good emulator.
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 98% | 112 | 2 | 114 |
-| samesuite | 46% | 6 | 7 | 13 |
+| samesuite | 10% | 8 | 70 | 78 |
+| scribbltests | 100% | 5 | 0 | 5 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
 Explore the individual tests for each suite using the table of contents below.
@@ -49,8 +51,8 @@ Explore the individual tests for each suite using the table of contents below.
 * [bully](#bully)
   * [bully](#bully)
 * [blarrg](#blarrg)
-  * [cgb_sound](#cgb_sound)
   * [cpu_instrs](#cpu_instrs)
+  * [cgb_sound](#cgb_sound)
   * [dmg_sound](#dmg_sound)
   * [halt_bug](#halt_bug)
   * [instr_timing](#instr_timing)
@@ -79,10 +81,16 @@ Explore the individual tests for each suite using the table of contents below.
   * [manual-only](#manual-only)
 * [samesuite](#samesuite)
   * [apu](#apu)
+  * [apu/channel_1](#apu/channel_1)
+  * [apu/channel_2](#apu/channel_2)
+  * [apu/channel_3](#apu/channel_3)
+  * [apu/channel_4](#apu/channel_4)
   * [dma](#dma)
   * [interrupt](#interrupt)
   * [ppu](#ppu)
   * [sgb](#sgb)
+* [scribbltests](#scribbltests)
+  * [scribbltests](#scribbltests)
 * [strikethrough](#strikethrough)
   * [strikethrough](#strikethrough)
 
@@ -91,8 +99,8 @@ Explore the individual tests for each suite using the table of contents below.
 ## dmg-acid2
 | Test | Passing |
 | ---- | ------- |
-| dmg-acid2 | ✅ |
-| dmg-acid2-cgb | ✅ |
+| dmg-acid2 (DMG) | ✅ |
+| dmg-acid2 (CGB) | ✅ |
 ## cgb-acid2
 | Test | Passing |
 | ---- | ------- |
@@ -103,59 +111,59 @@ Explore the individual tests for each suite using the table of contents below.
 
 | Test | Passing |
 | ---- | ------- |
-| bully | ✅ |
-| bully-cgb | ❌ |
+| bully (DMG) | ✅ |
+| bully (CGB) | ❌ |
 # blarrg
 ![progress](https://progress-bar.dev/100/?scale=100&title=passing%2043,%20failing%200&width=500)
-## cgb_sound
-| Test | Passing |
-| ---- | ------- |
-| cgb_sound/01-registers | ✅ |
-| cgb_sound/02-len ctr | ✅ |
-| cgb_sound/03-trigger | ✅ |
-| cgb_sound/04-sweep | ✅ |
-| cgb_sound/05-sweep details | ✅ |
-| cgb_sound/06-overflow on trigger | ✅ |
-| cgb_sound/07-len sweep period sync | ✅ |
-| cgb_sound/08-len ctr during power | ✅ |
-| cgb_sound/09-wave read while on | ✅ |
-| cgb_sound/10-wave trigger while on | ✅ |
-| cgb_sound/11-regs after power | ✅ |
-| cgb_sound/12-wave | ✅ |
 ## cpu_instrs
 | Test | Passing |
 | ---- | ------- |
-| 01-special.gb | ✅ |
-| 02-interrupts.gb | ✅ |
-| 03-op sp,hl.gb | ✅ |
-| 04-op r,imm.gb | ✅ |
-| 05-op rp.gb | ✅ |
-| 06-ld r,r.gb | ✅ |
-| 07-jr,jp,call,ret,rst.gb | ✅ |
-| 08-misc instrs.gb | ✅ |
-| 09-op r,r.gb | ✅ |
-| 10-bit ops.gb | ✅ |
-| 11-op a,(hl).gb | ✅ |
+| 01-special | ✅ |
+| 02-interrupts | ✅ |
+| 03-op sp,hl | ✅ |
+| 04-op r,imm | ✅ |
+| 05-op rp | ✅ |
+| 06-ld r,r | ✅ |
+| 07-jr,jp,call,ret,rst | ✅ |
+| 08-misc instrs | ✅ |
+| 09-op r,r | ✅ |
+| 10-bit ops | ✅ |
+| 11-op a,(hl) | ✅ |
+## cgb_sound
+| Test | Passing |
+| ---- | ------- |
+| 01-registers | ✅ |
+| 02-len ctr | ✅ |
+| 03-trigger | ✅ |
+| 04-sweep | ✅ |
+| 05-sweep details | ✅ |
+| 06-overflow on trigger | ✅ |
+| 07-len sweep period sync | ✅ |
+| 08-len ctr during power | ✅ |
+| 09-wave read while on | ✅ |
+| 10-wave trigger while on | ✅ |
+| 11-regs after power | ✅ |
+| 12-wave | ✅ |
 ## dmg_sound
 | Test | Passing |
 | ---- | ------- |
-| dmg_sound/01-registers | ✅ |
-| dmg_sound/02-len ctr | ✅ |
-| dmg_sound/03-trigger | ✅ |
-| dmg_sound/04-sweep | ✅ |
-| dmg_sound/05-sweep details | ✅ |
-| dmg_sound/06-overflow on trigger | ✅ |
-| dmg_sound/07-len sweep period sync | ✅ |
-| dmg_sound/08-len ctr during power | ✅ |
-| dmg_sound/09-wave read while on | ✅ |
-| dmg_sound/10-wave trigger while on | ✅ |
-| dmg_sound/11-regs after power | ✅ |
-| dmg_sound/12-wave write while on | ✅ |
+| 01-registers | ✅ |
+| 02-len ctr | ✅ |
+| 03-trigger | ✅ |
+| 04-sweep | ✅ |
+| 05-sweep details | ✅ |
+| 06-overflow on trigger | ✅ |
+| 07-len sweep period sync | ✅ |
+| 08-len ctr during power | ✅ |
+| 09-wave read while on | ✅ |
+| 10-wave trigger while on | ✅ |
+| 11-regs after power | ✅ |
+| 12-wave write while on | ✅ |
 ## halt_bug
 | Test | Passing |
 | ---- | ------- |
-| halt_bug | ✅ |
-| halt_bug-cgb | ✅ |
+| halt_bug (DMG) | ✅ |
+| halt_bug (CGB) | ✅ |
 ## instr_timing
 | Test | Passing |
 | ---- | ------- |
@@ -163,167 +171,167 @@ Explore the individual tests for each suite using the table of contents below.
 ## interrupt_time
 | Test | Passing |
 | ---- | ------- |
-| interrupt_time | ✅ |
-| interrupt_time-cgb | ✅ |
+| interrupt_time (DMG) | ✅ |
+| interrupt_time (CGB) | ✅ |
 ## mem_timing
 | Test | Passing |
 | ---- | ------- |
-| 01-read_timing.gb | ✅ |
-| 02-write_timing.gb | ✅ |
-| 03-modify_timing.gb | ✅ |
+| 01-read_timing | ✅ |
+| 02-write_timing | ✅ |
+| 03-modify_timing | ✅ |
 # little-things-gb
 ![progress](https://progress-bar.dev/100/?scale=100&title=passing%204,%20failing%200&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
-| firstwhite | ✅ |
-| firstwhite-cgb | ✅ |
+| firstwhite (DMG) | ✅ |
+| firstwhite (CGB) | ✅ |
 ## tellinglys
 | Test | Passing |
 | ---- | ------- |
-| tellinglys | ✅ |
-| tellinglys-cgb | ✅ |
+| tellinglys (DMG) | ✅ |
+| tellinglys (CGB) | ✅ |
 # mooneye
 ![progress](https://progress-bar.dev/98/?scale=100&title=passing%20112,%20failing%202&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
-| add_sp_e_timing.gb | ✅ |
-| boot_div-S.gb | ✅ |
-| boot_div-dmg0.gb | ✅ |
-| boot_div-dmgABCmgb.gb | ✅ |
-| boot_div2-S.gb | ✅ |
-| boot_hwio-S.gb | ✅ |
-| boot_hwio-dmg0.gb | ✅ |
-| boot_hwio-dmgABCmgb.gb | ✅ |
-| boot_regs-dmg0.gb | ✅ |
-| boot_regs-dmgABC.gb | ✅ |
-| boot_regs-mgb.gb | ✅ |
-| boot_regs-sgb.gb | ✅ |
-| boot_regs-sgb2.gb | ✅ |
-| call_cc_timing.gb | ✅ |
-| call_cc_timing2.gb | ✅ |
-| call_timing.gb | ✅ |
-| call_timing2.gb | ✅ |
-| di_timing-GS.gb | ✅ |
-| div_timing.gb | ✅ |
-| ei_sequence.gb | ✅ |
-| ei_timing.gb | ✅ |
-| halt_ime0_ei.gb | ✅ |
-| halt_ime0_nointr_timing.gb | ✅ |
-| halt_ime1_timing.gb | ✅ |
-| halt_ime1_timing2-GS.gb | ✅ |
-| if_ie_registers.gb | ✅ |
-| intr_timing.gb | ✅ |
-| jp_cc_timing.gb | ✅ |
-| jp_timing.gb | ✅ |
-| ld_hl_sp_e_timing.gb | ✅ |
-| oam_dma_restart.gb | ✅ |
-| oam_dma_start.gb | ✅ |
-| oam_dma_timing.gb | ✅ |
-| pop_timing.gb | ✅ |
-| push_timing.gb | ✅ |
-| rapid_di_ei.gb | ✅ |
-| ret_cc_timing.gb | ✅ |
-| ret_timing.gb | ✅ |
-| reti_intr_timing.gb | ✅ |
-| reti_timing.gb | ✅ |
-| rst_timing.gb | ✅ |
+| add_sp_e_timing | ✅ |
+| boot_div-S | ✅ |
+| boot_div-dmg0 | ✅ |
+| boot_div-dmgABCmgb | ✅ |
+| boot_div2-S | ✅ |
+| boot_hwio-S | ✅ |
+| boot_hwio-dmg0 | ✅ |
+| boot_hwio-dmgABCmgb | ✅ |
+| boot_regs-dmg0 | ✅ |
+| boot_regs-dmgABC | ✅ |
+| boot_regs-mgb | ✅ |
+| boot_regs-sgb | ✅ |
+| boot_regs-sgb2 | ✅ |
+| call_cc_timing | ✅ |
+| call_cc_timing2 | ✅ |
+| call_timing | ✅ |
+| call_timing2 | ✅ |
+| di_timing-GS | ✅ |
+| div_timing | ✅ |
+| ei_sequence | ✅ |
+| ei_timing | ✅ |
+| halt_ime0_ei | ✅ |
+| halt_ime0_nointr_timing | ✅ |
+| halt_ime1_timing | ✅ |
+| halt_ime1_timing2-GS | ✅ |
+| if_ie_registers | ✅ |
+| intr_timing | ✅ |
+| jp_cc_timing | ✅ |
+| jp_timing | ✅ |
+| ld_hl_sp_e_timing | ✅ |
+| oam_dma_restart | ✅ |
+| oam_dma_start | ✅ |
+| oam_dma_timing | ✅ |
+| pop_timing | ✅ |
+| push_timing | ✅ |
+| rapid_di_ei | ✅ |
+| ret_cc_timing | ✅ |
+| ret_timing | ✅ |
+| reti_intr_timing | ✅ |
+| reti_timing | ✅ |
+| rst_timing | ✅ |
 ## bits
 | Test | Passing |
 | ---- | ------- |
-| mem_oam.gb | ✅ |
-| reg_f.gb | ✅ |
-| unused_hwio-GS.gb | ✅ |
+| mem_oam | ✅ |
+| reg_f | ✅ |
+| unused_hwio-GS | ✅ |
 ## instr
 | Test | Passing |
 | ---- | ------- |
-| daa.gb | ✅ |
+| daa | ✅ |
 ## interrupts
 | Test | Passing |
 | ---- | ------- |
-| ie_push.gb | ✅ |
+| ie_push | ✅ |
 ## oam_dma
 | Test | Passing |
 | ---- | ------- |
-| basic.gb | ✅ |
-| reg_read.gb | ✅ |
-| sources-GS.gb | ✅ |
+| basic | ✅ |
+| reg_read | ✅ |
+| sources-GS | ✅ |
 ## ppu
 | Test | Passing |
 | ---- | ------- |
-| hblank_ly_scx_timing-GS.gb | ✅ |
-| intr_1_2_timing-GS.gb | ✅ |
-| intr_2_0_timing.gb | ✅ |
-| intr_2_mode0_timing.gb | ✅ |
-| intr_2_mode0_timing_sprites.gb | ❌ |
-| intr_2_mode3_timing.gb | ✅ |
-| intr_2_oam_ok_timing.gb | ✅ |
-| lcdon_timing-GS.gb | ✅ |
-| lcdon_write_timing-GS.gb | ✅ |
-| stat_irq_blocking.gb | ✅ |
-| stat_lyc_onoff.gb | ✅ |
-| vblank_stat_intr-GS.gb | ✅ |
+| hblank_ly_scx_timing-GS | ✅ |
+| intr_1_2_timing-GS | ✅ |
+| intr_2_0_timing | ✅ |
+| intr_2_mode0_timing | ✅ |
+| intr_2_mode0_timing_sprites | ❌ |
+| intr_2_mode3_timing | ✅ |
+| intr_2_oam_ok_timing | ✅ |
+| lcdon_timing-GS | ✅ |
+| lcdon_write_timing-GS | ✅ |
+| stat_irq_blocking | ✅ |
+| stat_lyc_onoff | ✅ |
+| vblank_stat_intr-GS | ✅ |
 ## serial
 | Test | Passing |
 | ---- | ------- |
-| boot_sclk_align-dmgABCmgb.gb | ✅ |
+| boot_sclk_align-dmgABCmgb | ✅ |
 ## timer
 | Test | Passing |
 | ---- | ------- |
-| div_write.gb | ✅ |
-| rapid_toggle.gb | ✅ |
-| tim00.gb | ✅ |
-| tim00_div_trigger.gb | ✅ |
-| tim01.gb | ✅ |
-| tim01_div_trigger.gb | ✅ |
-| tim10.gb | ✅ |
-| tim10_div_trigger.gb | ✅ |
-| tim11.gb | ✅ |
-| tim11_div_trigger.gb | ✅ |
-| tima_reload.gb | ✅ |
-| tima_write_reloading.gb | ✅ |
-| tma_write_reloading.gb | ✅ |
+| div_write | ✅ |
+| rapid_toggle | ✅ |
+| tim00 | ✅ |
+| tim00_div_trigger | ✅ |
+| tim01 | ✅ |
+| tim01_div_trigger | ✅ |
+| tim10 | ✅ |
+| tim10_div_trigger | ✅ |
+| tim11 | ✅ |
+| tim11_div_trigger | ✅ |
+| tima_reload | ✅ |
+| tima_write_reloading | ✅ |
+| tma_write_reloading | ✅ |
 ## emulator-only
 | Test | Passing |
 | ---- | ------- |
 ## mbc1
 | Test | Passing |
 | ---- | ------- |
-| bits_bank1.gb | ✅ |
-| bits_bank2.gb | ✅ |
-| bits_mode.gb | ✅ |
-| bits_ramg.gb | ✅ |
-| multicart_rom_8Mb.gb | ✅ |
-| ram_256kb.gb | ✅ |
-| ram_64kb.gb | ✅ |
-| rom_16Mb.gb | ✅ |
-| rom_1Mb.gb | ✅ |
-| rom_2Mb.gb | ✅ |
-| rom_4Mb.gb | ✅ |
-| rom_512kb.gb | ✅ |
-| rom_8Mb.gb | ✅ |
+| bits_bank1 | ✅ |
+| bits_bank2 | ✅ |
+| bits_mode | ✅ |
+| bits_ramg | ✅ |
+| multicart_rom_8Mb | ✅ |
+| ram_256kb | ✅ |
+| ram_64kb | ✅ |
+| rom_16Mb | ✅ |
+| rom_1Mb | ✅ |
+| rom_2Mb | ✅ |
+| rom_4Mb | ✅ |
+| rom_512kb | ✅ |
+| rom_8Mb | ✅ |
 ## mbc2
 | Test | Passing |
 | ---- | ------- |
-| bits_ramg.gb | ✅ |
-| bits_romb.gb | ✅ |
-| bits_unused.gb | ✅ |
-| ram.gb | ✅ |
-| rom_1Mb.gb | ✅ |
-| rom_2Mb.gb | ✅ |
-| rom_512kb.gb | ✅ |
+| bits_ramg | ✅ |
+| bits_romb | ✅ |
+| bits_unused | ✅ |
+| ram | ✅ |
+| rom_1Mb | ✅ |
+| rom_2Mb | ✅ |
+| rom_512kb | ✅ |
 ## mbc5
 | Test | Passing |
 | ---- | ------- |
-| rom_16Mb.gb | ✅ |
-| rom_1Mb.gb | ✅ |
-| rom_2Mb.gb | ✅ |
-| rom_32Mb.gb | ✅ |
-| rom_4Mb.gb | ✅ |
-| rom_512kb.gb | ✅ |
-| rom_64Mb.gb | ✅ |
-| rom_8Mb.gb | ✅ |
+| rom_16Mb | ✅ |
+| rom_1Mb | ✅ |
+| rom_2Mb | ✅ |
+| rom_32Mb | ✅ |
+| rom_4Mb | ✅ |
+| rom_512kb | ✅ |
+| rom_64Mb | ✅ |
+| rom_8Mb | ✅ |
 ## madness
 | Test | Passing |
 | ---- | ------- |
@@ -331,59 +339,146 @@ Explore the individual tests for each suite using the table of contents below.
 ## misc
 | Test | Passing |
 | ---- | ------- |
-| boot_div-A.gb | ✅ |
-| boot_div-cgb0.gb | ✅ |
-| boot_div-cgbABCDE.gb | ✅ |
-| boot_hwio-C.gb | ✅ |
-| boot_regs-A.gb | ✅ |
-| boot_regs-cgb.gb | ✅ |
+| boot_div-A | ✅ |
+| boot_div-cgb0 | ✅ |
+| boot_div-cgbABCDE | ✅ |
+| boot_hwio-C | ✅ |
+| boot_regs-A | ✅ |
+| boot_regs-cgb | ✅ |
 ## bits
 | Test | Passing |
 | ---- | ------- |
-| unused_hwio-C.gb | ✅ |
+| unused_hwio-C | ✅ |
 ## ppu
 | Test | Passing |
 | ---- | ------- |
-| vblank_stat_intr-C.gb | ✅ |
+| vblank_stat_intr-C | ✅ |
 ## manual-only
 | Test | Passing |
 | ---- | ------- |
-| sprite_priority | ✅ |
-| sprite_priority | ✅ |
+| sprite_priority (DMG) | ✅ |
+| sprite_priority (CGB) | ✅ |
 # samesuite
-![progress](https://progress-bar.dev/46/?scale=100&title=passing%206,%20failing%207&width=500)
+![progress](https://progress-bar.dev/10/?scale=100&title=passing%208,%20failing%2070&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
-| div_trigger_volume_10.gb | ❌ |
-| div_write_trigger.gb | ❌ |
-| div_write_trigger_10.gb | ❌ |
-| div_write_trigger_volume.gb | ❌ |
-| div_write_trigger_volume_10.gb | ❌ |
+| div_trigger_volume_10 | ❌ |
+| div_write_trigger | ❌ |
+| div_write_trigger_10 | ❌ |
+| div_write_trigger_volume | ❌ |
+| div_write_trigger_volume_10 | ❌ |
+## apu/channel_1
+| Test | Passing |
+| ---- | ------- |
+| channel_1_align | ❌ |
+| channel_1_align_cpu | ❌ |
+| channel_1_delay | ❌ |
+| channel_1_duty | ❌ |
+| channel_1_duty_delay | ❌ |
+| channel_1_extra_length_clocking-cgb0B | ❌ |
+| channel_1_freq_change | ❌ |
+| channel_1_freq_change_timing-A | ❌ |
+| channel_1_freq_change_timing-cgb0BC | ❌ |
+| channel_1_freq_change_timing-cgbDE | ❌ |
+| channel_1_nrx2_glitch | ❌ |
+| channel_1_nrx2_speed_change | ❌ |
+| channel_1_restart | ❌ |
+| channel_1_restart_nrx2_glitch | ❌ |
+| channel_1_stop_div | ❌ |
+| channel_1_stop_restart | ❌ |
+| channel_1_sweep | ❌ |
+| channel_1_sweep_restart | ❌ |
+| channel_1_sweep_restart_2 | ❌ |
+| channel_1_volume | ❌ |
+| channel_1_volume_div | ❌ |
+## apu/channel_2
+| Test | Passing |
+| ---- | ------- |
+| channel_2_align | ❌ |
+| channel_2_align_cpu | ❌ |
+| channel_2_delay | ❌ |
+| channel_2_duty | ❌ |
+| channel_2_duty_delay | ❌ |
+| channel_2_extra_length_clocking-cgb0B | ❌ |
+| channel_2_freq_change | ❌ |
+| channel_2_nrx2_glitch | ❌ |
+| channel_2_nrx2_speed_change | ❌ |
+| channel_2_restart | ❌ |
+| channel_2_restart_nrx2_glitch | ❌ |
+| channel_2_stop_div | ❌ |
+| channel_2_stop_restart | ❌ |
+| channel_2_volume | ❌ |
+| channel_2_volume_div | ❌ |
+## apu/channel_3
+| Test | Passing |
+| ---- | ------- |
+| channel_3_and_glitch | ❌ |
+| channel_3_delay | ❌ |
+| channel_3_extra_length_clocking-cgb0 | ❌ |
+| channel_3_extra_length_clocking-cgbB | ❌ |
+| channel_3_first_sample | ❌ |
+| channel_3_freq_change_delay | ❌ |
+| channel_3_restart_delay | ❌ |
+| channel_3_restart_during_delay | ❌ |
+| channel_3_restart_stop_delay | ❌ |
+| channel_3_shift_delay | ❌ |
+| channel_3_shift_skip_delay | ❌ |
+| channel_3_stop_delay | ❌ |
+| channel_3_stop_div | ❌ |
+| channel_3_wave_ram_dac_on_rw | ✅ |
+| channel_3_wave_ram_locked_write | ✅ |
+| channel_3_wave_ram_sync | ❌ |
+## apu/channel_4
+| Test | Passing |
+| ---- | ------- |
+| channel_4_align | ❌ |
+| channel_4_delay | ❌ |
+| channel_4_equivalent_frequencies | ❌ |
+| channel_4_extra_length_clocking-cgb0B | ❌ |
+| channel_4_freq_change | ❌ |
+| channel_4_frequency_alignment | ❌ |
+| channel_4_lfsr | ❌ |
+| channel_4_lfsr15 | ❌ |
+| channel_4_lfsr_15_7 | ❌ |
+| channel_4_lfsr_7_15 | ❌ |
+| channel_4_lfsr_restart | ❌ |
+| channel_4_lfsr_restart_fast | ❌ |
+| channel_4_volume_div | ❌ |
 ## dma
 | Test | Passing |
 | ---- | ------- |
-| gbc_dma_cont.gb | ✅ |
-| gdma_addr_mask.gb | ✅ |
-| hdma_lcd_off.gb | ✅ |
-| hdma_mode0.gb | ✅ |
+| gbc_dma_cont | ✅ |
+| gdma_addr_mask | ✅ |
+| hdma_lcd_off | ✅ |
+| hdma_mode0 | ✅ |
 ## interrupt
 | Test | Passing |
 | ---- | ------- |
-| ei_delay_halt.gb | ✅ |
+| ei_delay_halt | ✅ |
 ## ppu
 | Test | Passing |
 | ---- | ------- |
-| blocking_bgpi_increase.gb | ✅ |
+| blocking_bgpi_increase | ✅ |
 ## sgb
 | Test | Passing |
 | ---- | ------- |
-| command_mlt_req.gb | ❌ |
-| command_mlt_req_1_incrementing.gb | ❌ |
+| command_mlt_req | ❌ |
+| command_mlt_req_1_incrementing | ❌ |
+# scribbltests
+![progress](https://progress-bar.dev/100/?scale=100&title=passing%205,%20failing%200&width=500)
+
+| Test | Passing |
+| ---- | ------- |
+| lycscx | ✅ |
+| lycscy | ✅ |
+| palettely | ✅ |
+| scxly | ✅ |
+| statcount-auto | ✅ |
 # strikethrough
 ![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%202&width=500)
 
 | Test | Passing |
 | ---- | ------- |
-| strikethrough | ❌ |
-| strikethrough | ❌ |
+| strikethrough (DMG) | ❌ |
+| strikethrough (CGB) | ❌ |
