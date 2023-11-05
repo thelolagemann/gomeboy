@@ -323,15 +323,6 @@ func compareImage(expectedImage string, gb *gameboy.GameBoy) (int64, image.Image
 	img3 := image.NewPaletted(img1.Bounds(), palette)
 	draw.Draw(img3, img3.Bounds(), img1, img2.Bounds().Min, draw.Src)
 
-	out, err := os.Create(fmt.Sprintf("results/%s_out.png", filepath.Base(expectedImage)))
-	if err != nil {
-		panic(err)
-	}
-
-	if err := png.Encode(out, img3); err != nil {
-		panic(err)
-	}
-
 	// TODO output results?
 
 	return ImgCompare(img2, img3)
