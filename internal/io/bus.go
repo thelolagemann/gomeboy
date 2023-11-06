@@ -233,6 +233,17 @@ func (b *Bus) Map(m types.Model, cartCGB bool) {
 				return v | (b.dmaRemaining-1)&0x7F
 			}
 		})
+		b.ReserveLazyReader(types.HDMA5, func() byte {
+			if b.dmaComplete || b.dmaRemaining == 0 {
+				return 0xFF
+			} else {
+				v := uint8(0)
+				if b.dmaPaused {
+					v |= types.Bit7
+				}
+				return v | (b.dmaRemaining-1)&0x7F
+			}
+		})
 
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
 			// copy currently banked data to WRAM

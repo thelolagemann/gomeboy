@@ -14,8 +14,6 @@ const (
 	frameSequencerPeriod = 4194304 / frameSequencerRate
 )
 
-func StopRecording() {}
-
 var (
 	chargeFactor = 0.998943
 	capacitors   [4]float32

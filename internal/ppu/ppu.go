@@ -205,6 +205,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveLazyReader(types.STAT, func() byte {
+		//fmt.Printf("%02x %d\n", types.Bit7|p.status|p.mode, p.s.Until(scheduler.PPUVRAMTransfer))
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
@@ -376,8 +377,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 	})
 
+	s.RegisterEvent(scheduler.PPUStartHBlank, p.startHBlank)
 	s.RegisterEvent(scheduler.PPUStartGlitchedLine0, p.startGlitchedFirstLine)
+	s.RegisterEvent(scheduler.PPUMiddleGlitchedLine0, p.middleGlitchedLine0)
 	s.RegisterEvent(scheduler.PPUContinueGlitchedLine0, p.continueGlitchedFirstLine)
+	s.RegisterEvent(scheduler.PPUEndGlitchedLine0, p.endGlitchedLine0)
 	s.RegisterEvent(scheduler.PPUHBlank, p.endHBlank)
 	s.RegisterEvent(scheduler.PPUVRAMTransfer, p.endVRAMTransfer)
 	s.RegisterEvent(scheduler.PPUStartOAMSearch, p.startOAM)
@@ -402,6 +406,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		p.modeToInterrupt = lcd.VRAM
 
 		p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 4)
+	})
+	s.RegisterEvent(scheduler.HDMA, func() {
+		if p.b.IsGBCCart() {
+			p.b.HandleHDMA()
+		}
 	})
 
 	b.ReserveBlockWriter(0x8000, p.writeVRAM)
@@ -459,10 +468,25 @@ func (p *PPU) continueGlitchedFirstLine() {
 	// OAM & VRAM are blocked until the end of VRAM transfer
 	p.b.Lock(io.OAM)
 	p.b.Lock(io.VRAM)
-
 	p.mode = lcd.VRAM
 
-	p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 172)
+	p.s.ScheduleEvent(scheduler.PPUMiddleGlitchedLine0, 172)
+}
+
+func (p *PPU) middleGlitchedLine0() {
+	p.mode = 0
+	p.modeToInterrupt = 0
+	p.statUpdate()
+
+	p.b.Unlock(io.OAM)
+	p.b.Unlock(io.VRAM)
+
+	p.s.ScheduleEvent(scheduler.PPUEndGlitchedLine0, 196)
+}
+
+func (p *PPU) endGlitchedLine0() {
+	p.modeToInterrupt = 2
+	p.s.ScheduleEvent(scheduler.PPUHBlank, 4)
 }
 
 func (p *PPU) endHBlank() {
@@ -496,16 +520,19 @@ func (p *PPU) endHBlank() {
 func (p *PPU) endVRAMTransfer() {
 	p.mode = lcd.HBlank
 	p.modeToInterrupt = lcd.HBlank
-	p.statUpdate()
 
 	p.b.Unlock(io.OAM)
 	p.b.Unlock(io.VRAM)
 
+	p.s.ScheduleEvent(scheduler.PPUStartHBlank, 4)
+}
+
+func (p *PPU) startHBlank() {
+	p.statUpdate()
+
 	p.renderScanline()
 
-	if p.b.IsGBCCart() {
-		p.b.HandleHDMA()
-	}
+	p.s.ScheduleEvent(scheduler.HDMA, 8)
 
 	// schedule end of HBlank
 	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.b.Get(types.SCX)&0x7]))
@@ -639,12 +666,10 @@ func (p *PPU) startVBlank() {
 	if p.currentLine == 144 {
 		p.modeToInterrupt = lcd.OAM
 
-		// trigger vblank interrupt (according to mooneye's test, this is triggered on the first cycle of line 144 for DMG, but
-		// is delayed by 4 cycles for CGB)
+		// trigger vblank interrupt
 		if p.b.Model() != types.CGBABC && p.b.Model() != types.CGB0 {
 			p.b.RaiseInterrupt(io.VBlankINT)
 		}
-
 	}
 	p.statUpdate()
 
@@ -864,7 +889,7 @@ func (p *PPU) statUpdate() {
 }
 
 var (
-	scrollXHblank = [8]uint16{200, 196, 196, 196, 196, 192, 192, 192}
+	scrollXHblank = [8]uint16{196, 192, 192, 192, 192, 188, 188, 188}
 	scrollXvRAM   = [8]uint16{168, 172, 172, 172, 172, 176, 176, 176}
 )
 

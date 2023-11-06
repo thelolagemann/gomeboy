@@ -514,9 +514,6 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 
 		f.Close()
 	},
-	fyne.KeyT: func(gb *gameboy.GameBoy) {
-		gb.Test()
-	},
 	fyne.KeyS: func(gb *gameboy.GameBoy) {
 		st := types.NewState()
 		gb.Save(st)

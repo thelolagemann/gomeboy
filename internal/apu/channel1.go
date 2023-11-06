@@ -69,13 +69,15 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 		}
 		c.frequency = (c.frequency & 0x00FF) | ((uint16(v) & 0x07) << 8)
 		lengthCounterEnabled := v&types.Bit6 != 0
+		trigger := v&types.Bit7 != 0
 		// obscure length counter behavior (see https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware#Length_Counter)
-		if a.firstHalfOfLengthPeriod && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
-			c.lengthCounter--
-			c.enabled = c.lengthCounter > 0
+		if a.frameSequencerStep&1 > 0 && !c.lengthCounterEnabled && lengthCounterEnabled && c.lengthCounter > 0 {
+			c.lengthCounter-- // this is where issues occur for div_write_trigger
+			if !trigger {
+				c.enabled = c.lengthCounter > 0
+			}
 		}
 		c.lengthCounterEnabled = lengthCounterEnabled
-		trigger := v&types.Bit7 != 0
 		if trigger {
 			c.enabled = c.dacEnabled
 
@@ -85,6 +87,7 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 					c.lengthCounter--
 				}
 			}
+
 			// deschedule the current event
 			a.s.DescheduleEvent(scheduler.APUChannel1)
 			// schedule the next event
