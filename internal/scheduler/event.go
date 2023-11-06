@@ -16,6 +16,7 @@ const (
 	EIPending
 	EIHaltDelay
 
+	PPUStartHBlank
 	PPUHBlank
 	PPUHBlankInterrupt
 	PPUStartOAMSearch
@@ -29,7 +30,9 @@ const (
 	PPUContinueVBlank
 	PPUVRAMTransfer
 	PPUStartGlitchedLine0
+	PPUMiddleGlitchedLine0
 	PPUContinueGlitchedLine0
+	PPUEndGlitchedLine0
 	PPUOAMInterrupt
 
 	DMAStartTransfer
@@ -39,6 +42,7 @@ const (
 	TimerTIMAReload
 	TimerTIMAFinishReload
 	TimerTIMAIncrement
+	HDMA
 
 	SerialBitTransfer
 	SerialBitInterrupt
@@ -63,7 +67,7 @@ const (
 )
 
 const (
-	eventTypes = 46
+	eventTypes = 50
 )
 
 var eventTypeNames = []string{
@@ -99,6 +103,7 @@ var eventTypeNames = []string{
 	"TimerTIMAReload",
 	"TimerTIMAFinishReload",
 	"TimerTIMAIncrement",
+	"HDMA",
 
 	"SerialBitTransfer",
 	"SerialBitInterrupt",

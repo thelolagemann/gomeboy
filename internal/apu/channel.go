@@ -155,8 +155,10 @@ func (c *channel) isEnabled() bool {
 }
 
 func (c *channel) lengthStep() {
-	if c.lengthCounterEnabled && c.lengthCounter > 0 {
-		c.lengthCounter--
+	if c.lengthCounterEnabled {
+		if c.lengthCounter > 0 {
+			c.lengthCounter--
+		}
 		c.enabled = c.lengthCounter > 0
 	}
 }
