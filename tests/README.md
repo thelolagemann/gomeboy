@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/69/?scale=100&title=passing%20176,%20failing%2076&width=500)
+![progress](https://progress-bar.dev/70/?scale=100&title=passing%20177,%20failing%2075&width=500)
 
-#### This document was automatically generated from commit 875b24ba
+#### This document was automatically generated from commit be1bbe06
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -38,7 +38,7 @@ is compared against a reference image from a known good emulator.
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 98% | 112 | 2 | 114 |
-| samesuite | 10% | 8 | 70 | 78 |
+| samesuite | 11% | 9 | 69 | 78 |
 | scribbltests | 100% | 5 | 0 | 5 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -359,12 +359,12 @@ Explore the individual tests for each suite using the table of contents below.
 | sprite_priority (DMG) | ✅ |
 | sprite_priority (CGB) | ✅ |
 # samesuite
-![progress](https://progress-bar.dev/10/?scale=100&title=passing%208,%20failing%2070&width=500)
+![progress](https://progress-bar.dev/11/?scale=100&title=passing%209,%20failing%2069&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
 | div_trigger_volume_10 | ❌ |
-| div_write_trigger | ❌ |
+| div_write_trigger | ✅ |
 | div_write_trigger_10 | ❌ |
 | div_write_trigger_volume | ❌ |
 | div_write_trigger_volume_10 | ❌ |
