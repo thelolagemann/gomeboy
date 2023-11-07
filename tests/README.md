@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/70/?scale=100&title=passing%20178,%20failing%2074&width=500)
+![progress](https://progress-bar.dev/71/?scale=100&title=passing%20179,%20failing%2073&width=500)
 
-#### This document was automatically generated from commit fde23e6d
+#### This document was automatically generated from commit dee2da43
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -38,7 +38,7 @@ is compared against a reference image from a known good emulator.
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 98% | 112 | 2 | 114 |
-| samesuite | 12% | 10 | 68 | 78 |
+| samesuite | 14% | 11 | 67 | 78 |
 | scribbltests | 100% | 5 | 0 | 5 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -359,7 +359,7 @@ Explore the individual tests for each suite using the table of contents below.
 | sprite_priority (DMG) | ✅ |
 | sprite_priority (CGB) | ✅ |
 # samesuite
-![progress](https://progress-bar.dev/12/?scale=100&title=passing%2010,%20failing%2068&width=500)
+![progress](https://progress-bar.dev/14/?scale=100&title=passing%2011,%20failing%2067&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
@@ -424,7 +424,7 @@ Explore the individual tests for each suite using the table of contents below.
 | channel_3_restart_stop_delay | ❌ |
 | channel_3_shift_delay | ❌ |
 | channel_3_shift_skip_delay | ❌ |
-| channel_3_stop_delay | ❌ |
+| channel_3_stop_delay | ✅ |
 | channel_3_stop_div | ❌ |
 | channel_3_wave_ram_dac_on_rw | ✅ |
 | channel_3_wave_ram_locked_write | ✅ |
