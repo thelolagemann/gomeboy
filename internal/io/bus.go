@@ -343,7 +343,7 @@ func (b *Bus) Boot() {
 	// setup starting events for scheduler
 	events := b.model.Events()
 	if len(events) > 0 {
-		for i := scheduler.APUFrameSequencer; i <= scheduler.JoypadDownRelease; i++ {
+		for i := scheduler.APUChannel1; i <= scheduler.JoypadDownRelease; i++ {
 			b.s.DescheduleEvent(i)
 		}
 		// set starting event for scheduler
@@ -629,6 +629,9 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 func (b *Bus) ClockedWrite(address uint16, value byte) {
 	b.s.Tick(4)
 
+	if address >= types.NR10 && address <= types.NR52 {
+		//fmt.Printf("%04x %02x %16b\n", address, value, b.s.SysClock())
+	}
 	b.Write(address, value)
 }
 

@@ -56,20 +56,17 @@ func NewController(b *io.Bus, s *scheduler.Scheduler, a *apu.APU) *Controller {
 			c.abruptlyIncrementTIMA()
 		}
 
-		// update the last cycle
-		c.s.SysClockReset()
-		// TODO APU frame sequencer is tied to the DIV register
 		// in double speed, if bit 5 of DIV is 1, the APU frame sequencer
 		// will advance, in normal speed if bit 4 of DIV is 1 the APU frame
 		// sequencer will advance. again, we don't need to check the new value
 		// because it's always 0 so a falling edge will always be detected
 		// the frame sequencer should then be scheduled to advance again
 		// after 8192 cycles
-		if internal&0b1_0000 != 0 {
-			// TODO schedule APU frame sequencer
+		if internal&s.DivAPUBit() != 0 {
 			a.StepFrameSequencer()
 		}
-
+		// update the last cycle
+		c.s.SysClockReset()
 		// reschedule APU frame sequencer
 		s.DescheduleEvent(scheduler.APUFrameSequencer)
 		s.ScheduleEvent(scheduler.APUFrameSequencer, 8192)
