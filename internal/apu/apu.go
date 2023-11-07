@@ -215,9 +215,14 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		b.ReserveAddress(types.PCM12, func(v byte) byte {
 			if a.model == types.CGBABC || a.model == types.CGB0 {
-				return a.pcm12
+				return channel1Duty[a.chan1.duty][a.chan1.waveDutyPosition]*a.chan1.currentVolume |
+					channel2Duty[a.chan2.duty][a.chan2.waveDutyPosition]*a.chan2.currentVolume&0xf<<4
 			}
 			return 0xFF
+		})
+		b.ReserveLazyReader(types.PCM12, func() byte {
+			return channel1Duty[a.chan1.duty][a.chan1.waveDutyPosition]*a.chan1.currentVolume |
+				channel2Duty[a.chan2.duty][a.chan2.waveDutyPosition]*a.chan2.currentVolume&0xf<<4
 		})
 		b.ReserveAddress(types.PCM34, func(v byte) byte {
 			if a.model == types.CGBABC || a.model == types.CGB0 {
