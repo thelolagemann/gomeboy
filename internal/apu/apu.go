@@ -164,6 +164,14 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			// power on
 			a.enabled = true
 			a.frameSequencerStep = 0
+			a.chan3.volumeCodeShift = 4
+
+			// if the DIV APU bit is set when powering on,
+			// the first DIV event is skipped
+			// https://github.com/LIJI32/SameSuite/blob/master/apu/div_write_trigger_10.asm
+			if a.s.SysClock()&a.s.DivAPUBit() != 0 {
+				a.frameSequencerStep = 1
+			}
 		}
 
 		//fmt.Printf("NR52: %08b %08b\n", b.Get(types.NR52)|0x70, v)
@@ -239,7 +247,6 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 	s.RegisterEvent(scheduler.APUFrameSequencer, a.scheduledFrameSequencer)
 	s.RegisterEvent(scheduler.APUSample, a.sample)
 
-	s.ScheduleEvent(scheduler.APUFrameSequencer, 0)
 	a.sample()
 	s.ScheduleEvent(scheduler.APUChannel3, 0)
 

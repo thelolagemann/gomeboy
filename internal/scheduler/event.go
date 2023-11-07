@@ -80,6 +80,7 @@ var eventTypeNames = []string{
 	"EIPending",
 	"EIHaltDelay",
 
+	"PPUStartHBlank",
 	"PPUHBlank",
 	"PPUHBlankInterrupt",
 	"PPUStartOAMSearch",
@@ -93,7 +94,9 @@ var eventTypeNames = []string{
 	"PPUContinueVBlank",
 	"PPUVRAMTransfer",
 	"PPUStartGlitchedLine0",
+	"PPUMiddleGlitchedLine0",
 	"PPUContinueGlitchedLine0",
+	"PPUEndGlitchedLine0",
 	"PPUOAMInterrupt",
 
 	"DMAStartTransfer",

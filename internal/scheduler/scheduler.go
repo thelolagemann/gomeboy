@@ -355,3 +355,14 @@ func (s *Scheduler) Until(increment EventType) uint64 {
 func (s *Scheduler) DoubleSpeed() bool {
 	return s.doubleSpeed
 }
+
+// DivAPUBit returns the current bitmask for scheduling
+// the APU frame sequencer. In CGB double speed bit 5 of
+// types.DIV is used, otherwise it is bit 4 (note bit 12/13
+// of the SysClock)
+func (s *Scheduler) DivAPUBit() uint16 {
+	if s.doubleSpeed {
+		return 0x2000
+	}
+	return 0x1000
+}

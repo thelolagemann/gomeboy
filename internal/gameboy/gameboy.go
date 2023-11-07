@@ -389,6 +389,9 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 			}
 
 		}
+
+		// schedule the frame sequencer event for the next 8192 ticks
+		g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer, uint64(8192-g.Scheduler.SysClock()&0x0fff))
 	}
 
 	return g
