@@ -28,8 +28,9 @@ type CPU struct {
 	instructions   [256]func(cpu *CPU)
 	instructionsCB [256]func(cpu *CPU)
 
-	s   *scheduler.Scheduler
-	ppu *ppu.PPU
+	s            *scheduler.Scheduler
+	ppu          *ppu.PPU
+	skippingHalt bool
 }
 
 // NewCPU creates a new CPU instance with the given MMU.
@@ -113,10 +114,23 @@ func (c *CPU) skipHALT() {
 	for !c.hasFrame && !c.b.HasInterrupts() {
 		c.s.Skip()
 	}
+
+	// if we came out of the halt skip because a frame was rendered
+	// then we need to indicate to the cpu that we should latch back
+	// onto halt skipping on the next frame
+	if c.hasFrame {
+		c.skippingHalt = true
+	}
 }
 
 // Frame steps the CPU until the next frame is ready.
 func (c *CPU) Frame() {
+	// check to see if we should skip the next frame
+	if c.skippingHalt {
+		c.skippingHalt = false
+		c.skipHALT()
+	}
+
 	// shouldInt is triggered on 3 conditions
 	// 1. IME = 1 && types.IE & types.IF &0x1f != 0
 	// 2. DebugBreakpoint = true
