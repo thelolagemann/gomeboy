@@ -118,7 +118,7 @@ func (c *CPU) skipHALT() {
 	// if we came out of the halt skip because a frame was rendered
 	// then we need to indicate to the cpu that we should latch back
 	// onto halt skipping on the next frame
-	if c.hasFrame {
+	if c.hasFrame && !c.b.HasInterrupts() {
 		c.skippingHalt = true
 	}
 }
