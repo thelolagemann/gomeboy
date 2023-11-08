@@ -837,7 +837,6 @@ func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8
 	t.VRAMBank = value >> 3 & 0x1
 
 	p.TileMaps[tilemapIndex][y][x].Attributes = t
-	p.TileMaps[tilemapIndex][y][x].Tile = p.TileData[t.VRAMBank][p.TileMaps[tilemapIndex][y][x].id]
 	// p.recacheTile(x, y, tilemapIndex)
 
 	p.dirtyBackground(tileAttr)
@@ -993,8 +992,10 @@ func (p *PPU) renderWindowScanline() {
 
 			if tileEntry.Attributes.YFlip {
 				yPixelPos = 7 - yPos
+			} else {
+				yPixelPos = yPos
 			}
-			yPixelPos %= 8
+			yPixelPos &= 7
 			b1 = tileData[yPixelPos]
 			b2 = tileData[yPixelPos+8]
 			if tileEntry.Attributes.XFlip {
@@ -1041,7 +1042,7 @@ func (p *PPU) renderBackgroundScanline() {
 	if tileEntry.Attributes.YFlip {
 		yPixelPos = 7 - yPos
 	}
-	yPixelPos %= 8
+	yPixelPos &= 7
 
 	// get the 2 bytes that make up a row of 8 pixels
 	b1 := tileData[yPixelPos]
@@ -1078,7 +1079,7 @@ func (p *PPU) renderBackgroundScanline() {
 			xPos += 8
 
 			// get the next tile entry
-			tileEntry = p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
+			tileEntry = p.calculateTileID(yPos>>3, xPos>>3, p.BackgroundTileMap)
 			tileID = tileEntry.GetID(p.isSigned)
 
 			if p.b.IsGBC() {
@@ -1089,8 +1090,10 @@ func (p *PPU) renderBackgroundScanline() {
 
 			if tileEntry.Attributes.YFlip {
 				yPixelPos = 7 - yPos
+			} else {
+				yPixelPos = yPos
 			}
-			yPixelPos %= 8
+			yPixelPos &= 7
 			b1 = tileData[yPixelPos]
 			b2 = tileData[yPixelPos+8]
 			if tileEntry.Attributes.XFlip {
