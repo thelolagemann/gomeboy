@@ -96,7 +96,7 @@ func (c *CPU) swap(value uint8) uint8 {
 //	H - Set.
 //	C - Not affected.
 func (c *CPU) testBit(value uint8, b types.Bit) {
-	c.setFlags(value&b != b, false, true, c.isFlagSet(types.FlagCarry))
+	c.setFlags(value&b != b, false, true, c.isFlagSet(flagCarry))
 }
 
 // increment n by 1 and set the flags accordingly.
@@ -112,7 +112,7 @@ func (c *CPU) testBit(value uint8, b types.Bit) {
 //	C - Not affected.
 func (c *CPU) increment(n uint8) uint8 {
 	incremented := n + 0x01
-	c.setFlags(incremented == 0, false, n&0xF == 0xF, c.isFlagSet(types.FlagCarry))
+	c.setFlags(incremented == 0, false, n&0xF == 0xF, c.isFlagSet(flagCarry))
 	return incremented
 }
 
@@ -127,7 +127,7 @@ func (c *CPU) increment(n uint8) uint8 {
 //	N - Not affected.
 //	H - Not affected.
 //	C - Not affected.
-func (c *CPU) incrementNN(register *types.RegisterPair) {
+func (c *CPU) incrementNN(register *RegisterPair) {
 	c.handleOAMCorruption(register.Uint16())
 	register.SetUint16(register.Uint16() + 1)
 
@@ -147,7 +147,7 @@ func (c *CPU) incrementNN(register *types.RegisterPair) {
 //	C - Not affected.
 func (c *CPU) decrement(n uint8) uint8 {
 	decremented := n - 0x01
-	c.setFlags(decremented == 0, true, n&0xF == 0x0, c.isFlagSet(types.FlagCarry))
+	c.setFlags(decremented == 0, true, n&0xF == 0x0, c.isFlagSet(flagCarry))
 	return decremented
 }
 
@@ -162,7 +162,7 @@ func (c *CPU) decrement(n uint8) uint8 {
 //	N - Not affected.
 //	H - Not affected.
 //	C - Not affected.
-func (c *CPU) decrementNN(register *types.RegisterPair) {
+func (c *CPU) decrementNN(register *RegisterPair) {
 	if register.Uint16() >= 0xFE00 && register.Uint16() <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
 		// TODO
 		// get the current cycle of mode 2 that the PPU is in
@@ -187,7 +187,7 @@ func (c *CPU) decrementNN(register *types.RegisterPair) {
 //	N - Reset.
 //	H - Set if carry from bit 11.
 //	C - Set if carry from bit 15.
-func (c *CPU) addHLRR(register *types.RegisterPair) {
+func (c *CPU) addHLRR(register *RegisterPair) {
 	c.HL.SetUint16(c.addUint16(c.HL.Uint16(), register.Uint16()))
 	c.s.Tick(4)
 }
@@ -207,7 +207,7 @@ func (c *CPU) addHLRR(register *types.RegisterPair) {
 //	H - Set if carry from bit 3.
 //	C - Set if carry from bit 7.
 func (c *CPU) add(n uint8, shouldCarry bool) {
-	newCarry := c.isFlagSet(types.FlagCarry) && shouldCarry
+	newCarry := c.isFlagSet(flagCarry) && shouldCarry
 	sum := int16(c.A) + int16(n)
 	sumHalf := int16(c.A&0xF) + int16(n&0xF)
 	if newCarry {
@@ -233,7 +233,7 @@ func (c *CPU) add(n uint8, shouldCarry bool) {
 //	C - Set if carry from bit 15.
 func (c *CPU) addUint16(a, b uint16) uint16 {
 	sum := int32(a) + int32(b)
-	c.setFlags(c.isFlagSet(types.FlagZero), false, (a&0xFFF)+(b&0xFFF) > 0xFFF, sum > 0xFFFF)
+	c.setFlags(c.isFlagSet(flagZero), false, (a&0xFFF)+(b&0xFFF) > 0xFFF, sum > 0xFFFF)
 	return uint16(sum)
 }
 
@@ -252,7 +252,7 @@ func (c *CPU) addUint16(a, b uint16) uint16 {
 //	H - Set if no borrow from bit 4.
 //	C - Set if no borrow.
 func (c *CPU) sub(n uint8, shouldCarry bool) {
-	newCarry := c.isFlagSet(types.FlagCarry) && shouldCarry
+	newCarry := c.isFlagSet(flagCarry) && shouldCarry
 	sub := int16(c.A) - int16(n)
 	subHalf := int16(c.A&0xF) - int16(n&0xF)
 	if newCarry {
@@ -275,7 +275,7 @@ func (c *CPU) sub(n uint8, shouldCarry bool) {
 //	N - Not affected.
 //	H - Not affected.
 //	C - Not affected.
-func (c *CPU) pushNN(h, l types.Register) {
+func (c *CPU) pushNN(h, l Register) {
 	c.s.Tick(4)
 	c.push(h, l)
 }
@@ -291,7 +291,7 @@ func (c *CPU) pushNN(h, l types.Register) {
 //	N - Not affected.
 //	H - Not affected.
 //	C - Not affected.
-func (c *CPU) popNN(h, l *types.Register) {
+func (c *CPU) popNN(h, l *Register) {
 	*l = c.b.ClockedRead(c.SP)
 	c.SP++
 
@@ -369,7 +369,7 @@ func (c *CPU) rotateRightCarry(n uint8) uint8 {
 //	C - Contains old bit 0 data.
 func (c *CPU) rotateRightThroughCarry(n uint8) uint8 {
 	computed := n >> 1
-	if c.isFlagSet(types.FlagCarry) {
+	if c.isFlagSet(flagCarry) {
 		computed |= types.Bit7
 	}
 
@@ -392,7 +392,7 @@ func (c *CPU) rotateRightThroughCarry(n uint8) uint8 {
 //	C - Contains old bit 7 data.
 func (c *CPU) rotateLeftThroughCarry(n uint8) uint8 {
 	computed := n << 1
-	if c.isFlagSet(types.FlagCarry) {
+	if c.isFlagSet(flagCarry) {
 		computed |= types.Bit0
 	}
 
@@ -433,7 +433,7 @@ func (c *CPU) rotateLeftCarryAccumulator() {
 func (c *CPU) rotateLeftAccumulatorThroughCarry() {
 	carry := c.A & types.Bit7
 	c.A <<= 1
-	if c.isFlagSet(types.FlagCarry) {
+	if c.isFlagSet(flagCarry) {
 		c.A |= types.Bit0
 	}
 	c.setFlags(false, false, false, carry == types.Bit7)
@@ -472,7 +472,7 @@ func (c *CPU) rotateRightAccumulator() {
 func (c *CPU) rotateRightAccumulatorThroughCarry() {
 	carry := c.A&types.Bit0 == types.Bit0
 	c.A >>= 1
-	if c.isFlagSet(types.FlagCarry) {
+	if c.isFlagSet(flagCarry) {
 		c.A |= types.Bit7
 	}
 

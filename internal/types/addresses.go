@@ -1,18 +1,5 @@
 package types
 
-// Address represents a memory address in the Game Boy's memory,
-// which can be read from or written to. It is used to abstract
-// away the actual memory addresses, and instead use a more
-// readable and understandable interface.
-type Address struct {
-	// Read is a function that is called when the CPU reads from
-	// the address.
-	Read func(address uint16) uint8
-	// Write is a function that is called when the CPU writes to
-	// the address.
-	Write func(address uint16, value uint8)
-}
-
 // HardwareAddress represents the address of a hardware
 // register of the Game Boy. The hardware IO are mapped
 // to memory addresses 0xFF00 - 0xFF7F & 0xFFFF.

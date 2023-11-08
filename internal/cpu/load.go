@@ -1,13 +1,11 @@
 package cpu
 
-import "github.com/thelolagemann/gomeboy/internal/types"
-
 // loadRegisterToRegister loads the value of the given Register into the given
 // Register.
 //
 //	LD n, n
 //	n = A, B, C, D, E, H, L
-func (c *CPU) loadRegisterToRegister(register *types.Register, value *types.Register) {
+func (c *CPU) loadRegisterToRegister(register *Register, value *Register) {
 	*register = *value
 }
 
@@ -16,7 +14,7 @@ func (c *CPU) loadRegisterToRegister(register *types.Register, value *types.Regi
 //	LD n, d8
 //	n = A, B, C, D, E, H, L
 //	d8 = 8-bit immediate value
-func (c *CPU) loadRegister8(reg *types.Register) {
+func (c *CPU) loadRegister8(reg *Register) {
 	*reg = c.readOperand()
 }
 
@@ -25,7 +23,7 @@ func (c *CPU) loadRegister8(reg *types.Register) {
 //
 //	LD n, (HL)
 //	n = A, B, C, D, E, H, L
-func (c *CPU) loadMemoryToRegister(reg *types.Register, address uint16) {
+func (c *CPU) loadMemoryToRegister(reg *Register, address uint16) {
 	*reg = c.b.ClockedRead(address)
 }
 
@@ -34,7 +32,7 @@ func (c *CPU) loadMemoryToRegister(reg *types.Register, address uint16) {
 //
 //	LD (HL), n
 //	n = A, B, C, D, E, H, L
-func (c *CPU) loadRegisterToMemory(reg types.Register, address uint16) {
+func (c *CPU) loadRegisterToMemory(reg Register, address uint16) {
 	c.b.ClockedWrite(address, reg)
 }
 
@@ -43,7 +41,7 @@ func (c *CPU) loadRegisterToMemory(reg types.Register, address uint16) {
 //
 //	LD (0xFF00 + n), A
 //	n = B, C, D, E, H, L, 8 bit immediate value (0xFF00 + n)
-func (c *CPU) loadRegisterToHardware(reg types.Register, address uint8) {
+func (c *CPU) loadRegisterToHardware(reg Register, address uint8) {
 	c.b.ClockedWrite(0xFF00+uint16(address), reg)
 }
 
@@ -52,7 +50,7 @@ func (c *CPU) loadRegisterToHardware(reg types.Register, address uint8) {
 //	LD nn, d16
 //	nn = BC, DE, HL, SP
 //	d16 = 16-bit immediate value
-func (c *CPU) loadRegister16(reg *types.RegisterPair) {
+func (c *CPU) loadRegister16(reg *RegisterPair) {
 	*reg.Low = c.readOperand()
 	*reg.High = c.readOperand()
 }

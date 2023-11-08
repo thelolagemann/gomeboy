@@ -248,7 +248,7 @@ var InstructionSet = [256]Instruction{
 	0x20: {
 		"JR NZ, r8",
 		func(c *CPU) {
-			c.jumpRelative(!c.isFlagSet(types.FlagZero))
+			c.jumpRelative(!c.isFlagSet(flagZero))
 		},
 	},
 	0x21: {
@@ -291,35 +291,35 @@ var InstructionSet = [256]Instruction{
 	0x27: {
 		"DAA",
 		func(c *CPU) {
-			if !c.isFlagSet(types.FlagSubtract) {
-				if c.isFlagSet(types.FlagCarry) || c.A > 0x99 {
+			if !c.isFlagSet(flagSubtract) {
+				if c.isFlagSet(flagCarry) || c.A > 0x99 {
 					c.A += 0x60
-					c.F |= types.FlagCarry
+					c.F |= flagCarry
 				}
-				if c.isFlagSet(types.FlagHalfCarry) || c.A&0xF > 0x9 {
+				if c.isFlagSet(flagHalfCarry) || c.A&0xF > 0x9 {
 					c.A += 0x06
-					c.clearFlag(types.FlagHalfCarry)
+					c.clearFlag(flagHalfCarry)
 				}
-			} else if c.isFlagSet(types.FlagCarry) && c.isFlagSet(types.FlagHalfCarry) {
+			} else if c.isFlagSet(flagCarry) && c.isFlagSet(flagHalfCarry) {
 				c.A += 0x9a
-				c.clearFlag(types.FlagHalfCarry)
-			} else if c.isFlagSet(types.FlagCarry) {
+				c.clearFlag(flagHalfCarry)
+			} else if c.isFlagSet(flagCarry) {
 				c.A += 0xa0
-			} else if c.isFlagSet(types.FlagHalfCarry) {
+			} else if c.isFlagSet(flagHalfCarry) {
 				c.A += 0xfa
-				c.clearFlag(types.FlagHalfCarry)
+				c.clearFlag(flagHalfCarry)
 			}
 			if c.A == 0 {
-				c.F |= types.FlagZero
+				c.F |= flagZero
 			} else {
-				c.clearFlag(types.FlagZero)
+				c.clearFlag(flagZero)
 			}
 		},
 	},
 	0x28: {
 		"JR Z, r8",
 		func(c *CPU) {
-			c.jumpRelative(c.isFlagSet(types.FlagZero))
+			c.jumpRelative(c.isFlagSet(flagZero))
 		},
 	},
 	0x29: {
@@ -364,13 +364,13 @@ var InstructionSet = [256]Instruction{
 		"CPL",
 		func(c *CPU) {
 			c.A = 0xFF ^ c.A
-			c.setFlags(c.isFlagSet(types.FlagZero), true, true, c.isFlagSet(types.FlagCarry))
+			c.setFlags(c.isFlagSet(flagZero), true, true, c.isFlagSet(flagCarry))
 		},
 	},
 	0x30: {
 		"JR NC, r8",
 		func(c *CPU) {
-			c.jumpRelative(!c.isFlagSet(types.FlagCarry))
+			c.jumpRelative(!c.isFlagSet(flagCarry))
 		},
 	},
 	0x31: {
@@ -420,13 +420,13 @@ var InstructionSet = [256]Instruction{
 	0x37: {
 		"SCF",
 		func(c *CPU) {
-			c.setFlags(c.isFlagSet(types.FlagZero), false, false, true)
+			c.setFlags(c.isFlagSet(flagZero), false, false, true)
 		},
 	},
 	0x38: {
 		"JR C, r8",
 		func(c *CPU) {
-			c.jumpRelative(c.isFlagSet(types.FlagCarry))
+			c.jumpRelative(c.isFlagSet(flagCarry))
 		},
 	},
 	0x39: {
@@ -472,7 +472,7 @@ var InstructionSet = [256]Instruction{
 	0x3F: {
 		"CCF",
 		func(c *CPU) {
-			c.setFlags(c.isFlagSet(types.FlagZero), false, false, !c.isFlagSet(types.FlagCarry))
+			c.setFlags(c.isFlagSet(flagZero), false, false, !c.isFlagSet(flagCarry))
 		},
 	},
 	0x40: {
@@ -1253,7 +1253,7 @@ var InstructionSet = [256]Instruction{
 		"RET NZ",
 		func(c *CPU) {
 			c.s.Tick(4)
-			c.ret(!c.isFlagSet(types.FlagZero))
+			c.ret(!c.isFlagSet(flagZero))
 		},
 	},
 	0xC1: {
@@ -1265,7 +1265,7 @@ var InstructionSet = [256]Instruction{
 	0xC2: {
 		"JP NZ, a16",
 		func(c *CPU) {
-			c.jumpAbsolute(!c.isFlagSet(types.FlagZero))
+			c.jumpAbsolute(!c.isFlagSet(flagZero))
 		},
 	},
 	0xC3: {
@@ -1277,7 +1277,7 @@ var InstructionSet = [256]Instruction{
 	0xC4: {
 		"CALL NZ, a16",
 		func(c *CPU) {
-			c.call(!c.isFlagSet(types.FlagZero))
+			c.call(!c.isFlagSet(flagZero))
 		},
 	},
 	0xC5: {
@@ -1302,7 +1302,7 @@ var InstructionSet = [256]Instruction{
 		"RET Z",
 		func(c *CPU) {
 			c.s.Tick(4)
-			c.ret(c.isFlagSet(types.FlagZero))
+			c.ret(c.isFlagSet(flagZero))
 		},
 	},
 	0xC9: {
@@ -1314,7 +1314,7 @@ var InstructionSet = [256]Instruction{
 	0xCA: {
 		"JP Z, nn",
 		func(c *CPU) {
-			c.jumpAbsolute(c.isFlagSet(types.FlagZero))
+			c.jumpAbsolute(c.isFlagSet(flagZero))
 		},
 	},
 	0xCB: {
@@ -1326,7 +1326,7 @@ var InstructionSet = [256]Instruction{
 	0xCC: {
 		"CALL Z, nn",
 		func(c *CPU) {
-			c.call(c.isFlagSet(types.FlagZero))
+			c.call(c.isFlagSet(flagZero))
 		},
 	},
 	0xCD: {
@@ -1351,7 +1351,7 @@ var InstructionSet = [256]Instruction{
 		"RET NC",
 		func(c *CPU) {
 			c.s.Tick(4)
-			c.ret(!c.isFlagSet(types.FlagCarry))
+			c.ret(!c.isFlagSet(flagCarry))
 		},
 	},
 	0xD1: {
@@ -1363,14 +1363,14 @@ var InstructionSet = [256]Instruction{
 	0xD2: {
 		"JP NC, a16",
 		func(c *CPU) {
-			c.jumpAbsolute(!c.isFlagSet(types.FlagCarry))
+			c.jumpAbsolute(!c.isFlagSet(flagCarry))
 		},
 	},
 	0xD3: disallowedOpcode(0xD3),
 	0xD4: {
 		"CALL NC, a16",
 		func(c *CPU) {
-			c.call(!c.isFlagSet(types.FlagCarry))
+			c.call(!c.isFlagSet(flagCarry))
 		},
 	},
 	0xD5: {
@@ -1395,7 +1395,7 @@ var InstructionSet = [256]Instruction{
 		"RET C",
 		func(c *CPU) {
 			c.s.Tick(4)
-			c.ret(c.isFlagSet(types.FlagCarry))
+			c.ret(c.isFlagSet(flagCarry))
 		},
 	},
 	0xD9: {
@@ -1408,14 +1408,14 @@ var InstructionSet = [256]Instruction{
 	0xDA: {
 		"JP C, nn",
 		func(c *CPU) {
-			c.jumpAbsolute(c.isFlagSet(types.FlagCarry))
+			c.jumpAbsolute(c.isFlagSet(flagCarry))
 		},
 	},
 	0xDB: disallowedOpcode(0xDB),
 	0xDC: {
 		"CALL C, nn",
 		func(c *CPU) {
-			c.call(c.isFlagSet(types.FlagCarry))
+			c.call(c.isFlagSet(flagCarry))
 		},
 	},
 	0xDD: disallowedOpcode(0xDD),
