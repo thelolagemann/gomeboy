@@ -74,9 +74,11 @@ type TileMapEntry struct {
 	Tile
 }
 
-func (t TileMapEntry) GetID(signed bool) int16 {
-	id := int16(t.id)
-	if signed {
+// GetID returns the tile ID of the entry according to the
+// current addressing mode.
+func (t TileMapEntry) GetID(addressingMode bool) uint16 {
+	id := t.id
+	if addressingMode {
 		if id < 128 {
 			id += 256
 		}

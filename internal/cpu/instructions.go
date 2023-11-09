@@ -2,7 +2,7 @@ package cpu
 
 import (
 	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
@@ -392,7 +392,7 @@ var InstructionSet = [256]Instruction{
 	0x33: {
 		"INC SP",
 		func(c *CPU) {
-			if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
+			if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == ppu.ModeOAM {
 				c.ppu.WriteCorruptionOAM()
 			}
 			c.SP++

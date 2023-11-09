@@ -24,21 +24,3 @@ type spriteAttributes struct {
 	// Bit 0-2 - Palette number  **CGB mode Only**     (OBP0-7)
 	cgbPalette uint8
 }
-
-func (s *Sprite) Update(address uint16, value uint8) {
-	byteIndex := address % 4
-	if byteIndex == 0 {
-		s.Y = value
-	} else if byteIndex == 1 {
-		s.X = value
-	} else if byteIndex == 2 {
-		s.TileID = value
-	} else if byteIndex == 3 {
-		s.priority = value&0x80 == 0
-		s.flipY = value&0x40 != 0
-		s.flipX = value&0x20 != 0
-		s.useSecondPalette = value & 0x10 >> 4
-		s.vRAMBank = (value >> 3) & 0x01
-		s.cgbPalette = value & 0x07
-	}
-}

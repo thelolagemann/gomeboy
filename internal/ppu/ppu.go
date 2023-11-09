@@ -1,9 +1,7 @@
-// Package ppu provides a programmable pixel unit for the DMG and CGB.
 package ppu
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -20,30 +18,43 @@ const (
 	ScreenHeight = 144
 )
 
+const (
+	ModeHBlank = iota
+	ModeVBlank
+	ModeOAM
+	ModeVRAM
+)
+
 type PPU struct {
 	// LCDC register
-	Enabled                                         bool
+	enabled, addressingMode, cleared                bool
 	BackgroundEnabled, WindowEnabled, SpriteEnabled bool
 	BackgroundTileMap, WindowTileMap                uint8
-	TileDataAddress                                 uint16
 	SpriteSize                                      uint8
-	isSigned, cleared                               bool
 
+	// palettes used for DMG -> CGB colourisation,
+	// loaded either from the boot ROM or db
 	BGColourisationPalette   *palette.Palette
 	OBJ0ColourisationPalette *palette.Palette
 	OBJ1ColourisationPalette *palette.Palette
 
+	// palettes used to translate the displays
+	// 2bpp pixel format into an RGB value
 	ColourPalettes []palette.Palette
 
-	// Window
-	windowInternal uint8
-
-	mode   lcd.Mode
-	status byte
-
-	oam                 *OAM
+	// palettes used by the ppu to display colours
+	// even though they are defined as CGBPalette
+	// they are also used in DMG mode by indexing into
+	// their palettes.
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
+
+	windowInternal uint8
+
+	mode   uint8
+	status byte
+
+	oam *OAM
 
 	TileChanged [2][384]bool // used for debug views (tile viewer)
 	TileData    [2][384]Tile // 384 tiles, 8x8 pixels each (double in CGB mode)
@@ -54,18 +65,14 @@ type PPU struct {
 
 	backgroundLineRendered [ScreenHeight]bool
 
-	b                  *io.Bus
-	statInterruptDelay bool
-	RefreshScreen      bool
+	b             *io.Bus
+	RefreshScreen bool
 
 	tileBgPriority [ScreenHeight][ScreenWidth]bool
 
 	// various LUTs
 	colourNumberLUT         [256][256][8]uint8
 	reversedColourNumberLUT [256][256][8]uint8
-	modeInterruptLUT        [4][256]bool
-
-	notifyFrame func()
 
 	// debug
 	Debug struct {
@@ -91,8 +98,6 @@ type PPU struct {
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	oam := NewOAM()
 	p := &PPU{
-		TileData: [2][384]Tile{},
-
 		b:   b,
 		s:   s,
 		oam: oam,
@@ -116,12 +121,12 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
 		// is the screen turning off?
-		if p.Enabled && v&types.Bit7 == 0 {
+		if p.enabled && v&types.Bit7 == 0 {
 			// turn off the screen
-			p.Enabled = false
+			p.enabled = false
 
 			// the screen should only be turned off in VBlank
-			if p.mode != lcd.VBlank {
+			if p.mode != ModeVBlank {
 				// warn user of incorrect behaviour TODO
 			}
 
@@ -137,14 +142,14 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.b.Set(types.LY, 0)
 			p.currentLine = 0
 
-			p.mode = lcd.HBlank
+			p.mode = ModeHBlank
 
 			// unlock OAM/VRAM
 			p.b.Unlock(io.OAM)
 			p.b.Unlock(io.VRAM)
-		} else if !p.Enabled && v&types.Bit7 != 0 {
+		} else if !p.enabled && v&types.Bit7 != 0 {
 			// turn on the screen
-			p.Enabled = true
+			p.enabled = true
 			// reset LYC to compare against and clear coincidence flag
 			p.lyForComparison = 0
 			p.b.Set(types.LY, 0)
@@ -166,13 +171,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.WindowTileMap = 0
 		}
 		p.WindowEnabled = utils.Test(v, 5)
-		if utils.Test(v, 4) {
-			p.TileDataAddress = 0x8000
-			p.isSigned = false // TODO rename to something more appropriate
-		} else {
-			p.TileDataAddress = 0x8800
-			p.isSigned = true
-		}
+		p.addressingMode = !utils.Test(v, 4)
 
 		if utils.Test(v, 3) {
 			p.BackgroundTileMap = 1
@@ -340,14 +339,14 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		})
 		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveLazyReader(types.BCPD, func() byte {
-			if !p.b.IsGBCCart() || p.mode == lcd.VRAM {
+			if !p.b.IsGBCCart() || p.mode == ModeVRAM {
 				return 0xff
 			}
 
 			return p.ColourPalette.Read()
 		})
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
-			if p.mode != lcd.VRAM {
+			if p.mode != ModeVRAM {
 				p.ColourSpritePalette.SetIndex(v)
 				p.dirtyBackground(ocps)
 				p.b.Set(types.OCPD, p.ColourSpritePalette.Read())
@@ -401,9 +400,9 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
 
 	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
-		p.modeToInterrupt = lcd.HBlank
+		p.modeToInterrupt = ModeHBlank
 		p.statUpdate()
-		p.modeToInterrupt = lcd.VRAM
+		p.modeToInterrupt = ModeVRAM
 
 		p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 4)
 	})
@@ -415,13 +414,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 	b.ReserveBlockWriter(0x8000, p.writeVRAM)
 	b.ReserveBlockWriter(0x9000, p.writeVRAM)
-
-	// initialize tile data
-	for i := 0; i < 2; i++ {
-		for j := 0; j < len(p.TileData[0]); j++ {
-			p.TileData[i][j] = Tile{}
-		}
-	}
 
 	// initialize tile map
 	for i := 0; i < 2; i++ {
@@ -456,7 +448,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 // to the real hardware.
 func (p *PPU) startGlitchedFirstLine() {
 	p.statUpdate() // this occurs before the mode change, mode should be 255 here
-	p.modeToInterrupt = lcd.VRAM
+	p.modeToInterrupt = ModeVRAM
 
 	p.s.ScheduleEvent(scheduler.PPUContinueGlitchedLine0, 4)
 }
@@ -468,7 +460,7 @@ func (p *PPU) continueGlitchedFirstLine() {
 	// OAM & VRAM are blocked until the end of VRAM transfer
 	p.b.Lock(io.OAM)
 	p.b.Lock(io.VRAM)
-	p.mode = lcd.VRAM
+	p.mode = ModeVRAM
 
 	p.s.ScheduleEvent(scheduler.PPUMiddleGlitchedLine0, 172)
 }
@@ -492,12 +484,11 @@ func (p *PPU) endGlitchedLine0() {
 func (p *PPU) endHBlank() {
 	// increment current scanline
 	p.currentLine++
-	p.modeToInterrupt = lcd.OAM
+	p.modeToInterrupt = ModeOAM
 
-	// if we are on line 144, we are entering VBlank
+	// if we are on line 144, we are entering ModeVBlank
 	if p.currentLine == 144 {
 		p.RefreshScreen = true
-		p.notifyFrame()
 		if p.backgroundDirty {
 			for i := 0; i < ScreenHeight; i++ {
 				p.backgroundLineRendered[i] = false
@@ -518,8 +509,8 @@ func (p *PPU) endHBlank() {
 }
 
 func (p *PPU) endVRAMTransfer() {
-	p.mode = lcd.HBlank
-	p.modeToInterrupt = lcd.HBlank
+	p.mode = ModeHBlank
+	p.modeToInterrupt = ModeHBlank
 
 	p.b.Unlock(io.OAM)
 	p.b.Unlock(io.VRAM)
@@ -534,7 +525,7 @@ func (p *PPU) startHBlank() {
 
 	p.s.ScheduleEvent(scheduler.HDMA, 8)
 
-	// schedule end of HBlank
+	// schedule end of ModeHBlank
 	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.b.Get(types.SCX)&0x7]))
 }
 
@@ -548,7 +539,7 @@ func (p *PPU) startHBlank() {
 func (p *PPU) startOAM() {
 	p.b.Set(types.LY, p.currentLine) // update LY
 
-	p.mode = lcd.HBlank
+	p.mode = ModeHBlank
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
 	if p.currentLine != 0 {
 		p.modeToInterrupt = 2
@@ -571,9 +562,9 @@ func (p *PPU) startOAM() {
 // continueOAM is performed 4 cycles after startOAM, and performs the
 // rest of the OAM search.
 func (p *PPU) continueOAM() {
-	p.mode = lcd.OAM
+	p.mode = ModeOAM
 	p.lyForComparison = uint16(p.currentLine)
-	p.modeToInterrupt = lcd.OAM
+	p.modeToInterrupt = ModeOAM
 	p.statUpdate()
 
 	p.modeToInterrupt = 255
@@ -587,8 +578,8 @@ func (p *PPU) continueOAM() {
 // endOAM is performed 80 cycles after startOAM, and performs the
 // rest of the OAM search.
 func (p *PPU) endOAM() {
-	p.mode = lcd.VRAM
-	p.modeToInterrupt = lcd.VRAM
+	p.mode = ModeVRAM
+	p.modeToInterrupt = ModeVRAM
 	p.statUpdate()
 
 	p.b.Lock(io.OAM)
@@ -599,7 +590,7 @@ func (p *PPU) endOAM() {
 }
 
 func (p *PPU) WriteCorruptionOAM() {
-	/*fmt.Println("corrupting oam")
+	/*fmt.Println("corrupting ModeOAM")
 	return
 	// determine which row of the OAM we are on
 	// by getting the cycles we have until the end of OAM search
@@ -620,24 +611,24 @@ func (p *PPU) WriteCorruptionOAM() {
 	// and overwrite the first word of the current row
 	// the last three words of the current row are then overwritten
 	// with the preceding row's last three words
-	a := uint16(p.oam.data[row*4]) | uint16(p.oam.data[row*4+1])<<8
-	b := uint16(p.oam.data[row*4-8]) | uint16(p.oam.data[row*4-7])<<8
-	c := uint16(p.oam.data[row*4-6]) | uint16(p.oam.data[row*4-5])<<8
+	a := uint16(p.ModeOAM.data[row*4]) | uint16(p.ModeOAM.data[row*4+1])<<8
+	b := uint16(p.ModeOAM.data[row*4-8]) | uint16(p.ModeOAM.data[row*4-7])<<8
+	c := uint16(p.ModeOAM.data[row*4-6]) | uint16(p.ModeOAM.data[row*4-5])<<8
 
 	// perform the bitwise glitch
 	newValue := bitwiseGlitch(a, b, c)
 
 	// replace the first word of the current row with the new value
-	p.oam.data[row*4] = byte(newValue)
-	p.oam.data[row*4+1] = byte(newValue >> 8)
+	p.ModeOAM.data[row*4] = byte(newValue)
+	p.ModeOAM.data[row*4+1] = byte(newValue >> 8)
 
 	// replace the last 3 words of the row from the preceding row
-	p.oam.data[row*4-6] = p.oam.data[row*4-2]
-	p.oam.data[row*4-5] = p.oam.data[row*4-1]
-	p.oam.data[row*4-4] = p.oam.data[row*4]
-	p.oam.data[row*4-3] = p.oam.data[row*4+1]
-	p.oam.data[row*4-2] = p.oam.data[row*4+2]
-	p.oam.data[row*4-1] = p.oam.data[row*4+3]
+	p.ModeOAM.data[row*4-6] = p.ModeOAM.data[row*4-2]
+	p.ModeOAM.data[row*4-5] = p.ModeOAM.data[row*4-1]
+	p.ModeOAM.data[row*4-4] = p.ModeOAM.data[row*4]
+	p.ModeOAM.data[row*4-3] = p.ModeOAM.data[row*4+1]
+	p.ModeOAM.data[row*4-2] = p.ModeOAM.data[row*4+2]
+	p.ModeOAM.data[row*4-1] = p.ModeOAM.data[row*4+3]
 
 	//panic(fmt.Sprintf("OAM corruption: row %d %d cycles until end of OAM search %s", row, cyclesUntilEndOAM, p.s.String()))*/
 }
@@ -647,7 +638,7 @@ func bitwiseGlitch(a, b, c uint16) uint16 {
 }
 
 // startVBlank is performed on the first cycle of each line 144 to 152, and
-// performs the VBlank period for the current line. The VBlank period lasts
+// performs the ModeVBlank period for the current line. The ModeVBlank period lasts
 // until for 456 * 10 cycles, when the PPU enters Mode 2 (OAM search) on
 // line 153 (PPU be like line 0, no line 153. you know, line 0, not the line 153 it's the next line :)).
 func (p *PPU) startVBlank() {
@@ -664,7 +655,7 @@ func (p *PPU) startVBlank() {
 	p.b.Set(types.LY, p.currentLine)
 
 	if p.currentLine == 144 {
-		p.modeToInterrupt = lcd.OAM
+		p.modeToInterrupt = ModeOAM
 
 		// trigger vblank interrupt
 		if p.b.Model() != types.CGBABC && p.b.Model() != types.CGB0 {
@@ -680,7 +671,7 @@ func (p *PPU) continueVBlank() {
 	p.lyForComparison = uint16(p.currentLine)
 	p.statUpdate()
 	if p.currentLine == 144 {
-		p.mode = lcd.VBlank
+		p.mode = ModeVBlank
 
 		// trigger vblank interrupt
 		if p.b.Model() == types.CGBABC || p.b.Model() == types.CGB0 {
@@ -691,13 +682,13 @@ func (p *PPU) continueVBlank() {
 		if !p.statInterruptLine && p.status&0x20 != 0 {
 			p.b.RaiseInterrupt(io.LCDINT)
 		}
-		p.modeToInterrupt = lcd.VBlank
+		p.modeToInterrupt = ModeVBlank
 		p.statUpdate()
 	}
 
 	p.s.ScheduleEvent(scheduler.PPUStartVBlank, 452)
 
-	// start vblank for next line
+	// start ModeVBlank for next line
 	// line 153 is a special case
 	p.currentLine++
 }
@@ -740,9 +731,9 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 	// draw tilemap (0x9800 - 0x9BFF)
 	for i := uint8(0); i < 32; i++ {
 		for j := uint8(0); j < 32; j++ {
-			tileEntry := p.calculateTileID(j, i, 0)
+			tileEntry := p.TileMaps[0][j][i]
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.isSigned)]
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.addressingMode)]
 			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[0])
 		}
 	}
@@ -750,10 +741,10 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 	// draw tilemap (0x9C00 - 0x9FFF)
 	for i := uint8(0); i < 32; i++ {
 		for j := uint8(0); j < 32; j++ {
-			tileEntry := p.calculateTileID(j, i, 1)
+			tileEntry := p.TileMaps[1][j][i]
 
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.isSigned)]
+			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.addressingMode)]
 			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[0])
 		}
 	}
@@ -762,35 +753,17 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 func (p *PPU) writeVRAM(address uint16, value uint8) {
 	address &= 0x1FFF
 
-	// are we writing to the tile data?
-	if address <= 0x17FF {
+	switch {
+	case address <= 0x17FF:
 		p.updateTile(address, value)
-		// update the tile data
-	} else if address <= 0x1FFF {
-		if p.b.Get(types.VBK)&1 == 0 {
-			// which offset are we writing to?
-			if address >= 0x1800 && address <= 0x1BFF {
-				// tilemap 0
-				p.updateTileMap(address, 0, value)
-			}
-			if address >= 0x1C00 && address <= 0x1FFF {
-				// tilemap 1
-				p.updateTileMap(address, 1, value)
-			}
-		}
-		if p.b.Get(types.VBK)&1 == 1 {
-			// update the tile Attributes
-			if address >= 0x1800 && address <= 0x1BFF {
-				// tilemap 0
-				p.updateTileAttributes(address, 0, value)
-			}
-			if address >= 0x1C00 && address <= 0x1FFF {
-				// tilemap 1
-				p.updateTileAttributes(address, 1, value)
-			}
+	case address <= 0x1FFF:
+		switch p.b.Get(types.VBK) & 1 {
+		case 0:
+			p.updateTileMap(address, uint8(address/0x1C00), value)
+		case 1:
+			p.updateTileAttributes(address, uint8(address/0x1C00), value)
 		}
 	}
-
 }
 
 // updateTile updates the tile at the given address
@@ -809,7 +782,6 @@ func (p *PPU) updateTile(address uint16, value uint8) {
 
 	p.dirtyBackground(tile)
 	// recache tilemap
-	//p.recacheByID(tileID)
 }
 
 func (p *PPU) updateTileMap(address uint16, tilemapIndex, value uint8) {
@@ -823,7 +795,6 @@ func (p *PPU) updateTileMap(address uint16, tilemapIndex, value uint8) {
 }
 
 func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
-	// panic(fmt.Sprintf("updating tile %x with %b", index, value))
 	// determine the y and x position
 	y := (index / 32) & 0x1F
 	x := index & 0x1F
@@ -837,18 +808,15 @@ func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8
 	t.VRAMBank = value >> 3 & 0x1
 
 	p.TileMaps[tilemapIndex][y][x].Attributes = t
-	// p.recacheTile(x, y, tilemapIndex)
 
 	p.dirtyBackground(tileAttr)
 }
 
 func (p *PPU) statUpdate() {
 	// do nothing if the LCD is disabled
-	if !p.Enabled {
+	if !p.enabled {
 		return
 	}
-
-	// TODO handle DMA active here
 
 	// get previous interrupt state
 	prevInterruptLine := p.statInterruptLine
@@ -866,11 +834,11 @@ func (p *PPU) statUpdate() {
 
 	// handle mode to interrupt
 	switch p.modeToInterrupt {
-	case lcd.HBlank:
+	case ModeHBlank:
 		p.statInterruptLine = p.status&0x08 != 0
-	case lcd.VBlank:
+	case ModeVBlank:
 		p.statInterruptLine = p.status&0x10 != 0
-	case lcd.OAM:
+	case ModeOAM:
 		p.statInterruptLine = p.status&0x20 != 0
 	default:
 		p.statInterruptLine = false
@@ -925,11 +893,9 @@ func (p *PPU) renderBlank() {
 
 func (p *PPU) renderWindowScanline() {
 	// do nothing if window is out of bounds
-	if p.b.Get(types.LY) < p.b.Get(types.WY) {
-		return
-	} else if p.b.Get(types.WX) > ScreenWidth {
-		return
-	} else if p.b.Get(types.WY) > ScreenHeight {
+	if p.b.Get(types.LY) < p.b.Get(types.WY) ||
+		p.b.Get(types.WX) > ScreenWidth ||
+		p.b.Get(types.WY) > ScreenHeight {
 		return
 	}
 
@@ -944,7 +910,7 @@ func (p *PPU) renderWindowScanline() {
 
 	// get the first tile entry
 	tileEntry := tileMapRow[xPos>>3]
-	tileID := tileEntry.GetID(p.isSigned)
+	tileID := tileEntry.GetID(p.addressingMode)
 
 	yPixelPos := yPos
 
@@ -982,7 +948,7 @@ func (p *PPU) renderWindowScanline() {
 
 			// get the next tile entry
 			tileEntry = tileMapRow[xPos>>3]
-			tileID = tileEntry.GetID(p.isSigned)
+			tileID = tileEntry.GetID(p.addressingMode)
 
 			if p.b.IsGBC() {
 				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
@@ -1034,7 +1000,7 @@ func (p *PPU) renderBackgroundScanline() {
 
 	// get the first tile entry
 	tileEntry := p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
-	tileID := tileEntry.GetID(p.isSigned)
+	tileID := tileEntry.GetID(p.addressingMode)
 
 	yPixelPos := yPos
 	// get the first lot of tile data
@@ -1079,8 +1045,8 @@ func (p *PPU) renderBackgroundScanline() {
 			xPos += 8
 
 			// get the next tile entry
-			tileEntry = p.calculateTileID(yPos>>3, xPos>>3, p.BackgroundTileMap)
-			tileID = tileEntry.GetID(p.isSigned)
+			tileEntry = p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
+			tileID = tileEntry.GetID(p.addressingMode)
 
 			if p.b.IsGBC() {
 				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
@@ -1114,14 +1080,6 @@ func (p *PPU) renderBackgroundScanline() {
 
 	// update scanline in frame
 	p.PreparedFrame[p.b.Get(types.LY)] = scanline
-}
-
-// calculateTileID calculates the tile ID for the current scanline
-func (p *PPU) calculateTileID(tilemapOffset, lineOffset uint8, mapOffset uint8) TileMapEntry {
-	// get the tile entry from the tilemap
-	tileEntry := p.TileMaps[mapOffset][tilemapOffset][lineOffset]
-
-	return tileEntry
 }
 
 func (p *PPU) renderSpritesScanline(scanline uint8) {
@@ -1228,17 +1186,12 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 	}
 }
 
-func (p *PPU) ClearRefresh() {
-	p.RefreshScreen = false
-}
-
 var _ types.Stater = (*PPU)(nil)
 
 func (p *PPU) Load(s *types.State) {
 	p.windowInternal = s.Read8()
 	// load the vRAM data
 	p.RefreshScreen = s.ReadBool()
-	p.statInterruptDelay = s.ReadBool()
 	p.ColourPalette.Load(s)
 	p.ColourSpritePalette.Load(s)
 }
@@ -1246,7 +1199,6 @@ func (p *PPU) Load(s *types.State) {
 func (p *PPU) Save(s *types.State) {
 	s.Write8(p.windowInternal) // 1 byte
 	s.WriteBool(p.RefreshScreen)
-	s.WriteBool(p.statInterruptDelay)
 
 	p.ColourPalette.Save(s)
 	p.ColourSpritePalette.Save(s)
@@ -1281,8 +1233,4 @@ func combine(c1, c2 color.Color) color.Color {
 		uint8((b + b2) >> 9),
 		uint8((a + a2) >> 9),
 	}
-}
-
-func (p *PPU) AttachNotifyFrame(fn func()) {
-	p.notifyFrame = fn
 }
