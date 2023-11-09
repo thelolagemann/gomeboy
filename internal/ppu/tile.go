@@ -5,9 +5,8 @@ import (
 	"image"
 )
 
-// Tile represents a tile. Each tile has a size of 8x8 pixels and a color
-// depth of 4 colors/gray shades. Tiles can be displayed as sprites or as
-// background/window tiles.
+// Tile represents a tile. Each tile has a size of 8x8 pixels and
+// can be displayed as sprites or as background/window tiles.
 type Tile [16]uint8
 
 type TileAttributes struct {
@@ -49,23 +48,8 @@ func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal palette.Palette) {
 // each tile being 8x8 pixels. The tile map is used to determine which
 // tiles are displayed in the background and window. There are two tile
 // maps, located at 0x9800 and 0x9C00, and each tile map can be used for
-// the background or window. In CGB mode, there are two tile maps for
-// each background and window, located at 0x9800 and 0x9C00 for bank 0,
-// and at 0x9C00 and 0xA000 for bank 1.
+// the background or window.
 type TileMap [32][32]TileMapEntry
-
-// NewTileMap returns a new tile map.
-func NewTileMap() TileMap {
-	var tileMap = TileMap{}
-	for y := 0; y < 32; y++ {
-		for x := 0; x < 32; x++ {
-			tileMap[y][x] = TileMapEntry{
-				id: 0,
-			}
-		}
-	}
-	return tileMap
-}
 
 type TileMapEntry struct {
 	id         uint16

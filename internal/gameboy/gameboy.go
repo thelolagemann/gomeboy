@@ -422,7 +422,6 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	g.CPU.Frame()
-	g.PPU.RefreshScreen = false
 
 	return g.PPU.PreparedFrame
 }

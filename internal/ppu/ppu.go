@@ -27,10 +27,23 @@ const (
 
 type PPU struct {
 	// LCDC register
-	enabled, addressingMode, cleared                bool
-	BackgroundEnabled, WindowEnabled, SpriteEnabled bool
-	BackgroundTileMap, WindowTileMap                uint8
-	SpriteSize                                      uint8
+	enabled, addressingMode, cleared  bool
+	bgEnabled, winEnabled, objEnabled bool
+	bgTileMap, winTileMap, objSize    uint8
+
+	// various internal flags
+	mode, modeToInt, currentLine, status uint8
+	lyCompare, windowInternal            uint8
+
+	lyForComparison   uint16
+	lycInterruptLine  bool
+	statInterruptLine bool
+	tileBgPriority    [ScreenWidth]bool
+	colorNumber       [ScreenWidth]uint8
+
+	// external components
+	b *io.Bus
+	s *scheduler.Scheduler
 
 	// palettes used for DMG -> CGB colourisation,
 	// loaded either from the boot ROM or db
@@ -49,11 +62,6 @@ type PPU struct {
 	ColourPalette       *palette.CGBPalette
 	ColourSpritePalette *palette.CGBPalette
 
-	windowInternal uint8
-
-	mode   uint8
-	status byte
-
 	oam *OAM
 
 	TileChanged [2][384]bool // used for debug views (tile viewer)
@@ -61,14 +69,8 @@ type PPU struct {
 	TileMaps    [2]TileMap   // 32x32 tiles, 8x8 pixels each
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
-	colorNumber   [ScreenWidth]uint8
 
-	backgroundLineRendered [ScreenHeight]bool
-
-	b             *io.Bus
-	RefreshScreen bool
-
-	tileBgPriority [ScreenHeight][ScreenWidth]bool
+	backgroundLineRendered, backgroundLineChanged [ScreenHeight]bool
 
 	// various LUTs
 	colourNumberLUT         [256][256][8]uint8
@@ -84,40 +86,17 @@ type PPU struct {
 
 	dirtiedLog [65536]dirtyEvent
 	lastDirty  uint16
-
-	s                     *scheduler.Scheduler
-	lyForComparison       uint16
-	lycInterruptLine      bool
-	statInterruptLine     bool
-	modeToInterrupt       uint8
-	currentLine           uint8
-	backgroundLineChanged [256]bool
-	lyCompare             byte
 }
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	oam := NewOAM()
 	p := &PPU{
-		b:   b,
-		s:   s,
-		oam: oam,
-		ColourPalettes: []palette.Palette{
-			// Greyscale
-			{
-				{0xFF, 0xFF, 0xFF},
-				{0xAA, 0xAA, 0xAA},
-				{0x55, 0x55, 0x55},
-				{0x00, 0x00, 0x00},
-			},
-			// Green (mimics original)
-			{
-				{0x9B, 0xBC, 0x0F},
-				{0x8B, 0xAC, 0x0F},
-				{0x30, 0x62, 0x30},
-				{0x0F, 0x38, 0x0F},
-			},
-		},
+		b:              b,
+		s:              s,
+		oam:            oam,
+		ColourPalettes: make([]palette.Palette, len(palette.ColourPalettes)),
 	}
+	copy(p.ColourPalettes, palette.ColourPalettes)
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
 		// is the screen turning off?
@@ -156,7 +135,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.currentLine = 0
 
 			// perform STAT check
-			p.modeToInterrupt = 255
+			p.modeToInt = 255
 			p.statUpdate()
 
 			// schedule end of first glitched line
@@ -165,23 +144,13 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.cleared = false
 		}
 
-		if utils.Test(v, 6) {
-			p.WindowTileMap = 1
-		} else {
-			p.WindowTileMap = 0
-		}
-		p.WindowEnabled = utils.Test(v, 5)
+		p.winTileMap = v >> 6 & 1
+		p.winEnabled = utils.Test(v, 5)
 		p.addressingMode = !utils.Test(v, 4)
-
-		if utils.Test(v, 3) {
-			p.BackgroundTileMap = 1
-		} else {
-			p.BackgroundTileMap = 0
-		}
-
-		p.SpriteSize = 8 + uint8(utils.Val(v, 2))*8
-		p.SpriteEnabled = utils.Test(v, 1)
-		p.BackgroundEnabled = utils.Test(v, 0)
+		p.bgTileMap = v >> 3 & 1
+		p.objSize = 8 + uint8(utils.Val(v, 2))*8
+		p.objEnabled = utils.Test(v, 1)
+		p.bgEnabled = utils.Test(v, 0)
 
 		return v
 	})
@@ -204,7 +173,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveLazyReader(types.STAT, func() byte {
-		//fmt.Printf("%02x %d\n", types.Bit7|p.status|p.mode, p.s.Until(scheduler.PPUVRAMTransfer))
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
@@ -225,6 +193,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 	b.ReserveAddress(types.LY, func(v byte) byte {
 		// any write to LY resets to 0
+		p.currentLine = 0
 		return 0
 	})
 	b.ReserveSetAddress(types.LY, func(v any) {
@@ -400,9 +369,9 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
 
 	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
-		p.modeToInterrupt = ModeHBlank
+		p.modeToInt = ModeHBlank
 		p.statUpdate()
-		p.modeToInterrupt = ModeVRAM
+		p.modeToInt = ModeVRAM
 
 		p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 4)
 	})
@@ -414,13 +383,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 	b.ReserveBlockWriter(0x8000, p.writeVRAM)
 	b.ReserveBlockWriter(0x9000, p.writeVRAM)
-
-	// initialize tile map
-	for i := 0; i < 2; i++ {
-		for j := 0; j < len(p.TileMaps); j++ {
-			p.TileMaps[i] = NewTileMap()
-		}
-	}
 
 	// setup LUTs
 	for b1 := 0; b1 <= 255; b1++ {
@@ -448,7 +410,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 // to the real hardware.
 func (p *PPU) startGlitchedFirstLine() {
 	p.statUpdate() // this occurs before the mode change, mode should be 255 here
-	p.modeToInterrupt = ModeVRAM
+	p.modeToInt = ModeVRAM
 
 	p.s.ScheduleEvent(scheduler.PPUContinueGlitchedLine0, 4)
 }
@@ -467,7 +429,7 @@ func (p *PPU) continueGlitchedFirstLine() {
 
 func (p *PPU) middleGlitchedLine0() {
 	p.mode = 0
-	p.modeToInterrupt = 0
+	p.modeToInt = 0
 	p.statUpdate()
 
 	p.b.Unlock(io.OAM)
@@ -477,18 +439,17 @@ func (p *PPU) middleGlitchedLine0() {
 }
 
 func (p *PPU) endGlitchedLine0() {
-	p.modeToInterrupt = 2
+	p.modeToInt = 2
 	p.s.ScheduleEvent(scheduler.PPUHBlank, 4)
 }
 
 func (p *PPU) endHBlank() {
 	// increment current scanline
 	p.currentLine++
-	p.modeToInterrupt = ModeOAM
+	p.modeToInt = ModeOAM
 
 	// if we are on line 144, we are entering ModeVBlank
 	if p.currentLine == 144 {
-		p.RefreshScreen = true
 		if p.backgroundDirty {
 			for i := 0; i < ScreenHeight; i++ {
 				p.backgroundLineRendered[i] = false
@@ -510,7 +471,7 @@ func (p *PPU) endHBlank() {
 
 func (p *PPU) endVRAMTransfer() {
 	p.mode = ModeHBlank
-	p.modeToInterrupt = ModeHBlank
+	p.modeToInt = ModeHBlank
 
 	p.b.Unlock(io.OAM)
 	p.b.Unlock(io.VRAM)
@@ -542,7 +503,7 @@ func (p *PPU) startOAM() {
 	p.mode = ModeHBlank
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
 	if p.currentLine != 0 {
-		p.modeToInterrupt = 2
+		p.modeToInt = 2
 		p.lyForComparison = 0xffff
 	} else { // line 0
 		p.lyForComparison = 0
@@ -564,10 +525,10 @@ func (p *PPU) startOAM() {
 func (p *PPU) continueOAM() {
 	p.mode = ModeOAM
 	p.lyForComparison = uint16(p.currentLine)
-	p.modeToInterrupt = ModeOAM
+	p.modeToInt = ModeOAM
 	p.statUpdate()
 
-	p.modeToInterrupt = 255
+	p.modeToInt = 255
 	p.statUpdate()
 
 	p.b.WLock(io.OAM)
@@ -579,7 +540,7 @@ func (p *PPU) continueOAM() {
 // rest of the OAM search.
 func (p *PPU) endOAM() {
 	p.mode = ModeVRAM
-	p.modeToInterrupt = ModeVRAM
+	p.modeToInt = ModeVRAM
 	p.statUpdate()
 
 	p.b.Lock(io.OAM)
@@ -655,7 +616,7 @@ func (p *PPU) startVBlank() {
 	p.b.Set(types.LY, p.currentLine)
 
 	if p.currentLine == 144 {
-		p.modeToInterrupt = ModeOAM
+		p.modeToInt = ModeOAM
 
 		// trigger vblank interrupt
 		if p.b.Model() != types.CGBABC && p.b.Model() != types.CGB0 {
@@ -682,7 +643,7 @@ func (p *PPU) continueVBlank() {
 		if !p.statInterruptLine && p.status&0x20 != 0 {
 			p.b.RaiseInterrupt(io.LCDINT)
 		}
-		p.modeToInterrupt = ModeVBlank
+		p.modeToInt = ModeVBlank
 		p.statUpdate()
 	}
 
@@ -735,16 +696,11 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 			// get tile data
 			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.addressingMode)]
 			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[0])
-		}
-	}
 
-	// draw tilemap (0x9C00 - 0x9FFF)
-	for i := uint8(0); i < 32; i++ {
-		for j := uint8(0); j < 32; j++ {
-			tileEntry := p.TileMaps[1][j][i]
+			tileEntry = p.TileMaps[1][j][i]
 
 			// get tile data
-			tile := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.addressingMode)]
+			tile = p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.addressingMode)]
 			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[0])
 		}
 	}
@@ -833,7 +789,7 @@ func (p *PPU) statUpdate() {
 	}
 
 	// handle mode to interrupt
-	switch p.modeToInterrupt {
+	switch p.modeToInt {
 	case ModeHBlank:
 		p.statInterruptLine = p.status&0x08 != 0
 	case ModeVBlank:
@@ -864,19 +820,19 @@ func (p *PPU) renderScanline() {
 	if p.b.Get(types.LY) >= ScreenHeight {
 		return
 	}
-	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.BackgroundEnabled || p.b.IsGBCCart()) {
+	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.bgEnabled || p.b.IsGBCCart()) {
 		p.renderBackgroundScanline()
 
 	}
 
 	if !p.Debug.WindowDisabled {
-		if p.WindowEnabled {
+		if p.winEnabled {
 			p.renderWindowScanline()
 		}
 	}
 
 	if !p.Debug.SpritesDisabled {
-		if p.SpriteEnabled {
+		if p.objEnabled {
 			p.renderSpritesScanline(p.b.Get(types.LY))
 		}
 	}
@@ -906,7 +862,7 @@ func (p *PPU) renderWindowScanline() {
 	xPixelPos := xPos % 8
 
 	// get the tile map row
-	tileMapRow := p.TileMaps[p.WindowTileMap][yPos>>3]
+	tileMapRow := p.TileMaps[p.winTileMap][yPos>>3]
 
 	// get the first tile entry
 	tileEntry := tileMapRow[xPos>>3]
@@ -938,7 +894,6 @@ func (p *PPU) renderWindowScanline() {
 	pal := p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
 
 	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
-	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// did we just finish a tile?
@@ -980,7 +935,7 @@ func (p *PPU) renderWindowScanline() {
 		if i >= p.b.Get(types.WX)-7 {
 			p.colorNumber[i] = colourLUT[xPixelPos]
 			scanline[i] = pal[colourLUT[xPixelPos]]
-			bgPriorityLine[i] = priority
+			p.tileBgPriority[i] = priority
 		}
 
 		xPixelPos++
@@ -999,7 +954,7 @@ func (p *PPU) renderBackgroundScanline() {
 	xPixelPos := xPos & 7
 
 	// get the first tile entry
-	tileEntry := p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
+	tileEntry := p.TileMaps[p.bgTileMap][yPos>>3][xPos>>3]
 	tileID := tileEntry.GetID(p.addressingMode)
 
 	yPixelPos := yPos
@@ -1026,7 +981,6 @@ func (p *PPU) renderBackgroundScanline() {
 
 	pal := p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
 
-	bgPriorityLine := &p.tileBgPriority[p.b.Get(types.LY)]
 	var scanline [ScreenWidth][3]uint8
 
 	for i := uint8(0); i < ScreenWidth; i++ {
@@ -1034,7 +988,7 @@ func (p *PPU) renderBackgroundScanline() {
 		//scanline[i] = pal[colourLUT[xPixelPos]]
 		*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 
-		bgPriorityLine[i] = priority
+		p.tileBgPriority[i] = priority
 		p.colorNumber[i] = colourLUT[xPixelPos]
 
 		xPixelPos++
@@ -1045,7 +999,7 @@ func (p *PPU) renderBackgroundScanline() {
 			xPos += 8
 
 			// get the next tile entry
-			tileEntry = p.TileMaps[p.BackgroundTileMap][yPos>>3][xPos>>3]
+			tileEntry = p.TileMaps[p.bgTileMap][yPos>>3][xPos>>3]
 			tileID = tileEntry.GetID(p.addressingMode)
 
 			if p.b.IsGBC() {
@@ -1094,7 +1048,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 		spriteY := sprite.Y
 		spriteX := sprite.X
 
-		if spriteY > scanline || spriteY+p.SpriteSize <= scanline {
+		if spriteY > scanline || spriteY+p.objSize <= scanline {
 			continue
 		}
 		if spriteCount >= 10 {
@@ -1104,11 +1058,11 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 
 		tilerowIndex := scanline - spriteY
 		if sprite.flipY {
-			tilerowIndex = p.SpriteSize - tilerowIndex - 1
+			tilerowIndex = p.objSize - tilerowIndex - 1
 		}
 		tilerowIndex %= 8
 		tileID := uint16(sprite.TileID)
-		if p.SpriteSize == 16 {
+		if p.objSize == 16 {
 			if scanline-spriteY < 8 {
 				if sprite.flipY {
 					tileID |= 0x01
@@ -1158,8 +1112,8 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 			}
 
 			// skip if the sprite doesn't have priority and the background is not transparent
-			if !p.b.IsGBCCart() || p.BackgroundEnabled {
-				if !(sprite.priority && !p.tileBgPriority[scanline][pixelPos]) {
+			if !p.b.IsGBCCart() || p.bgEnabled {
+				if !(sprite.priority && !p.tileBgPriority[pixelPos]) {
 					if p.colorNumber[pixelPos] != 0 {
 						continue
 					}
@@ -1191,14 +1145,12 @@ var _ types.Stater = (*PPU)(nil)
 func (p *PPU) Load(s *types.State) {
 	p.windowInternal = s.Read8()
 	// load the vRAM data
-	p.RefreshScreen = s.ReadBool()
 	p.ColourPalette.Load(s)
 	p.ColourSpritePalette.Load(s)
 }
 
 func (p *PPU) Save(s *types.State) {
 	s.Write8(p.windowInternal) // 1 byte
-	s.WriteBool(p.RefreshScreen)
 
 	p.ColourPalette.Save(s)
 	p.ColourSpritePalette.Save(s)
