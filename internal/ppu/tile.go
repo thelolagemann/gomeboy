@@ -54,8 +54,6 @@ type TileMap [32][32]TileMapEntry
 type TileMapEntry struct {
 	id         uint16
 	Attributes TileAttributes
-
-	Tile
 }
 
 // GetID returns the tile ID of the entry according to the

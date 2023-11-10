@@ -17,10 +17,8 @@ type spriteAttributes struct {
 	flipY bool
 	// Bit 5 - X flip          (0=Normal, 1=Horizontally mirrored)
 	flipX bool
-	// Bit 4 - Palette number  **Non CGB mode Only** (0=OBP0, 1=OBP1)
-	useSecondPalette uint8
 	// Bit 3 - Tile VRAM-Bank  **CGB mode Only**     (0=Bank 0, 1=Bank 1)
 	vRAMBank uint8
-	// Bit 0-2 - Palette number  **CGB mode Only**     (OBP0-7)
-	cgbPalette uint8
+	// Bit 0-2 - Palette Number or Bit 4 - Palette Mode
+	paletteNumber uint8
 }
