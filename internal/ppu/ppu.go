@@ -487,7 +487,7 @@ func (p *PPU) startHBlank() {
 	p.s.ScheduleEvent(scheduler.HDMA, 8)
 
 	// schedule end of ModeHBlank
-	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(scrollXHblank[p.b.Get(types.SCX)&0x7]))
+	p.s.ScheduleEvent(scheduler.PPUHBlank, 196-scroll(p.b.Get(types.SCX)))
 }
 
 // startOAM is performed on the first cycle of lines 0 to 143, and performs
@@ -547,7 +547,7 @@ func (p *PPU) endOAM() {
 	p.b.Lock(io.VRAM)
 
 	// schedule end of VRAM search
-	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(scrollXvRAM[p.b.Get(types.SCX)&0x7]))
+	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, 168+scroll(p.b.Get(types.SCX)))
 }
 
 func (p *PPU) WriteCorruptionOAM() {
@@ -724,11 +724,8 @@ func (p *PPU) writeVRAM(address uint16, value uint8) {
 
 // updateTile updates the tile at the given address
 func (p *PPU) updateTile(address uint16, value uint8) {
-	// get the tile address
-	index := address & 0x1FFE // only the lower 13 bits are used
-
 	// get the tileID
-	tileID := index >> 4 // divide by 16
+	tileID := address >> 4 // divide by 16
 
 	// get the tile row
 	row := (address >> 1) & 0x7
@@ -737,13 +734,16 @@ func (p *PPU) updateTile(address uint16, value uint8) {
 	p.TileChanged[p.b.Get(types.VBK)&1][tileID] = true
 
 	p.dirtyBackground(tile)
-	// recache tilemap
 }
 
+// coords is a helper function to get the x and y coordinates from an address
+func coords(address uint16) (uint8, uint8) { return uint8(address >> 5 & 0x1f), uint8(address & 0x1f) }
+
+// scroll is a helper function to determine the cycle offset of a scroll value
+func scroll(value uint8) uint64 { return uint64((value&7 + 3) &^ 3) }
+
 func (p *PPU) updateTileMap(address uint16, tilemapIndex, value uint8) {
-	// determine the y and x position
-	y := (address / 32) & 0x1F
-	x := address & 0x1F
+	y, x := coords(address)
 
 	p.TileMaps[tilemapIndex][y][x].id = uint16(value)
 
@@ -751,9 +751,7 @@ func (p *PPU) updateTileMap(address uint16, tilemapIndex, value uint8) {
 }
 
 func (p *PPU) updateTileAttributes(index uint16, tilemapIndex uint8, value uint8) {
-	// determine the y and x position
-	y := (index / 32) & 0x1F
-	x := index & 0x1F
+	y, x := coords(index)
 
 	// update the tilemap
 	t := TileAttributes{}
@@ -811,30 +809,17 @@ func (p *PPU) statUpdate() {
 	}
 }
 
-var (
-	scrollXHblank = [8]uint16{196, 192, 192, 192, 192, 188, 188, 188}
-	scrollXvRAM   = [8]uint16{168, 172, 172, 172, 172, 176, 176, 176}
-)
-
 func (p *PPU) renderScanline() {
-	if p.b.Get(types.LY) >= ScreenHeight {
-		return
-	}
 	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.oam.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.bgEnabled || p.b.IsGBCCart()) {
 		p.renderBackgroundScanline()
-
 	}
 
-	if !p.Debug.WindowDisabled {
-		if p.winEnabled {
-			p.renderWindowScanline()
-		}
+	if p.winEnabled && !p.Debug.WindowDisabled {
+		p.renderWindowScanline()
 	}
 
-	if !p.Debug.SpritesDisabled {
-		if p.objEnabled {
-			p.renderSpritesScanline(p.b.Get(types.LY))
-		}
+	if p.objEnabled && !p.Debug.SpritesDisabled {
+		p.renderSpritesScanline(p.b.Get(types.LY))
 	}
 }
 
@@ -855,77 +840,23 @@ func (p *PPU) renderWindowScanline() {
 		return
 	}
 
-	yPos := p.windowInternal
-
 	// get the initial x pos and pixel pos
 	xPos := p.b.Get(types.WX) - 7
-	xPixelPos := xPos % 8
-
-	// get the tile map row
-	tileMapRow := p.TileMaps[p.winTileMap][yPos>>3]
+	xPixelPos := xPos & 7
 
 	// get the first tile entry
-	tileEntry := tileMapRow[xPos>>3]
-	tileID := tileEntry.GetID(p.addressingMode)
-
-	yPixelPos := yPos
-
-	// get the first lot of tile data
-	tileData := p.TileData[tileEntry.Attributes.VRAMBank][tileID]
-	if tileEntry.Attributes.YFlip {
-		yPixelPos = 7 - yPixelPos
-	}
-	yPixelPos %= 8
-
-	// get the 2 bytes that make up a row of 8 pixels
-	b1 := tileData[yPixelPos]
-	b2 := tileData[yPixelPos+8]
-
-	// create the colour lookup table
-	var colourLUT [8]uint8
-	if tileEntry.Attributes.XFlip {
-		colourLUT = p.reversedColourNumberLUT[b1][b2]
-	} else {
-		colourLUT = p.colourNumberLUT[b1][b2]
-	}
-
-	priority := tileEntry.Attributes.BGPriority
-
-	pal := p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+	tileEntry, colourLUT, pal := p.getTile(xPos, p.windowInternal, p.winTileMap)
 
 	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// did we just finish a tile?
-		if xPixelPos == 8 { // we don't need to do this for the last pixel
+		if xPixelPos == 8 {
 			// increment xPos by the number of pixels we've just rendered
 			xPos = i - (p.b.Get(types.WX) - 7)
 
 			// get the next tile entry
-			tileEntry = tileMapRow[xPos>>3]
-			tileID = tileEntry.GetID(p.addressingMode)
-
-			if p.b.IsGBC() {
-				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
-			}
-
-			tileData = p.TileData[tileEntry.Attributes.VRAMBank][tileID]
-
-			if tileEntry.Attributes.YFlip {
-				yPixelPos = 7 - yPos
-			} else {
-				yPixelPos = yPos
-			}
-			yPixelPos &= 7
-			b1 = tileData[yPixelPos]
-			b2 = tileData[yPixelPos+8]
-			if tileEntry.Attributes.XFlip {
-				colourLUT = p.reversedColourNumberLUT[b1][b2]
-			} else {
-				colourLUT = p.colourNumberLUT[b1][b2]
-			}
-
-			priority = tileEntry.Attributes.BGPriority
+			tileEntry, colourLUT, pal = p.getTile(xPos, p.windowInternal, p.winTileMap)
 
 			// reset the x pixel pos
 			xPixelPos = 0
@@ -935,96 +866,59 @@ func (p *PPU) renderWindowScanline() {
 		if i >= p.b.Get(types.WX)-7 {
 			p.colorNumber[i] = colourLUT[xPixelPos]
 			scanline[i] = pal[colourLUT[xPixelPos]]
-			p.tileBgPriority[i] = priority
+			p.tileBgPriority[i] = tileEntry.Attributes.BGPriority
 		}
 
 		xPixelPos++
-
 	}
 
 	p.windowInternal++
 }
 
-func (p *PPU) renderBackgroundScanline() {
-	// get the initial y pos and pixel pos
-	yPos := p.b.Get(types.LY) + p.b.Get(types.SCY)
+// getTile returns the TileMapEntry, colourLUT, and palette for the
+// tile at the given xPos and yPos on the given tile map.
+func (p *PPU) getTile(xPos, yPos, tileMap uint8) (tileEntry TileMapEntry, colourLUT [8]uint8, pal palette.Palette) {
+	tileEntry = p.TileMaps[tileMap][yPos>>3][xPos>>3]
+	tileData := p.TileData[tileEntry.Attributes.VRAMBank][tileEntry.GetID(p.addressingMode)]
 
-	// get the initial x pos and pixel pos
+	yPixelPos := yPos & 7
+	if tileEntry.Attributes.YFlip {
+		yPixelPos = 7 - yPixelPos
+	}
+	if tileEntry.Attributes.XFlip {
+		colourLUT = p.reversedColourNumberLUT[tileData[yPixelPos]][tileData[yPixelPos+8]]
+	} else {
+		colourLUT = p.colourNumberLUT[tileData[yPixelPos]][tileData[yPixelPos+8]]
+	}
+	pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+
+	return
+}
+
+func (p *PPU) renderBackgroundScanline() {
+	// get the initial x and y pos
+	yPos := p.b.Get(types.LY) + p.b.Get(types.SCY)
 	xPos := p.b.Get(types.SCX)
 	xPixelPos := xPos & 7
 
 	// get the first tile entry
-	tileEntry := p.TileMaps[p.bgTileMap][yPos>>3][xPos>>3]
-	tileID := tileEntry.GetID(p.addressingMode)
-
-	yPixelPos := yPos
-	// get the first lot of tile data
-	tileData := p.TileData[tileEntry.Attributes.VRAMBank][tileID]
-	if tileEntry.Attributes.YFlip {
-		yPixelPos = 7 - yPos
-	}
-	yPixelPos &= 7
-
-	// get the 2 bytes that make up a row of 8 pixels
-	b1 := tileData[yPixelPos]
-	b2 := tileData[yPixelPos+8]
-
-	// create the colour lookup table
-	var colourLUT [8]uint8
-	if tileEntry.Attributes.XFlip {
-		colourLUT = p.reversedColourNumberLUT[b1][b2]
-	} else {
-		colourLUT = p.colourNumberLUT[b1][b2]
-	}
-
-	priority := tileEntry.Attributes.BGPriority
-
-	pal := p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
+	tileEntry, colourLUT, pal := p.getTile(xPos, yPos, p.bgTileMap)
 
 	var scanline [ScreenWidth][3]uint8
 
 	for i := uint8(0); i < ScreenWidth; i++ {
 		// set scanline using unsafe to copy 4 bytes at a time
-		//scanline[i] = pal[colourLUT[xPixelPos]]
 		*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colourLUT[xPixelPos]]))
 
-		p.tileBgPriority[i] = priority
+		p.tileBgPriority[i] = tileEntry.Attributes.BGPriority
 		p.colorNumber[i] = colourLUT[xPixelPos]
 
 		xPixelPos++
 
 		// did we just finish a tile?
-		if xPixelPos == 8 { // we don't need to do this for the last pixel
-			// increment xPos by the number of pixels we've just rendered
+		if xPixelPos == 8 {
 			xPos += 8
-
-			// get the next tile entry
-			tileEntry = p.TileMaps[p.bgTileMap][yPos>>3][xPos>>3]
-			tileID = tileEntry.GetID(p.addressingMode)
-
-			if p.b.IsGBC() {
-				pal = p.ColourPalette.Palettes[tileEntry.Attributes.CGBPaletteNumber]
-			}
-
-			tileData = p.TileData[tileEntry.Attributes.VRAMBank][tileID]
-
-			if tileEntry.Attributes.YFlip {
-				yPixelPos = 7 - yPos
-			} else {
-				yPixelPos = yPos
-			}
-			yPixelPos &= 7
-			b1 = tileData[yPixelPos]
-			b2 = tileData[yPixelPos+8]
-			if tileEntry.Attributes.XFlip {
-				colourLUT = p.reversedColourNumberLUT[b1][b2]
-			} else {
-				colourLUT = p.colourNumberLUT[b1][b2]
-			}
-
-			priority = tileEntry.Attributes.BGPriority
-
-			// reset the x pixel pos
+			tileEntry, colourLUT, pal = p.getTile(xPos, yPos, p.bgTileMap)
 			xPixelPos = 0
 		}
 	}
@@ -1045,25 +939,20 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
 	for _, sprite := range p.oam.Sprites {
-		spriteY := sprite.Y
-		spriteX := sprite.X
-
-		if spriteY > scanline || spriteY+p.objSize <= scanline {
+		if sprite.Y > scanline || sprite.Y+p.objSize <= scanline {
 			continue
 		}
-		if spriteCount >= 10 {
-			break
-		}
+
 		spriteCount++
 
-		tilerowIndex := scanline - spriteY
+		tilerowIndex := scanline - sprite.Y
 		if sprite.flipY {
 			tilerowIndex = p.objSize - tilerowIndex - 1
 		}
 		tilerowIndex %= 8
 		tileID := uint16(sprite.TileID)
 		if p.objSize == 16 {
-			if scanline-spriteY < 8 {
+			if scanline-sprite.Y < 8 {
 				if sprite.flipY {
 					tileID |= 0x01
 				} else {
@@ -1098,8 +987,8 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 
 		for x := uint8(0); x < 8; x++ {
 			// skip if the sprite is out of bounds
-			pixelPos := spriteX + x
-			if pixelPos < 0 || pixelPos >= ScreenWidth {
+			pixelPos := sprite.X + x
+			if pixelPos >= ScreenWidth {
 				continue
 			}
 
@@ -1127,7 +1016,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 				}
 			} else {
 				// skip if pixel is occupied by sprite with lower x coordinate
-				if spriteXPerScreen[pixelPos] != 0 && spriteXPerScreen[pixelPos] <= spriteX+10 {
+				if spriteXPerScreen[pixelPos] != 0 && spriteXPerScreen[pixelPos] <= sprite.X+10 {
 					continue
 				}
 			}
@@ -1135,7 +1024,11 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 			p.PreparedFrame[scanline][pixelPos] = pal[color]
 
 			// mark the pixel as occupied
-			spriteXPerScreen[pixelPos] = spriteX + 10
+			spriteXPerScreen[pixelPos] = sprite.X + 10
+		}
+
+		if spriteCount == 10 {
+			break
 		}
 	}
 }
