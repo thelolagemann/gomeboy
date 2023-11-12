@@ -42,7 +42,6 @@ const (
 	TimerTIMAReload
 	TimerTIMAFinishReload
 	TimerTIMAIncrement
-	HDMA
 
 	SerialBitTransfer
 	SerialBitInterrupt
@@ -67,7 +66,7 @@ const (
 )
 
 const (
-	eventTypes = 50
+	eventTypes = 49
 )
 
 var eventTypeNames = []string{
@@ -106,7 +105,6 @@ var eventTypeNames = []string{
 	"TimerTIMAReload",
 	"TimerTIMAFinishReload",
 	"TimerTIMAIncrement",
-	"HDMA",
 
 	"SerialBitTransfer",
 	"SerialBitInterrupt",
