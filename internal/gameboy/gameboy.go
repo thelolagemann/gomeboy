@@ -83,7 +83,7 @@ func (g *GameBoy) SendCommand(command emulator.CommandPacket) emulator.ResponseP
 	return emulator.ResponsePacket{}
 }
 
-func (g *GameBoy) AttachAudioListener(player func([]float32)) {
+func (g *GameBoy) AttachAudioListener(player func([]uint8)) {
 	g.APU.AttachPlayback(player)
 }
 
