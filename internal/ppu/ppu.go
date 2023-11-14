@@ -36,30 +36,18 @@ type Tile [16]uint8
 
 // Draw draws the tile to the given image at the given position.
 func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal palette.Palette) {
-	for tileY := 0; tileY < 8; tileY++ {
-		for tileX := 0; tileX < 8; tileX++ {
-			var x = i + tileX
-			var y = i2 + tileY
-			high, low := t[tileY], t[tileY+8]
-			var colourNum = int((high >> (7 - tileX)) & 1)
-			colourNum |= int((low>>(7-tileX))&1) << 1
-			rgb := pal.GetColour(uint8(colourNum))
-			img.Pix[(y*img.Stride)+(x*4)] = rgb[0]
-			img.Pix[(y*img.Stride)+(x*4)+1] = rgb[1]
-			img.Pix[(y*img.Stride)+(x*4)+2] = rgb[2]
-			img.Pix[(y*img.Stride)+(x*4)+3] = 0xff
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			copy(img.Pix[((i2+y)*img.Stride)+((i+x)*4):], append(pal[(t[y]>>(7-x)&1)|(t[y+8]>>(7-x)&1)<<1][:], 0xff))
 		}
 	}
 }
 
 // TileEntry is used to define a tile in the tile map or OAM.
 type TileEntry struct {
-	id                      uint8
-	paletteNumber, vRAMBank uint8
-	priority, xFlip, yFlip  bool
+	id, paletteNumber, vRAMBank uint8
+	priority, xFlip, yFlip      bool
 }
-
-func getID(id, mode uint8) uint16 { return uint16(id) + uint16(mode&^(id>>7))<<8 }
 
 type PPU struct {
 	// LCDC register
@@ -75,10 +63,9 @@ type PPU struct {
 	lycINT, statINT bool
 	scanlineInfo    [ScreenWidth]uint8 // bit 3 - priority, bit 2-0 colourNumber
 
-	Sprites     [40]Sprite           // 40 sprite attributes from OAM
-	TileChanged [2][384]bool         // used for debug views (tile viewer)
-	TileData    [2][384]Tile         // 384 tiles, 8x8 pixels each (double in CGB mode)
-	TileMaps    [2][32][32]TileEntry // 32x32 tiles, 8x8 pixels each
+	Sprites  [40]Sprite           // 40 sprite attributes from OAM
+	TileData [2][384]Tile         // 384 tiles, 8x8 pixels each (double in CGB mode)
+	TileMaps [2][32][32]TileEntry // 32x32 tiles, 8x8 pixels each
 
 	backgroundDirty                               bool
 	backgroundLineRendered, backgroundLineChanged [ScreenHeight]bool
@@ -128,7 +115,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
 		// is the screen turning off?
 		if p.enabled && v&types.Bit7 == 0 {
-			// turn off the screen
 			p.enabled = false
 
 			// the screen should only be turned off in VBlank
@@ -143,29 +129,21 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 			// when the LCD is off, LY reads 0, and STAT mode reads 0 (HBlank)
 			p.b.Set(types.LY, 0)
-			p.currentLine = 0
+			p.currentLine, p.mode = 0, 0
 
-			p.mode = ModeHBlank
-
-			// unlock OAM/VRAM
 			p.b.Unlock(io.OAM)
 			p.b.Unlock(io.VRAM)
 		} else if !p.enabled && v&types.Bit7 != 0 {
-			// turn on the screen
 			p.enabled = true
 			// reset LYC to compare against and clear coincidence flag
-			p.lyForComparison = 0
+			p.lyForComparison, p.currentLine = 0, 0
 			p.b.Set(types.LY, 0)
-			p.currentLine = 0
 
-			// perform STAT check
 			p.modeToInt = 255
 			p.statUpdate()
 
-			// schedule end of first glitched line
-			p.s.ScheduleEvent(scheduler.PPUStartGlitchedLine0, 76)
-
 			p.cleared = false
+			p.s.ScheduleEvent(scheduler.PPUStartGlitchedLine0, 76)
 		}
 
 		p.winTileMap = v >> 6 & 1
@@ -179,10 +157,8 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.STAT, func(v byte) byte {
-		// writing to STAT briefly enables all STAT interrupts
-		// but only on DMG. Road Rash relies on this bug, so
-		// maybe add a warning for users trying to play Road
-		// Rash in CGB mode
+		// writing to STAT briefly enables all STAT interrupts but only on DMG. Road Rash relies
+		// on this bug, so maybe add a warning for users trying to play Road Rash in CGB mode
 		if !p.b.IsGBC() {
 			oldStat := p.status
 			p.status = 0xff
@@ -414,7 +390,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 // startGlitchedFirstLine is called 76 cycles after the PPU is enabled,
 // performing the first line of the screen in a glitched manner.
 func (p *PPU) startGlitchedFirstLine() {
-	p.statUpdate() // this occurs before the mode change, mode should be 255 here
+	p.statUpdate() // this occurs before the mode change, modeToInt should be 255 here
 	p.modeToInt = ModeVRAM
 
 	p.s.ScheduleEvent(scheduler.PPUContinueGlitchedLine0, 4)
@@ -784,22 +760,17 @@ func (p *PPU) writeVRAM(address uint16, value uint8) {
 
 	switch {
 	case address <= 0x17FF:
-		// get the id
-		tileID := address >> 4 // divide by 16
-
-		p.TileData[p.b.Get(types.VBK)&1][tileID][(address>>1)&0x7+((address&1)*8)] = value
-		p.TileChanged[p.b.Get(types.VBK)&1][tileID] = true
-
+		p.TileData[p.b.Get(types.VBK)&1][address>>4][(address>>1)&0x7+((address&1)*8)] = value
 		p.dirtyBackground(tile)
 	case address <= 0x1FFF:
-		y, x := (address>>5)&0x1f, address&0x1f
+		y, x, id := (address>>5)&0x1f, address&0x1f, (address>>10)&1
 		switch p.b.Get(types.VBK) & 1 {
 		case 0:
-			p.TileMaps[address/0x1C00][y][x].id = value
+			p.TileMaps[id][y][x].id = value
 			p.dirtyBackground(tileMap)
 		case 1:
 			// update the tilemap
-			t := &p.TileMaps[address/0x1c00][y][x]
+			t := &p.TileMaps[id][y][x]
 			t.priority = value&0x80 != 0
 			t.yFlip = value&types.Bit6 != 0
 			t.xFlip = value&types.Bit5 != 0
@@ -818,6 +789,9 @@ func colorNumber(b1, b2, index uint8, xFlip bool) uint8 {
 	}
 	return (b1 >> shift & 0x1) | ((b2 >> shift & 0x1) << 1)
 }
+
+// getID is a helper function to determine the ID of a tile according to the addressing mode
+func getID(id, mode uint8) uint16 { return uint16(id) + uint16(mode&^(id>>7))<<8 }
 
 // scroll is a helper function to determine the cycle offset of a scroll value
 func scroll(value uint8) uint8 { return (value&7 + 3) &^ 3 }
@@ -881,40 +855,32 @@ func (p *PPU) renderWindowScanline() {
 	}
 
 	// get the initial x pos and pixel pos
-	xPos := p.b.Get(types.WX) - 7
-	xPixelPos := xPos & 7
+	xPos, xPixelPos := uint8(0), uint8(0)
 
 	// get the first tile entry
 	tileEntry, b1, b2, pal := p.getTile(xPos, p.windowInternal, p.winTileMap)
 
 	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
 
-	for i := uint8(0); i < ScreenWidth; i++ {
-		// did we just finish a tile?
-		if xPixelPos == 8 {
-			// increment xPos by the number of pixels we've just rendered
-			xPos = i - (p.b.Get(types.WX) - 7)
+	for i := p.b.Get(types.WX) - 7; i < ScreenWidth; i++ {
+		colorNum := colorNumber(b1, b2, xPixelPos, tileEntry.xFlip)
+		p.scanlineInfo[i] = colorNum
+		if tileEntry.priority {
+			p.scanlineInfo[i] |= 0b100
+		}
+		scanline[i] = pal[colorNum]
 
+		// did we just finish a tile?
+		if xPixelPos++; xPixelPos == 8 {
+			xPos += 8
 			// get the next tile entry
 			tileEntry, b1, b2, pal = p.getTile(xPos, p.windowInternal, p.winTileMap)
 
-			// reset the x pixel pos
 			xPixelPos = 0
 		}
-
-		// don't render until we're in the window
-		if i >= p.b.Get(types.WX)-7 {
-			colorNum := colorNumber(b1, b2, xPixelPos, tileEntry.xFlip)
-			p.scanlineInfo[i] = colorNum
-			if tileEntry.priority {
-				p.scanlineInfo[i] |= 0b100
-			}
-			scanline[i] = pal[colorNum]
-		}
-
-		xPixelPos++
 	}
 
+	p.dirtyScanlines[p.b.Get(types.LY)] = true
 	p.windowInternal++
 }
 
@@ -957,10 +923,10 @@ func (p *PPU) renderBackgroundScanline() {
 		}
 
 		xPixelPos++
+		xPos++
 
 		// did we just finish a tile?
 		if xPixelPos == 8 {
-			xPos += 8
 			tileEntry, b1, b2, pal = p.getTile(xPos, yPos, p.bgTileMap)
 			xPixelPos = 0
 		}

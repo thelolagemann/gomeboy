@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -70,20 +69,20 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 		// 4. get the tile at that position
 		// 5. draw a box around the tile
 		// 6. draw the tile in the tile viewer
-		realX := e.Position.X / float32(scaleFactor)
-		realY := e.Position.Y / float32(scaleFactor)
+		//realX := e.Position.X / float32(scaleFactor)
+		//realY := e.Position.Y / float32(scaleFactor)
 
-		tileX := int(realX / 8)
-		tileY := int(realY / 8)
+		//tileX := int(realX / 8)
+		//tileY := int(realY / 8)
 
-		tileIndex := tileX + (tileY * 32)
+		//tileIndex := tileX + (tileY * 32)
 
 		// get the tile entry from the tilemap
-		tileEntry := t.PPU.TileMaps[0][tileX][tileY]
+		//tileEntry := t.PPU.TileMaps[0][tileX][tileY]
 
 		// get the tile from the tile entry
 
-		fmt.Printf("BG Priority: %v\nXFlip: %t\nYFlip: %t\nTile Number: %d\nBank: %d", tileEntry.Attributes.BGPriority, tileEntry.Attributes.XFlip, tileEntry.Attributes.YFlip, tileIndex, tileEntry.Attributes.VRAMBank)
+		//fmt.Printf("BG Priority: %v\nXFlip: %t\nYFlip: %t\nTile Number: %d\nBank: %d", tileEntry.Attributes.BGPriority, tileEntry.Attributes.XFlip, tileEntry.Attributes.YFlip, tileIndex, tileEntry.Attributes.VRAMBank)
 	})
 	tilemap0Content.Add(tilemap0Tap)
 
