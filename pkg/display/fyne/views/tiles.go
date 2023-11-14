@@ -1,6 +1,7 @@
 package views
 
 import (
+	"bytes"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -18,6 +19,8 @@ import (
 
 type Tiles struct {
 	*ppu.PPU
+
+	tiles [2][384]ppu.Tile
 }
 
 func (v *Tiles) Title() string {
@@ -546,20 +549,20 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 				case event.FrameTime:
 					for i, img := range tileImages {
 						if i < 384 {
-							if v.PPU.TileChanged[0][i] {
+							if !bytes.Equal(v.PPU.TileData[0][i][:], v.tiles[0][i][:]) {
 								// update the tile
 								v.PPU.TileData[0][i].Draw(img.img, 0, 0, selectedPalette)
-								v.PPU.TileChanged[0][i] = false
+								v.tiles[0][i] = v.PPU.TileData[0][i]
 
 								img.c.Refresh()
 							}
 
 							// TODO redraw on open
 						} else {
-							if v.PPU.TileChanged[1][i-384] {
+							if !bytes.Equal(v.PPU.TileData[1][i-384][:], v.tiles[1][i-384][:]) {
 								// update the tile
 								v.PPU.TileData[1][i-384].Draw(img.img, 0, 0, selectedPalette)
-								v.PPU.TileChanged[1][i-384] = false
+								v.tiles[1][i-384] = v.PPU.TileData[1][i-384]
 
 								img.c.Refresh()
 							}

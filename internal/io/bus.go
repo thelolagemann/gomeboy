@@ -2,7 +2,6 @@ package io
 
 import (
 	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"math/rand"
@@ -41,8 +40,7 @@ type Bus struct {
 	isGBCCart bool
 	s         *scheduler.Scheduler
 
-	gbcHandlers     []func()
-	gbcCartHandlers []func()
+	gbcHandlers []func()
 
 	// DMA related stuff
 	dmaSource, dmaDestination uint16
@@ -206,7 +204,7 @@ func (b *Bus) Map(m types.Model, cartCGB bool) {
 				// if the PPU is already in the HBlank period, then the HDMA would not be
 				// performed by the scheduler until the next HBlank period, so we perform
 				// the transfer immediately here and decrement the remaining length
-				if b.Get(types.LCDC)&types.Bit7 == types.Bit7 && b.LazyRead(types.STAT)&0b11 == lcd.HBlank && b.dmaRemaining > 0 {
+				if b.Get(types.LCDC)&types.Bit7 == types.Bit7 && b.LazyRead(types.STAT)&0b11 == 0 && b.dmaRemaining > 0 {
 					b.newDMA(1)
 					b.dmaRemaining--
 				}
@@ -258,9 +256,6 @@ func (b *Bus) Map(m types.Model, cartCGB bool) {
 		})
 		b.Set(types.SVBK, 0xF9)
 
-		for _, f := range b.gbcCartHandlers {
-			f()
-		}
 	}
 
 	// setup cgb model registers
@@ -578,10 +573,6 @@ func (b *Bus) ReserveBlockWriter(start uint16, h func(uint16, byte)) {
 
 func (b *Bus) WhenGBC(f func()) {
 	b.gbcHandlers = append(b.gbcHandlers, f)
-}
-
-func (b *Bus) WhenGBCCart(f func()) {
-	b.gbcCartHandlers = append(b.gbcCartHandlers, f)
 }
 
 func (b *Bus) IsGBCCart() bool {

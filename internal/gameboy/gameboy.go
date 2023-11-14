@@ -325,9 +325,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	timerCtl := timer.NewController(b, sched, sound)
 	video := ppu.New(b, sched)
 	processor := cpu.NewCPU(b, sched, video)
-	video.AttachNotifyFrame(func() {
-		processor.HasFrame()
-	})
 
 	var model = types.DMGABC
 	if cart.Header().GameboyColor() {
@@ -416,10 +413,6 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 	g.CPU.Frame()
 	g.attachedGameBoy.CPU.Frame()
 
-	// clear the refresh flags
-	g.PPU.ClearRefresh()
-	g.attachedGameBoy.PPU.ClearRefresh()
-
 	// return the prepared frames
 	return g.PPU.PreparedFrame, g.attachedGameBoy.PPU.PreparedFrame
 }
@@ -429,7 +422,6 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 // for display, and return it.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	g.CPU.Frame()
-	g.PPU.RefreshScreen = false
 
 	return g.PPU.PreparedFrame
 }

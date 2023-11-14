@@ -1,7 +1,7 @@
 package cpu
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -83,7 +83,7 @@ func (c *CPU) ret(condition bool) {
 
 // push a 16-bit value onto the stack.
 func (c *CPU) push(high, low uint8) {
-	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
+	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == ppu.ModeOAM {
 		c.ppu.WriteCorruptionOAM()
 	}
 	c.SP--

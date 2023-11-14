@@ -1,7 +1,7 @@
 package cpu
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/ppu/lcd"
+	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
@@ -163,7 +163,7 @@ func (c *CPU) decrement(n uint8) uint8 {
 //	H - Not affected.
 //	C - Not affected.
 func (c *CPU) decrementNN(register *RegisterPair) {
-	if register.Uint16() >= 0xFE00 && register.Uint16() <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
+	if register.Uint16() >= 0xFE00 && register.Uint16() <= 0xFEFF && c.b.Get(types.STAT)&0b11 == ppu.ModeOAM {
 		// TODO
 		// get the current cycle of mode 2 that the PPU is in
 		// the oam is split into 20 rows of 8 bytes each, with
@@ -295,7 +295,7 @@ func (c *CPU) popNN(h, l *Register) {
 	*l = c.b.ClockedRead(c.SP)
 	c.SP++
 
-	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == lcd.OAM {
+	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == ppu.ModeOAM {
 		c.ppu.WriteCorruptionOAM()
 	}
 

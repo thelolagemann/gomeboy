@@ -57,6 +57,12 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 		c.instructionsCB[i] = InstructionSetCB[i].fn
 	}
 
+	b.ReserveAddress(0xFF7D, func(b byte) byte {
+		c.shouldInt = true
+		c.hasFrame = true
+		return 0xff
+	})
+	b.Set(0xff7d, 0xff)
 	b.ReserveAddress(0xFF7E, func(b byte) byte {
 		c.shouldInt = true
 
@@ -350,9 +356,4 @@ func (c *CPU) Save(s *types.State) {
 	s.Write16(c.SP)
 	s.Write16(c.PC)
 	s.WriteBool(c.doubleSpeed)
-}
-
-func (c *CPU) HasFrame() {
-	c.hasFrame = true
-	c.shouldInt = true
 }

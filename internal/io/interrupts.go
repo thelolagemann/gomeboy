@@ -71,6 +71,10 @@ func (b *Bus) IRQVector(irq byte) uint16 {
 func (b *Bus) RaiseInterrupt(interrupt byte) {
 	b.data[types.IF] |= interrupt
 
+	// if interrupt was vblank, then we need to notify the CPU
+	if interrupt == VBlankINT {
+		b.Write(0xFF7D, 0)
+	}
 	// if IME is enabled, then we need to notify the CPU
 	if b.CanInterrupt() {
 		b.Write(0xFF7E, 0)
