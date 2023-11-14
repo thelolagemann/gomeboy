@@ -89,11 +89,9 @@ func newChannel2(a *APU, b *io.Bus) *channel2 {
 	return c
 }
 
-func (c *channel2) getAmplitude() float32 {
+func (c *channel2) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
-		dacInput := channel2Duty[c.duty][c.waveDutyPosition] * c.currentVolume
-		dacOutput := (float32(dacInput) / 7.5) - 1
-		return dacOutput
+		return channel2Duty[c.duty][c.waveDutyPosition] * c.currentVolume
 	} else {
 		return 0
 	}

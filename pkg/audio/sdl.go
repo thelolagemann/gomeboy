@@ -7,7 +7,6 @@ package audio
 import "C"
 import (
 	"github.com/veandco/go-sdl2/sdl"
-	"math"
 	"reflect"
 	"unsafe"
 )
@@ -109,7 +108,7 @@ func OpenAudio() error {
 	var err error
 	if audioDeviceID, err = sdl.OpenAudioDevice("", false, &sdl.AudioSpec{
 		Freq:     sampleRate,
-		Format:   sdl.AUDIO_F32SYS,
+		Format:   sdl.AUDIO_U16LSB,
 		Channels: 2,
 		Samples:  bufferSize,
 		Callback: sdl.AudioCallback(C.AudioData),
@@ -131,15 +130,8 @@ const (
 	sampleRate = 96000
 )
 
-func PlaySDL(data []float32) {
+func PlaySDL(b []uint8) {
 	if !paused {
-		var b []byte
-		for i := range data {
-			n := math.Float32bits(data[i])
-			b = append(b, byte(n), byte(n>>8))
-			b = append(b, byte(n>>16), byte(n>>24))
-		}
-
 		buffer.write(b)
 	}
 }

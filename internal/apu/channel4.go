@@ -127,12 +127,10 @@ func (c *channel4) catchup() {
 	c.lastCatchup = c.a.s.Cycle() - (c.a.s.Cycle()-c.lastCatchup)%c.frequencyTimer
 }
 
-func (c *channel4) getAmplitude() float32 {
+func (c *channel4) getAmplitude() uint8 {
 	if c.enabled && c.dacEnabled {
 		c.catchup()
-		dacInput := (uint8(c.lfsr) & 1) * c.currentVolume
-		dacOutput := (float32(dacInput) / 7.5) - 1
-		return dacOutput
+		return (uint8(c.lfsr) & 1) * c.currentVolume
 	} else {
 		return 0
 	}

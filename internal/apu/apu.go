@@ -58,13 +58,13 @@ type APU struct {
 
 	model     types.Model
 	bufferPos int
-	buffer    []float32
+	buffer    []uint8
 
 	lastUpdate uint64
 	s          *scheduler.Scheduler
 	b          *io.Bus
 
-	playBack func([]float32)
+	playBack func([]uint8)
 }
 
 func highPass(channel int, in float32, dacEnabled bool) float32 {
@@ -87,7 +87,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		playing:            false,
 		enabled:            true,
 		frameSequencerStep: 0,
-		buffer:             make([]float32, bufferSize/4),
+		buffer:             make([]uint8, bufferSize),
 		s:                  s,
 		b:                  b,
 		Samples:            make(Samples, emulatedSampleRate/64),
@@ -316,24 +316,28 @@ func (a *APU) sample() {
 	channel4Amplitude := a.chan4.getAmplitude()
 
 	// mix amplitudes in "mixer"
-	left := float32(0)
-	right := float32(0)
-	for i, amplitude := range []float32{channel1Amplitude, channel2Amplitude, channel3Amplitude, channel4Amplitude} {
+	left := uint16(0)
+	right := uint16(0)
+	for i, amplitude := range []uint8{channel1Amplitude, channel2Amplitude, channel3Amplitude, channel4Amplitude} {
 		if a.leftEnable[i] {
-			left += amplitude
+			left += uint16(amplitude)
 		}
 		if a.rightEnable[i] {
-			right += amplitude
+			right += uint16(amplitude)
 		}
 	}
+	left *= 128 * uint16(a.volumeLeft)
+	right *= 128 * uint16(a.volumeRight)
 
-	a.buffer[a.bufferPos] = left / 4
-	a.buffer[a.bufferPos+1] = right / 4
+	a.buffer[a.bufferPos] = uint8(left)
+	a.buffer[a.bufferPos+1] = uint8(left >> 8)
+	a.buffer[a.bufferPos+2] = uint8(right)
+	a.buffer[a.bufferPos+3] = uint8(right >> 8)
 
-	a.bufferPos += 2
+	a.bufferPos += 4
 
 	// push to broadcast when internal buffer is full
-	if a.bufferPos >= bufferSize/4 {
+	if a.bufferPos >= bufferSize {
 		// are we playing?
 		if a.playing && a.playBack != nil {
 			// broadcast buffer to listeners
@@ -355,7 +359,7 @@ func (a *APU) Play() {
 	a.playing = true
 }
 
-func (a *APU) AttachPlayback(playback func([]float32)) {
+func (a *APU) AttachPlayback(playback func([]uint8)) {
 	// attach provided channel to listeners
 	a.playBack = playback
 }
