@@ -824,7 +824,8 @@ func (p *PPU) statUpdate() {
 }
 
 func (p *PPU) renderScanline() {
-	if (!p.backgroundLineRendered[p.b.Get(types.LY)] || p.dirtyScanlines[p.b.Get(types.LY)] || p.backgroundDirty) && (p.bgEnabled || p.b.IsGBCCart()) {
+	currentScanline := p.b.Get(types.LY)
+	if (!p.backgroundLineRendered[currentScanline] || p.dirtyScanlines[currentScanline] || p.backgroundDirty) && (p.bgEnabled || p.b.IsGBCCart()) {
 		p.renderBackgroundScanline()
 	}
 
@@ -833,7 +834,7 @@ func (p *PPU) renderScanline() {
 	}
 
 	if p.objEnabled && !p.Debug.SpritesDisabled {
-		p.renderSpritesScanline(p.b.Get(types.LY))
+		p.renderSpritesScanline(currentScanline)
 	}
 }
 
@@ -985,7 +986,11 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 				continue
 			}
 
-			p.PreparedFrame[scanline][pixelPos] = pal[colourNumber]
+			// did rendering this sprite change the background
+			if p.PreparedFrame[scanline][pixelPos] != pal[colourNumber] {
+				p.backgroundLineRendered[scanline] = false
+				p.PreparedFrame[scanline][pixelPos] = pal[colourNumber]
+			}
 
 			// mark the pixel as occupied
 			spriteXPerScreen[pixelPos] = sprite.x + 8
