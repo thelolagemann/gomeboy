@@ -539,7 +539,7 @@ gameLoop:
 					break gameLoop
 				}
 			case CycleBreakpoint:
-				if int(g.Scheduler.Cycle()) > timeout*70240*60 {
+				if int(g.Scheduler.Cycle()) > timeout*70240*60 || g.CPU.DebugBreakpoint { // cycle won't increase once breakpoint has been hit
 					break gameLoop
 				}
 			}
