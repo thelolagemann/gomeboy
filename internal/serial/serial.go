@@ -1,7 +1,6 @@
 package serial
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -64,7 +63,6 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 		return v
 	})
 	b.ReserveAddress(types.SC, func(v byte) byte {
-		fmt.Printf("sc: %08b\n", v)
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
 
