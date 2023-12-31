@@ -63,12 +63,6 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 		return v
 	})
 	b.ReserveAddress(types.SC, func(v byte) byte {
-		if b.Get(types.SC) == v|0x7e {
-			// some games appear to write before the last transfer finished, causing
-			// the transfer to start looping - likely bc of my cursed serial interrupt
-			// timing
-			return v | 0x7e
-		}
 		c.InternalClock = (v & types.Bit0) == types.Bit0
 		c.TransferRequest = (v & types.Bit7) == types.Bit7
 
@@ -77,14 +71,19 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 			// we need to determine when to schedule the first bit transfer,
 			// when bit 8 of DIV produces a falling edge.
 			// e.g.
-			// DIV = 0b0000_0001_0000_0000 (512)
-			// DIV = 0b0000_0001_0000_0001 (513)
+			// DIV = 0b0000_0001_1111_1111 (511)
+			// DIV = 0b0000_0010_0000_0000 (512) <- falling edge
+			// DIV = 0b0000_0010_0000_0001 (513)
 			// ...
-			// DIV = 0b0000_0010_0000_0000 (1024)
+			// DIV = 0b0000_0011_1111_1111 (1023)
+			// DIV = 0b0000_0100_0000_0000 (1024) <- falling edge
 
-			// a bit is sent every 128 M-cycles (8.192 kHz)
-			ticksToGo := s.SysClock() & (ticksPerBit - 1)
-			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
+			// is this GameBoy the master?
+			if c.InternalClock {
+				// a bit is sent every 128 M-cycles (8.192 kHz)
+				ticksToGo := (s.SysClock() + 4) & (ticksPerBit - 1)
+				s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
+			}
 		}
 
 		return v | 0x7E // bits 1-6 are always set
@@ -92,11 +91,11 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 	b.Set(types.SC, 0x7E) // bits 1-6 are unused
 
 	s.RegisterEvent(scheduler.SerialBitTransfer, func() {
-		var bit bool
-		if c.AttachedDevice != nil {
-			bit = c.AttachedDevice.Send()
-			c.AttachedDevice.Receive(c.b.Get(types.SB)&types.Bit7 == types.Bit7)
+		if !c.InternalClock || !c.TransferRequest {
+			return
 		}
+		bit := c.AttachedDevice.Send()
+		c.AttachedDevice.Receive(c.b.Get(types.SB)&types.Bit7 == types.Bit7)
 
 		c.b.Set(types.SB, c.b.Get(types.SB)<<1)
 		if bit {
@@ -107,12 +106,10 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 		if c.count == 8 {
 			c.count = 0
 			c.TransferRequest = false
+			c.b.RaiseInterrupt(io.SerialINT)
 			c.b.ClearBit(types.SC, types.Bit7)
-		} else if c.count == 7 {
-			// schedule interrupt to happen 1 cycle before count reaches 8 (TODO find out why, possibly the CPU interrupt handling?)
-			s.ScheduleEvent(scheduler.SerialBitInterrupt, ticksPerBit-4)
 		} else {
-			ticksToGo := s.SysClock() & (ticksPerBit - 1)
+			ticksToGo := (s.SysClock() + 4) & (ticksPerBit - 1)
 			s.ScheduleEvent(scheduler.SerialBitTransfer, uint64(ticksPerBit-ticksToGo))
 		}
 	})
@@ -127,10 +124,10 @@ func NewController(b *io.Bus, s *scheduler.Scheduler) *Controller {
 func (c *Controller) checkTransfer() {
 	if c.count++; c.count == 8 {
 		c.count = 0
-		c.b.Set(types.IF, io.SerialINT)
+		c.b.RaiseInterrupt(io.SerialINT)
 
 		// clear transfer request
-		c.b.Set(types.SC, c.b.Get(types.SC)&^types.Bit7)
+		c.b.ClearBit(types.SC, types.Bit7)
 		c.TransferRequest = false
 	}
 }
