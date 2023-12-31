@@ -25,8 +25,7 @@ type CPU struct {
 
 	b *io.Bus
 
-	instructions   [256]func(cpu *CPU)
-	instructionsCB [256]func(cpu *CPU)
+	instructions [256]func(cpu *CPU)
 
 	s            *scheduler.Scheduler
 	ppu          *ppu.PPU
@@ -51,10 +50,8 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 
 	// embed the instruction set
 	c.instructions = [256]func(*CPU){}
-	c.instructionsCB = [256]func(*CPU){}
 	for i := 0; i < 256; i++ {
 		c.instructions[i] = InstructionSet[i].fn
-		c.instructionsCB[i] = InstructionSetCB[i].fn
 	}
 
 	b.ReserveAddress(0xFF7D, func(b byte) byte {
