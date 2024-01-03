@@ -25,9 +25,6 @@ type CPU struct {
 
 	b *io.Bus
 
-	instructions   [256]func(cpu *CPU)
-	instructionsCB [256]func(cpu *CPU)
-
 	s            *scheduler.Scheduler
 	ppu          *ppu.PPU
 	skippingHalt bool
@@ -48,14 +45,6 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c.DE = &RegisterPair{High: &c.D, Low: &c.E}
 	c.HL = &RegisterPair{High: &c.H, Low: &c.L}
 	c.AF = &RegisterPair{High: &c.A, Low: &c.F}
-
-	// embed the instruction set
-	c.instructions = [256]func(*CPU){}
-	c.instructionsCB = [256]func(*CPU){}
-	for i := 0; i < 256; i++ {
-		c.instructions[i] = InstructionSet[i].fn
-		c.instructionsCB[i] = InstructionSetCB[i].fn
-	}
 
 	b.ReserveAddress(0xFF7D, func(b byte) byte {
 		c.shouldInt = true
@@ -142,7 +131,7 @@ func (c *CPU) Frame() {
 	// 2. DebugBreakpoint = true
 	// 3. hasFrame = true
 step:
-	for ; !c.shouldInt; c.instructions[c.readOperand()](c) {
+	for ; !c.shouldInt; c.decode(c.readOperand()) {
 	}
 
 	// check to see if shouldInt was triggered by an interrupt

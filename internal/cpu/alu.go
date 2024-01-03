@@ -208,8 +208,8 @@ func (c *CPU) addHLRR(register *RegisterPair) {
 //	C - Set if carry from bit 7.
 func (c *CPU) add(n uint8, shouldCarry bool) {
 	newCarry := c.isFlagSet(flagCarry) && shouldCarry
-	sum := int16(c.A) + int16(n)
-	sumHalf := int16(c.A&0xF) + int16(n&0xF)
+	sum := uint16(c.A) + uint16(n)
+	sumHalf := (c.A & 0xF) + (n & 0xF)
 	if newCarry {
 		sum++
 		sumHalf++
@@ -232,7 +232,7 @@ func (c *CPU) add(n uint8, shouldCarry bool) {
 //	H - Set if carry from bit 11.
 //	C - Set if carry from bit 15.
 func (c *CPU) addUint16(a, b uint16) uint16 {
-	sum := int32(a) + int32(b)
+	sum := uint32(a) + uint32(b)
 	c.setFlags(c.isFlagSet(flagZero), false, (a&0xFFF)+(b&0xFFF) > 0xFFF, sum > 0xFFFF)
 	return uint16(sum)
 }
