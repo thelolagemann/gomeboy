@@ -17,7 +17,7 @@ func (c *CPU) doHALTBug() {
 	c.PC--
 
 	// execute the instruction
-	c.instructions[instr](c)
+	c.decode(instr)
 }
 
 // handleOAMCorruption is called when the CPU encounters
