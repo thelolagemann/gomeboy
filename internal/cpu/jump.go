@@ -99,9 +99,3 @@ func (c *CPU) pop(high *uint8, low *uint8) {
 	*high = c.b.ClockedRead(c.SP)
 	c.SP++
 }
-
-func (c *CPU) rst(address uint16) {
-	c.s.Tick(4)
-	c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
-	c.PC = address
-}

@@ -7,6 +7,9 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
+var incDecBit = []uint16{0x01, 0xffff}
+var incDecMask = []uint8{0x0f, 0x00}
+
 func (c *CPU) decode(instr byte) {
 	switch instr { // handle instructions that can't be decoded (or I'm too lazy)
 	case 0x00: // NOP
@@ -105,9 +108,6 @@ func (c *CPU) decode(instr byte) {
 		c.b.ClockedWrite(uint16(c.readOperand())|uint16(c.readOperand())<<8, c.A)
 	case 0xF0: // LDH A, (a8)
 		c.A = c.b.ClockedRead(0xFF00 + uint16(c.readOperand()))
-	case 0xF1: // POP AF
-		c.popNN(&c.A, &c.F)
-		c.F &= 0xF0 // clear unused bits
 	case 0xF2: // LD A, (C)
 		c.A = c.b.ClockedRead(0xFF00 + uint16(c.C))
 	case 0xF3: // DI
@@ -139,7 +139,8 @@ func (c *CPU) decode(instr byte) {
 			case 1:
 				p := c.getRegisterPair(instr)
 				if instr>>3&1 == 1 { // ADD HL, (nn)
-					c.addHLRR(p)
+					c.HL.SetUint16(c.addUint16(c.HL.Uint16(), p.Uint16()))
+					c.s.Tick(4)
 				} else { // LD (nn), d16
 					p.SetUint16(uint16(c.readOperand()) | uint16(c.readOperand())<<8)
 				}
@@ -156,26 +157,22 @@ func (c *CPU) decode(instr byte) {
 						c.HL.SetUint16(c.HL.Uint16() + 1)
 					}
 				}
-			case 3:
-				switch instr >> 3 & 1 {
-				case 0: // INC nn
-					c.incrementNN(c.getRegisterPair(instr))
-				case 1: // DEC nn
-					c.decrementNN(c.getRegisterPair(instr))
-				}
-			case 4: // INC
+			case 3: // INC/DEC nn
+				p := c.getRegisterPair(instr)
+				c.handleOAMCorruption(p.Uint16())
+				p.SetUint16(p.Uint16() + incDecBit[instr>>3&1])
+				c.s.Tick(4)
+			case 4, 5: // INC/DEC n
 				src, srcMem := c.getSourceRegister(instr >> 3)
-				*src = c.increment(*src)
+				val := *src
+				val += uint8(incDecBit[instr&1])
+				c.setFlags(val == 0, instr&1 == 1, *src&0xf == incDecMask[instr&1], c.isFlagSet(flagCarry))
 				if srcMem {
-					c.b.ClockedWrite(c.HL.Uint16(), *src)
+					c.b.ClockedWrite(c.HL.Uint16(), val)
+				} else {
+					*src = val
 				}
-			case 5: // DEC
-				src, srcMem := c.getSourceRegister(instr >> 3)
-				*src = c.decrement(*src)
-				if srcMem {
-					c.b.ClockedWrite(c.HL.Uint16(), *src)
-				}
-			case 6: // LD d8
+			case 6: // LD n, d8
 				src, srcMem := c.getSourceRegister(instr >> 3)
 				*src = c.readOperand()
 				if srcMem {
@@ -184,13 +181,21 @@ func (c *CPU) decode(instr byte) {
 			case 7: // various maths
 				switch instr >> 3 & 0x7 {
 				case 0:
-					c.rotateLeftCarryAccumulator()
+					res := c.A<<1 | c.A&types.Bit7>>7
+					c.F = c.A & types.Bit7 >> 3
+					c.A = res
 				case 1: // RRCA
-					c.rotateRightAccumulator()
+					res := c.A>>1 | c.A&types.Bit0<<7
+					c.F = c.A & types.Bit0 << 4
+					c.A = res
 				case 2: // RLA
-					c.rotateLeftAccumulatorThroughCarry()
+					res := c.A<<1 | c.F&flagCarry>>4
+					c.F = c.A & types.Bit7 >> 3 & flagCarry
+					c.A = res
 				case 3: // RRA
-					c.rotateRightAccumulatorThroughCarry()
+					res := c.A>>1 | c.F&flagCarry<<3
+					c.F = c.A & types.Bit0 << 4 & flagCarry
+					c.A = res
 				case 4: // DAA
 					if !c.isFlagSet(flagSubtract) {
 						if c.isFlagSet(flagCarry) || c.A > 0x99 {
@@ -244,18 +249,29 @@ func (c *CPU) decode(instr byte) {
 				c.ret(c.getFlagCondition(instr))
 			case 1: // POP nn
 				p := c.getRegisterPair(instr)
-				c.popNN(p.High, p.Low)
+				*p.Low = c.b.ClockedRead(c.SP)
+				c.SP++
+				c.handleOAMCorruption(c.SP)
+				*p.High = c.b.ClockedRead(c.SP)
+				c.SP++
+
+				if instr&0xf0 == 0xf0 {
+					c.F &= 0xf0 // clear unused bits
+				}
 			case 2: // JP
 				c.jumpAbsolute(c.getFlagCondition(instr))
 			case 4: // CALL
 				c.call(c.getFlagCondition(instr))
 			case 5: // PUSH nn
 				p := c.getRegisterPair(instr)
-				c.pushNN(*p.High, *p.Low)
+				c.s.Tick(4)
+				c.push(*p.High, *p.Low)
 			case 6: // ALU d8
 				c.decodeALU(instr, c.readOperand())
 			case 7: // RST
-				c.rst(uint16(instr >> 3 & 0x7 * 8))
+				c.s.Tick(4)
+				c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
+				c.PC = uint16(instr >> 3 & 0x7 * 8)
 			}
 		}
 	}
@@ -269,6 +285,8 @@ func (c *CPU) decode(instr byte) {
 func (c *CPU) decodeCB(instr byte) {
 	src, srcMem := c.getSourceRegister(instr)
 
+	val := *src
+decode:
 	switch instr >> 6 & 0x3 {
 	case 0:
 		// 0b00 000 000
@@ -277,55 +295,74 @@ func (c *CPU) decodeCB(instr byte) {
 		//
 		switch instr >> 3 & 0x7 {
 		case 0: // RLC
-			*src = c.rotateLeftCarry(*src)
+			val = val<<1 | (val&types.Bit7)>>7
 		case 1: // RRC
-			*src = c.rotateRightCarry(*src)
+			val = val>>1 | (val&types.Bit0)<<7
 		case 2: // RL
-			*src = c.rotateLeftThroughCarry(*src)
+			val = val<<1 | c.F&flagCarry>>4
 		case 3: // RR
-			*src = c.rotateRightThroughCarry(*src)
+			val = val>>1 | c.F&flagCarry<<3
 		case 4: // SLA
-			*src = c.shiftLeftArithmetic(*src)
+			val <<= 1
 		case 5: // SRA
-			*src = c.shiftRightArithmetic(*src)
+			val = val&types.Bit7 | val>>1
 		case 6: // SWAP
-			*src = c.swap(*src)
+			val = val<<4 | val>>4
+			c.setFlags(val == 0, false, false, false)
+			break decode // SWAP resets the carry flag unlike the other instructions
 		case 7: // SRL
-			*src = c.shiftRightLogical(*src)
+			val >>= 1
 		}
+		c.setFlags(val == 0, false, false, instr>>3&1 == 1 && *src&types.Bit0 == types.Bit0 || instr>>3&1 == 0 && *src&types.Bit7 == types.Bit7)
 	case 1: // BIT
-		c.testBit(*src, 1<<(instr>>3&0x7))
-		srcMem = false
+		bitIndex := uint8(1 << (instr >> 3 & 0x7))
+		c.setFlags(val&bitIndex != bitIndex, false, true, c.isFlagSet(flagCarry))
+		return // BIT doesn't change the value of the source register
 	case 2: // RES
-		*src = utils.Reset(*src, 1<<(instr>>3&0x7))
+		val = utils.Reset(val, 1<<(instr>>3&0x7))
 	case 3: // SET
-		*src = utils.Set(*src, 1<<(instr>>3&0x7))
+		val = utils.Set(val, 1<<(instr>>3&0x7))
 	}
 
 	if srcMem {
 		// write new value back to the bus
-		c.b.ClockedWrite(c.HL.Uint16(), *src)
+		c.b.ClockedWrite(c.HL.Uint16(), val)
+	} else {
+		*src = val
 	}
 }
 
+// decodeALU decodes an ALU instruction, performing various maths on the
+// A register.
 func (c *CPU) decodeALU(instr, ask byte) {
 	switch instr >> 3 & 0x7 {
-	case 0:
-		c.add(ask, false)
-	case 1:
-		c.add(ask, true)
-	case 2:
-		c.sub(ask, false)
-	case 3:
-		c.sub(ask, true)
-	case 4:
-		c.and(ask)
-	case 5:
-		c.xor(ask)
-	case 6:
-		c.or(ask)
+	case 0: // ADD
+		sum := uint16(c.A) + uint16(ask)
+		c.setFlags(sum&0xff == 0, false, (c.A&0xf)+(ask&0xf) > 0xf, sum > 0xff)
+		c.A = Register(sum)
+	case 1: // ADC
+		sum := uint16(c.A) + uint16(ask) + uint16(c.F>>4&1)
+		c.setFlags(sum&0xff == 0, false, (c.A&0xf)+(ask&0xf)+(c.F>>4&1) > 0xf, sum > 0xff)
+		c.A = Register(sum)
+	case 2: // SUB
+		sum := uint16(c.A) - uint16(ask)
+		c.setFlags(sum&0xff == 0, true, (c.A&0xf)-(ask&0xf) > 0xf, sum > 0xff)
+		c.A = Register(sum)
+	case 3: // SBC
+		sum := uint16(c.A) - uint16(ask) - uint16(c.F>>4&1)
+		c.setFlags(sum&0xff == 0, true, (c.A&0xf)-(ask&0xf)-(c.F>>4&1) > 0xf, sum > 0xff)
+		c.A = Register(sum)
+	case 4: // AND
+		c.A &= ask
+		c.setFlags(c.A == 0, false, true, false)
+	case 5: // XOR
+		c.A ^= ask
+		c.setFlags(c.A == 0, false, false, false)
+	case 6: // OR
+		c.A |= ask
+		c.setFlags(c.A == 0, false, false, false)
 	case 7:
-		c.compare(ask)
+		c.setFlags(c.A-ask == 0, true, ask&0x0f > c.A&0x0f, ask > c.A)
 	}
 }
 
