@@ -620,9 +620,6 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 func (b *Bus) ClockedWrite(address uint16, value byte) {
 	b.s.Tick(4)
 
-	if address >= types.NR10 && address <= types.NR52 {
-		//fmt.Printf("%04x %02x %16b\n", address, value, b.s.SysClock())
-	}
 	b.Write(address, value)
 }
 
