@@ -7,31 +7,25 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
-// CPU represents the Gameboy CPU. It is responsible for executing instructions.
+// CPU represents the Game Boy's 8-bit CPU (sm83). It contains the registers,
+// the program counter (PC) & the stack pointer (SP) as well as other various
+// flags and other internal state.
 type CPU struct {
-	// PC is the program counter, it points to the next instruction to be executed.
-	PC uint16
-	// SP is the stack pointer, it points to the top of the stack.
-	SP uint16
-	// Registers contains the 8-bit registers, as well as the 16-bit register pairs.
+	PC, SP uint16
 	Registers
-	Debug           bool
-	DebugBreakpoint bool
 
-	shouldInt bool
-	hasFrame  bool
+	Debug, DebugBreakpoint    bool
+	doubleSpeed, skippingHalt bool
+	hasInt, hasFrame          bool
 
-	doubleSpeed bool
+	registerPointers [8]*uint8
 
-	b *io.Bus
-
-	s            *scheduler.Scheduler
-	ppu          *ppu.PPU
-	skippingHalt bool
+	b   *io.Bus
+	s   *scheduler.Scheduler
+	ppu *ppu.PPU
 }
 
-// NewCPU creates a new CPU instance with the given MMU.
-// The MMU is used to read and write to the memory.
+// NewCPU creates a new CPU instance with the given io.Bus.
 func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c := &CPU{
 		Registers: Registers{},
@@ -45,15 +39,19 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c.DE = &RegisterPair{High: &c.D, Low: &c.E}
 	c.HL = &RegisterPair{High: &c.H, Low: &c.L}
 	c.AF = &RegisterPair{High: &c.A, Low: &c.F}
+	var hl uint8
+	c.registerPointers = [8]*uint8{&c.B, &c.C, &c.D, &c.E, &c.H, &c.L, &hl, &c.A}
 
+	// these are fake addresses used by the bus to communicate to the CPU that an
+	// interrupt occurred. This is used to breakout of the loop in Frame.
 	b.ReserveAddress(0xFF7D, func(b byte) byte {
-		c.shouldInt = true
+		c.hasInt = true
 		c.hasFrame = true
 		return 0xff
 	})
 	b.Set(0xff7d, 0xff)
 	b.ReserveAddress(0xFF7E, func(b byte) byte {
-		c.shouldInt = true
+		c.hasInt = true
 
 		return 0xff
 	})
@@ -72,7 +70,7 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 }
 
 // Boot emulates the boot process by setting the initial
-// register values and HW registers of the provided model.
+// PC, SP and Register values, provided by the given model.
 func (c *CPU) Boot(m types.Model) {
 	// PC, SP is the same across all models
 	c.PC = 0x100
@@ -83,23 +81,58 @@ func (c *CPU) Boot(m types.Model) {
 	for i, reg := range []*uint8{&c.A, &c.F, &c.B, &c.C, &c.D, &c.E, &c.H, &c.L} {
 		*reg = startingRegs[i]
 	}
+}
 
-	// get the IO registers
-	//ioRegs := m.IO()
-	/*
-		for i := 0xFF08; i < 0xFF80; i++ {
-			if reg, ok := ioRegs[types.HardwareAddress(i)]; ok {
-				switch reg.(type) {
-				case uint8:
+// Frame steps the CPU until the next frame is ready.
+func (c *CPU) Frame() {
+	// check to see if we should resume halt skipping
+	if c.skippingHalt {
+		c.skippingHalt = false
+		c.skipHALT()
+	}
 
-					c.b.Set(uint16(i), reg.(uint8))
-				case uint16:
-					// TODO handle uint16 values
-				}
-			} else {
-				c.b.Set(uint16(i), 0xFF)
-			}
-		}*/
+	// hasInt is triggered on 3 conditions
+	// 1. IME = 1 && types.IE & types.IF &0x1f != 0
+	// 2. Debug && DebugBreakpoint = true
+	// 3. hasFrame = true
+step:
+	for ; !c.hasInt; c.decode(c.readOperand()) {
+	}
+
+	// check to see if hasInt was triggered by an interrupt
+	if c.b.CanInterrupt() {
+		// handle interrupt
+		c.s.Tick(4)
+		c.s.Tick(4)
+
+		// save PC to stack
+		c.SP--
+		c.b.ClockedWrite(c.SP, uint8(c.PC>>8))
+
+		irq := c.b.Get(types.IE) // IRQ check saved for later
+
+		c.SP--
+		c.b.ClockedWrite(c.SP, uint8(c.PC&0xFF))
+
+		// get vector from IRQ
+		c.PC = c.b.IRQVector(irq)
+
+		// final 4 cycles
+		c.s.Tick(4)
+
+		c.b.DisableInterrupts()
+
+		// if no other conditions prevent us from stepping, then go back to stepping
+		if !(c.hasFrame || (c.Debug && c.DebugBreakpoint)) {
+			c.hasInt = false
+			goto step
+		}
+	}
+
+	// if we have handled the interrupt and hasInt is still true
+	// then we have either rendered a frame, or hit a debug breakpoint
+	c.hasFrame = false
+	c.hasInt = c.Debug && c.DebugBreakpoint
 }
 
 // skipHALT invokes the scheduler to "skip" until the next
@@ -111,43 +144,12 @@ func (c *CPU) skipHALT() {
 	}
 
 	// if we came out of the halt skip because a frame was rendered
-	// then we need to indicate to the cpu that we should latch back
-	// onto halt skipping on the next frame
+	// but there are no pending interrupts, then we need to indicate
+	// to the cpu that we should latch back onto halt skipping on the
+	// next frame
 	if c.hasFrame && !c.b.HasInterrupts() {
 		c.skippingHalt = true
 	}
-}
-
-// Frame steps the CPU until the next frame is ready.
-func (c *CPU) Frame() {
-	// check to see if we should skip the next frame
-	if c.skippingHalt {
-		c.skippingHalt = false
-		c.skipHALT()
-	}
-
-	// shouldInt is triggered on 3 conditions
-	// 1. IME = 1 && types.IE & types.IF &0x1f != 0
-	// 2. DebugBreakpoint = true
-	// 3. hasFrame = true
-step:
-	for ; !c.shouldInt; c.decode(c.readOperand()) {
-	}
-
-	// check to see if shouldInt was triggered by an interrupt
-	if c.b.CanInterrupt() {
-		c.executeInterrupt()
-
-		// if no other conditions prevent us from stepping, then go back to stepping
-		if !c.shouldInt {
-			goto step
-		}
-	}
-
-	// if we have handled the interrupt and shouldInt is still true
-	// then we have either rendered a frame, or hit a debug breakpoint
-	c.hasFrame = false
-	c.shouldInt = c.DebugBreakpoint
 }
 
 // readOperand reads the next operand from memory.
@@ -157,33 +159,10 @@ func (c *CPU) readOperand() uint8 {
 	return value
 }
 
+// skipOperand skips the next operand from memory.
 func (c *CPU) skipOperand() {
 	c.s.Tick(4)
 	c.PC++
-}
-
-func (c *CPU) executeInterrupt() {
-	// 8 cycles
-	c.s.Tick(4)
-	c.s.Tick(4)
-
-	// save PC to stack
-	c.SP--
-	c.b.ClockedWrite(c.SP, uint8(c.PC>>8))
-
-	irq := c.b.Get(types.IE) // IRQ check saved for later
-
-	c.SP--
-	c.b.ClockedWrite(c.SP, uint8(c.PC&0xFF))
-
-	// get vector from IRQ
-	c.PC = c.b.IRQVector(irq)
-
-	// final 4 cycles
-	c.s.Tick(4)
-
-	c.b.DisableInterrupts()
-	c.shouldInt = c.hasFrame || c.DebugBreakpoint
 }
 
 // Register represents a GB Register which is used to hold an 8-bit value.
@@ -230,10 +209,7 @@ type Registers struct {
 // used to hold the status of various mathematical
 // operations.
 //
-// On the official hardware, the F register is 8 bits
-// wide, but only the upper 4 bits are used. The lower
-// 4 bits are always 0.
-//
+// The lower 4 bits are disconnected and always read 0.
 // The upper 4 bits are laid out as follows:
 //
 //	Bit 7 - (Z) FlagZero
@@ -315,6 +291,21 @@ func (c *CPU) setFlags(Z bool, N bool, H bool, C bool) {
 // false otherwise.
 func (c *CPU) isFlagSet(flag flag) bool {
 	return c.F&flag == flag
+}
+
+// addSPSigned adds the signed value of the next
+// operand to the SP register, and returns the
+// result.
+func (c *CPU) addSPSigned() uint16 {
+	value := c.readOperand()
+	result := uint16(int32(c.SP) + int32(int8(value)))
+
+	tmpVal := c.SP ^ uint16(int8(value)) ^ result
+
+	c.setFlags(false, false, tmpVal&0x10 == 0x10, tmpVal&0x100 == 0x100)
+
+	c.s.Tick(4)
+	return result
 }
 
 var _ types.Stater = (*CPU)(nil)

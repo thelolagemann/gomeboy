@@ -1,10 +1,5 @@
 package cpu
 
-import (
-	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/internal/types"
-)
-
 // call pushes the address of the next instruction onto the stack and jumps to
 // the address nn.
 //
@@ -22,26 +17,6 @@ func (c *CPU) call(condition bool) {
 	} else {
 		c.skipOperand()
 		c.skipOperand()
-	}
-}
-
-// jumpRelative jumps to the address relative to the current PC.
-//
-// Used by:
-//
-//	JR cc, s8
-//	JR s8
-//	cc = Z, N, H, C
-//	s8 = 8-bit signed immediate value
-func (c *CPU) jumpRelative(condition bool) {
-	if condition {
-		value := int8(c.readOperand())
-		c.PC = uint16(int16(c.PC) + int16(value))
-
-		c.s.Tick(4)
-	} else {
-		c.s.Tick(4)
-		c.PC++
 	}
 }
 
@@ -74,8 +49,10 @@ func (c *CPU) jumpAbsolute(condition bool) {
 //	RETI
 func (c *CPU) ret(condition bool) {
 	if condition {
-		var high, low uint8
-		c.pop(&high, &low)
+		low := c.b.ClockedRead(c.SP)
+		c.SP++
+		high := c.b.ClockedRead(c.SP)
+		c.SP++
 		c.PC = uint16(high)<<8 | uint16(low)
 		c.s.Tick(4)
 	}
@@ -83,25 +60,9 @@ func (c *CPU) ret(condition bool) {
 
 // push a 16-bit value onto the stack.
 func (c *CPU) push(high, low uint8) {
-	if c.SP >= 0xFE00 && c.SP <= 0xFEFF && c.b.Get(types.STAT)&0b11 == ppu.ModeOAM {
-		c.ppu.WriteCorruptionOAM()
-	}
+	c.handleOAMCorruption(c.SP)
 	c.SP--
 	c.b.ClockedWrite(c.SP, high)
 	c.SP--
 	c.b.ClockedWrite(c.SP, low)
-}
-
-// pop a 16 bit value off the stack.
-func (c *CPU) pop(high *uint8, low *uint8) {
-	*low = c.b.ClockedRead(c.SP)
-	c.SP++
-	*high = c.b.ClockedRead(c.SP)
-	c.SP++
-}
-
-func (c *CPU) rst(address uint16) {
-	c.s.Tick(4)
-	c.push(uint8(c.PC>>8), uint8(c.PC&0xFF))
-	c.PC = address
 }
