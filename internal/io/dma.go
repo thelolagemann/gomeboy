@@ -96,7 +96,7 @@ func (b *Bus) newDMA(length uint8) {
 			if b.s.DoubleSpeed() {
 				b.s.Tick(4)
 			} else {
-				b.s.Tick(4)
+				b.s.Tick(2)
 			}
 
 			// perform the transfer
