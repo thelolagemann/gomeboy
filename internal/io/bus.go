@@ -35,6 +35,8 @@ type Bus struct {
 	lazyReaders   [0x100]LazyReader
 	blockWriters  [16]func(uint16, byte)
 
+	c *Cartridge
+
 	model     types.Model
 	isGBC     bool
 	isGBCCart bool
@@ -66,12 +68,14 @@ type Bus struct {
 }
 
 // NewBus creates a new Bus instance.
-func NewBus(s *scheduler.Scheduler) *Bus {
+func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	b := &Bus{
 		s:           s,
 		gbcHandlers: make([]func(), 0),
 		dmaConflict: 0xff,
 	}
+
+	b.c = NewCartridge(rom, b)
 
 	// setup DMA events
 	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
@@ -442,7 +446,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 		// 0x0000 - 0x7FFF ROM
 		// 0xA000 - 0xBFFF ERAM (RAM on cartridge)
 		case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
-			b.blockWriters[addr/0x1000](addr, value)
+			b.c.Write(addr, value)
 			return
 		// 0x8000 - 0x9FFF VRAM
 		case addr >= 0x8000 && addr <= 0x9FFF:
@@ -593,7 +597,7 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 		}
 	case addr <= 0xBFFF:
 		// ERAM can't be conflicted so additional check for rLock here
-		if b.rLocks[addr>>12] {
+		if !b.Cartridge().ramEnabled || b.rLocks[addr>>12] {
 			value = 0xff
 		}
 	// HRAM/IO can't be locked or conflicted
@@ -625,4 +629,9 @@ func (b *Bus) ClockedWrite(address uint16, value byte) {
 
 func (b *Bus) IsBooting() bool {
 	return !b.bootROMDone
+}
+
+// Cartridge returns the Cartridge that is currently attached to the bus.
+func (b *Bus) Cartridge() *Cartridge {
+	return b.c
 }

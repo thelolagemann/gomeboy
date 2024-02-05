@@ -6,7 +6,6 @@ package gameboy
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/apu"
-	"github.com/thelolagemann/gomeboy/internal/cartridge"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
@@ -47,10 +46,9 @@ type GameBoy struct {
 
 	cmdChannel chan emulator.CommandPacket
 
-	APU       *apu.APU
-	Cartridge *cartridge.Cartridge
-	Timer     *timer.Controller
-	Serial    *serial.Controller
+	APU    *apu.APU
+	Timer  *timer.Controller
+	Serial *serial.Controller
 
 	Bus *io.Bus
 
@@ -204,7 +202,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
 
 	// update window title
-	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.Cartridge.Header().Title)}
+	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.Bus.Cartridge().Title)}
 
 	// create event handlers for input
 	for i := io.ButtonA; i <= io.ButtonDown; i++ {
@@ -243,7 +241,7 @@ emuLoop:
 
 				// close the save file
 				if g.save != nil {
-					b := g.Cartridge.MemoryBankController.RAM()
+					b := g.Bus.Cartridge().RAM
 					if err := g.save.SetBytes(b); err != nil {
 						g.Logger.Errorf("error saving emulator: %v", err)
 					}
@@ -318,8 +316,7 @@ func (g *GameBoy) TogglePause() {
 func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	sched := scheduler.NewScheduler()
 
-	b := io.NewBus(sched)
-	cart := cartridge.NewCartridge(rom, b)
+	b := io.NewBus(sched, rom)
 	serialCtl := serial.NewController(b, sched)
 	sound := apu.NewAPU(sched, b)
 	timerCtl := timer.NewController(b, sched, sound)
@@ -327,7 +324,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	processor := cpu.NewCPU(b, sched, video)
 
 	var model = types.DMGABC
-	if cart.Header().GameboyColor() {
+	if b.Cartridge().IsCGBCartridge() {
 		model = types.CGBABC
 	}
 
@@ -345,7 +342,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		Scheduler:  sched,
 		cmdChannel: make(chan emulator.CommandPacket, 10),
 	}
-	g.Cartridge = cart
+
 	// apply options
 	for _, opt := range opts {
 		opt(g)
@@ -354,30 +351,30 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	sound.SetModel(g.model)
 
 	// does the cartridge have RAM? (and therefore a save file)
-	if cart.Header().RAMSize > 0 {
+	if b.Cartridge().RAMSize > 0 {
 		// try to load the save file
 		var err error
-		g.save, err = emulator.NewSave(g.Cartridge.Title(), g.Cartridge.Header().RAMSize)
+		g.save, err = emulator.NewSave(b.Cartridge().Title, uint(b.Cartridge().RAMSize))
 
 		if err != nil {
 			// was there an error loading the save files?
 			g.Logger.Errorf(fmt.Sprintf("error loading save files: %s", err))
 		} else {
-			g.Cartridge.LoadRAM(g.save.Bytes(), g.Bus)
+			copy(g.Bus.Cartridge().RAM, g.save.Bytes())
 		}
 	}
 	// try to load cheats using filename of rom
-	g.Bus.Map(g.model, cart.Header().GameboyColor())
+	g.Bus.Map(g.model, b.Cartridge().IsCGBCartridge())
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
 		g.Bus.Boot()
 
 		// handle colourisation
-		if !cart.Header().GameboyColor() && (g.model == types.CGBABC || g.model == types.CGB0) {
+		if !b.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
 			video.BGColourisationPalette = &palette.Palette{}
 			video.OBJ0ColourisationPalette = &palette.Palette{}
 			video.OBJ1ColourisationPalette = &palette.Palette{}
-			colourisationPalette := palette.LoadColourisationPalette([]byte(cart.Header().Title))
+			colourisationPalette := palette.LoadColourisationPalette([]byte(b.Cartridge().Title))
 
 			for i := 0; i < 4; i++ {
 				video.BGColourisationPalette[i] = colourisationPalette.BG[i]

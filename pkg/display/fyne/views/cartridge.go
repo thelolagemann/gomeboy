@@ -4,13 +4,13 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/thelolagemann/gomeboy/internal/cartridge"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"strconv"
 )
 
 type Cartridge struct {
-	C *cartridge.Cartridge
+	C *io.Cartridge
 }
 
 func (c *Cartridge) Title() string {
@@ -29,18 +29,18 @@ func (c *Cartridge) Run(window fyne.Window, events <-chan event.Event) error {
 
 	// create textgrid for cartridge info
 	cartridgeInfoGrid := widget.NewTextGrid()
-	cartridgeInfoGrid.SetText(`Title			` + c.C.Title() + `
-Manufacturer	` + c.C.Header().ManufacturerCode + `
-CGB Support		` + strconv.FormatBool(c.C.Header().CartridgeGBMode == cartridge.FlagOnlyCGB) + `
-SGB Support		` + strconv.FormatBool(c.C.Header().SGBFlag) + `
-Cartridge Type	` + c.C.Header().CartridgeType.String() + `
-ROM Size		` + humanReadable(c.C.Header().ROMSize) + `
-RAM Size		` + humanReadable(c.C.Header().RAMSize) + `
-Destination		` + c.C.Header().Destination() + `
-Licensee		` + c.C.Header().Licensee() + `
-ROM Version		` + strconv.Itoa(int(c.C.Header().MaskROMVersion)) + `
-Header Checksum	` + strconv.Itoa(int(c.C.Header().HeaderChecksum)) + `
-Global Checksum	` + strconv.Itoa(int(c.C.Header().GlobalChecksum)))
+	cartridgeInfoGrid.SetText(`Title			` + c.C.Title + `
+Manufacturer	` + c.C.ManufacturerCode + `
+CGB Support		` + strconv.FormatBool(c.C.IsCGBCartridge()) + `
+SGB Support		` + strconv.FormatBool(c.C.SGBFlag) + `
+Cartridge Type	` + c.C.CartridgeType.String() + `
+ROM Size		` + humanReadable(uint(c.C.ROMSize)) + `
+RAM Size		` + humanReadable(uint(c.C.RAMSize)) + `
+Destination		` + c.C.Destination() + `
+Licensee		` + c.C.Licensee() + `
+ROM Version		` + strconv.Itoa(int(c.C.MaskROMVersionNumber)) + `
+Header Checksum	` + strconv.Itoa(int(c.C.HeaderChecksum)) + `
+Global Checksum	` + strconv.Itoa(int(c.C.GlobalChecksum)))
 
 	// add cartridge info textgrid to cartridge info container
 	cartridgeInfo.Add(cartridgeInfoGrid)
