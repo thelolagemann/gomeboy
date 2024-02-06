@@ -1,24 +1,23 @@
+//go:generate stringer -type=CartridgeType -output=cartridge_string.go
 package io
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"strings"
 )
 
-type CGBFlag = uint8
+type CGBFlag = uint8 // CGBFlag specifies the level of CGB support in a Cartridge.
 
 const (
-	// CGBFlagEnhanced - The game supports CGB enhancements, but is backwards
-	// compatible with monochrome Game Boys.
-	CGBFlagEnhanced CGBFlag = iota
-	// CGBFlagCGBOnly - The game works on CGB only (the hardware ignores bit 6, sop this really
-	// functions the same as $80).
-	CGBFlagCGBOnly
-	CGBFlagUnset
+	CGBFlagEnhanced CGBFlag = iota // The game supports CGB enhancements, but is backwards compatible.
+	CGBFlagCGBOnly                 // The game works on CGB only.
+	CGBFlagUnset                   // No CGB support has been specified, most likely a regular Game Boy game.
 )
 
-type CartridgeType uint8
+type CartridgeType uint8 // CartridgeType represents the hardware present in a Cartridge.
 
 const (
 	ROM               CartridgeType = 0x00
@@ -49,43 +48,6 @@ const (
 	HUDSONHUC1        CartridgeType = 0xFF
 )
 
-var nameMap = map[CartridgeType]string{
-	ROM:               "ROM",
-	MBC1:              "MBC1",
-	MBC1RAM:           "MBC1+RAM",
-	MBC1RAMBATT:       "MBC1+RAM+BATT",
-	MBC2:              "MBC2",
-	MBC2BATT:          "MBC2+BATT",
-	ROMRAM:            "ROM+RAM",
-	ROMRAMBATT:        "ROM+RAM+BATT",
-	MMM01:             "MMM01",
-	MMM01RAM:          "MMM01+RAM",
-	MMM01RAMBATT:      "MMM01+RAM+BATT",
-	MBC3TIMERBATT:     "MBC3+TIMER+BATT",
-	MBC3TIMERRAMBATT:  "MBC3+TIMER+RAM+BATT",
-	MBC3:              "MBC3",
-	MBC3RAM:           "MBC3+RAM",
-	MBC3RAMBATT:       "MBC3+RAM+BATT",
-	MBC5:              "MBC5",
-	MBC5RAM:           "MBC5+RAM",
-	MBC5RAMBATT:       "MBC5+RAM+BATT",
-	MBC5RUMBLE:        "MBC5+RUMBLE",
-	MBC5RUMBLERAM:     "MBC5+RUMBLE+RAM",
-	MBC5RUMBLERAMBATT: "MBC5+RUMBLE+RAM+BATT",
-	POCKETCAMERA:      "POCKET CAMERA",
-	BANDAITAMA5:       "BANDAI TAMA5",
-	HUDSONHUC3:        "HUDSON HUC3",
-	HUDSONHUC1:        "HUDSON HUC1",
-}
-
-func (c CartridgeType) String() string {
-	if name, ok := nameMap[c]; ok {
-		return name
-	}
-
-	return fmt.Sprintf("Unknown cartridge type %02x\n", uint8(c))
-}
-
 type Cartridge struct {
 	ROM []byte
 	RAM []byte
@@ -94,83 +56,21 @@ type Cartridge struct {
 	// https://gbdev.io/pandocs/The_Cartridge_Header.html
 	// https://gbdev.gg8.se/wiki/articles/The_Cartridge_Header
 
-	// Title - 0x0134 - 0x0143
-	//
-	// These bytes contain the title of the game in upper case ASCII. If the title is less than
-	// 16 characters long, the remaining bytes should be padded with $00s.
-	Title string
-	// ManufacturerCode - 0x013F - 0x0142
-	//
-	// In older cartridges this byte was part of the Title. In newer cartridges they contain a
-	// 4-character manufacturer code (in uppercase ASCII). The purpose of the manufacturer code
-	// is unknown.
-	ManufacturerCode string
-	// CGBFlag - 0x0143
-	//
-	// In older cartridges this byte was part of the Title. The CGB and later models interpret
-	// this byte to decide whether to enable Color mode ("CGB Mode") or to fall back to monochrome
-	// compatibility mode ("Non-CGB Mode").
-	CGBFlag
-	// NewLicenseeCode - 0x0144 - 0x0145
-	//
-	// This area contains a two-character ASCII "licensee code" indicating the game's
-	// publisher. It is only meaningful if the OldLicenseeCode is exactly $33 (which
-	// is the case for essentially all games made after the SGB was released); otherwise,
-	// the old code must be considered.
-	NewLicenseeCode [2]byte
-	// SGBFlag - 0x0146
-	//
-	// This byte specifies whether the game supports SGB functions. The SGB will
-	// ignore any command packets if this byte is set to a value other than $03.
-	SGBFlag bool
-	// CartridgeType - 0x0147
-	//
-	// This byte indicates what kind of hardware is present on the cartridge - most notably
-	// it's mapper.
-	CartridgeType
-	// ROMSize - 0x0148
-	//
-	// This byte indicates how much ROM is present on the cartridge. The ROM size
-	// is calculated by 32 KiB x (1 << value)
-	ROMSize int
-	// RAMSize - 0x0149
-	//
-	// This byte indicates how much RAM is present on the cartridge, if any.
-	RAMSize int
-	// DestinationCode - 0x14A
-	//
-	// This byte specifies whether this version of the game is intended to be sold
-	// in Japan or elsewhere.
-	DestinationCode byte
-	// OldLicenseeCode - 0x14B
-	//
-	// This byte is used in older (pre-SGB) cartridges to specify the game's publisher.
-	// However, the value $33 indicates that the NewLicenseeCode must be considered
-	// instead. (The SGB will ignore any command packets unless this value is $33.)
-	OldLicenseeCode byte
-	// MaskROMVersionNumber - 0x14C
-	//
-	// This byte specifies the version number of the game. It is usually $00.
-	MaskROMVersionNumber uint8
-	// HeaderChecksum - 0x14D
-	//
-	// This byte contains an 8-bit checksum computed from the cartridge header bytes
-	// $0134-014C. The boot ROM computes the checksum as follows:
-	//
-	//  checksum := uint8(0)
-	//  for address := 0x0134; address <= 0x014C; address++ {
-	//	  checksum = checksum - rom[address] - 1
-	//  }
-	//
-	// The boot ROM verifies this checksum. If the byte at $014D does not match the lower
-	// 8 bits of checksum, the boot ROM will lock up and the program in the cartridge won't
-	// run.
-	HeaderChecksum uint8
-	// GlobalChecksum - 0x14E - 0x14F
-	//
-	// These bytes contain a 16-bit (big-endian) checksum simply computed as the sum of all
-	// the bytes of the cartridge ROM (except these two checksum bytes).
-	GlobalChecksum uint16
+	Title                string  // $0134-$0143 Title of the game in uppercase ASCII.
+	ManufacturerCode     string  // $013F-$0142 4-character ManufacturerCode (in uppercase ASCII) - purpose remains unknown
+	CGBFlag                      // $0142 - Indicates level of CGB support
+	NewLicenseeCode      [2]byte // $0144-$0145 2-character ASCII "licensee code"
+	SGBFlag              bool    // $0146 - Specifies whether the game supports SGB functions
+	CartridgeType                // $0147 - Specifies the hardware present on a Cartridge.
+	ROMSize              int     // $0148 - Specifies how much ROM is on the Cartridge, calculated by 32 KiB x (1<<value)
+	RAMSize              int     // $0149 - Specifies how much RAM is present on the Cartridge, if any.
+	DestinationCode      byte    // $014A - Specifies whether the game is intended to be sold in Japan or elsewhere
+	OldLicenseeCode      byte    // $014B - Specifies the game's publisher; see NewLicenseeCode if val == $33
+	MaskROMVersionNumber uint8   // $014C - Specifies the version of the game. It is usually $00
+	HeaderChecksum       uint8   // $014D - 8-Bit checksum of header bytes $0134-$014C
+	GlobalChecksum       uint16  // $014E-$014F 16-bit (big endian) checksum of Cartridge ROM (excluding these bytes)
+
+	RumbleCallback func(bool)
 
 	// internal fields
 	ramEnabled bool
@@ -182,16 +82,22 @@ type Cartridge struct {
 	mbc1Mode      bool
 	mbc1MultiCart bool
 
+	// rtc
+	rtcS, rtcM, rtcH, rtcDL, rtcDH                                    uint8
+	rtcLatchedS, rtcLatchedM, rtcLatchedH, rtcLatchedDL, rtcLatchedDH uint8
+	rtcRegister                                                       uint8
+	rtcLatchValue                                                     uint8
+	rtcLastUpdate                                                     uint64
+	rtcLatched                                                        bool
+
 	ramOffset uint32
 	romOffset uint32
-
-	b *Bus
+	b         *Bus
 }
 
-// isMultiCart uses heuristics to detect if the cartridge is a multi-cart ROM.
-func (c *Cartridge) isMultiCart() {
+// detectMultiCart uses heuristics to detect if the cartridge is a multi-cart ROM.
+func (c *Cartridge) detectMultiCart() {
 	if c.ROMSize == (1024 * 1024) {
-		fmt.Println("um hello?")
 		logoCounts := 0
 		compare := true
 
@@ -200,11 +106,9 @@ func (c *Cartridge) isMultiCart() {
 		copy(logo, c.ROM[0x0104:0x0134])
 
 		for bank := 0; bank < 4; bank++ {
-			for addr := 0x0104; addr <= 0x0133; addr++ {
-				if c.ROM[bank*0x4000+addr] != logo[addr-0x0104] {
-					compare = false
-					break
-				}
+			if !bytes.Equal(logo, c.ROM[bank*0x4000+0x0104:bank*0x4000+0x0134]) {
+				compare = false
+				break
 			}
 
 			if compare {
@@ -275,18 +179,58 @@ func (c *Cartridge) updateROMBank(bank uint16) {
 // bank value and the length of Cartridge.RAM.
 func (c *Cartridge) updateRAMBank(bank uint8) {
 	// do nothing if the cartridge has no ram
-	if len(c.RAM) == 0 {
+	if len(c.RAM) == 0 || len(c.RAM) == 8192 {
 		return
 	}
 
-	// now we need to copy the current RAM bank on the bus onto the cartridge
-	c.b.CopyFrom(0xA000, 0xC000, c.RAM[c.ramOffset:])
+	c.b.CopyFrom(0xA000, 0xC000, c.RAM[c.ramOffset:])          // copy current RAM bank from bus -> cart
+	c.ramOffset = (uint32(bank) * 0x2000) % uint32(len(c.RAM)) // set new RAM offset
+	c.b.CopyTo(0xA000, 0xC000, c.RAM[c.ramOffset:])            // copy new RAM bank from cart -> bus
+}
 
-	// then update the ram offset
-	c.ramOffset = (uint32(bank) * 0x2000) % uint32(len(c.RAM))
+// updateRTC sets the RTC registers based on how many cycles have passed since the last read.
+// TODO make configurable to sync to host
+func (c *Cartridge) updateRTC() {
+	delta := c.b.s.Cycle() - c.rtcLastUpdate
 
-	// then, copy the new RAM bank back onto the bus
-	c.b.CopyTo(0xA000, 0xC000, c.RAM[c.ramOffset:])
+	if c.rtcDH>>6&1 == 0 && delta > 4194304 {
+		fmt.Println("a second has passed, time to update", delta/4194304, c.rtcS, c.b.s.Cycle(), c.rtcLastUpdate)
+
+		var days uint16
+
+		deltaSeconds := uint8(delta / 4194304)
+		c.rtcS += deltaSeconds % 60
+		if c.rtcS >= 60 {
+			c.rtcS -= 60
+			c.rtcM++
+		}
+		deltaSeconds /= 60
+		c.rtcM += deltaSeconds % 60
+		if c.rtcM >= 60 {
+			c.rtcM -= 60
+			c.rtcH++
+		}
+		deltaSeconds /= 60
+		c.rtcH += deltaSeconds % 24
+		if c.rtcH >= 24 {
+			c.rtcH -= 24
+			days++
+		}
+		deltaSeconds /= 24
+		days += uint16(deltaSeconds) + uint16(c.rtcDH) + uint16(c.rtcDH&1)<<8
+		if days >= 512 {
+			days %= 512
+			c.rtcDH ^= types.Bit7
+		}
+
+		c.rtcDL = uint8(days & 0xff)
+		c.rtcDH &= 0xfe
+		if days >= 256 {
+			c.rtcDH |= 1
+		}
+
+		c.rtcLastUpdate = c.b.s.Cycle()
+	}
 }
 
 // Destination returns the destination as specified in the cartridge header.
@@ -316,34 +260,26 @@ func (c *Cartridge) Licensee() string {
 	return oldLicenseeCodeMap[c.OldLicenseeCode]
 }
 
+// SGB returns true if the Cartridge supports SGB functions.
+func (c *Cartridge) SGB() bool {
+	return c.SGBFlag && c.OldLicenseeCode == 0x33
+}
+
 // String implements the fmt.Stringer interface.
 func (c *Cartridge) String() string {
 	return fmt.Sprintf("%s (%s) | (%dKiB|%dKiB) %s", c.Title, c.Licensee(), c.ROMSize/1024, c.RAMSize/1024, c.CartridgeType)
 }
 
-// Write writes an 8-bit value to the cartridge. For ROM this does nothing, for memory banked
-// cartridges ...
+// Write writes an 8-bit value to the cartridge.
 func (c *Cartridge) Write(address uint16, value uint8) {
 	switch {
 	case c.CartridgeType == ROM:
-		return // ROM is Read-Only-Memory
+		return // ROM is (R)ead-(O)nly (M)emory
 	case address < 0x2000:
-		var written = true
 		switch c.CartridgeType {
-		case MBC1RAM, MBC1RAMBATT, MBC3RAM, MBC3RAMBATT, MBC5RAM, MBC5RAMBATT:
-			c.ramEnabled = value&0x0f == 0x0a
-		case MBC3TIMERBATT:
-			c.rtcEnabled = value&0x0f == 0x0a
-		case MBC3TIMERRAMBATT:
-			c.rtcEnabled = value&0x0f == 0x0a
-			c.ramEnabled = value&0x0f == 0x0a
-		default:
-			written = false
-		}
-
-		// if the value has been taken by the cartridge, return,
-		// so we can fallthrough to the next case
-		if written {
+		case MBC1RAM, MBC1RAMBATT, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT, MBC5RAM, MBC5RAMBATT, MBC5RUMBLERAM, MBC5RUMBLERAMBATT:
+			c.ramEnabled = value&0x0f == 0x0a && c.CartridgeType != MBC3TIMERBATT
+			c.rtcEnabled = value&0x0f == 0x0a && (c.CartridgeType == MBC3TIMERBATT || c.CartridgeType == MBC3TIMERRAMBATT)
 			return
 		}
 
@@ -351,20 +287,17 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 	case address < 0x3000: // MBC5 being unique
 		switch {
 		case c.CartridgeType >= MBC5 && c.CartridgeType <= MBC5RUMBLERAMBATT:
-			// determine current ROM bank and update lower 8 bits
 			romBank := uint16(c.romOffset / 0x4000)
-			romBank = romBank&0xff00 + uint16(value)
+			romBank = romBank&0x0100 + uint16(value) // lower 8 bits
 			c.updateROMBank(romBank)
 
-			// MBC5 handled, return so we can fallthrough
 			return
 		}
 		fallthrough
 	case address < 0x4000:
 		switch c.CartridgeType {
 		case MBC1, MBC1RAM, MBC1RAMBATT:
-			// writes to < 0x4000 on MBC1 is a 5-bit value
-			value &= 0x1f
+			value &= 0x1f // 5-bit value
 
 			// can't write a value of 0
 			if value == 0 {
@@ -393,6 +326,9 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.ramEnabled = value&0x0f == 0x0a
 			}
 		case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
+			if value == 0 {
+				value = 1
+			}
 			c.updateROMBank(uint16(value))
 		case MBC5, MBC5RAM, MBC5RAMBATT, MBC5RUMBLE, MBC5RUMBLERAM, MBC5RUMBLERAMBATT:
 			romBank := uint16(c.romOffset / 0x4000)
@@ -408,7 +344,6 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 			c.mbc1Bank2 = value
 
 			c.updateROMBank(uint16(c.mbc1Bank1 | c.mbc1Bank2<<c.mbc1BankShift))
-			fmt.Println("update rom bank", uint16(c.mbc1Bank1|c.mbc1Bank2<<c.mbc1BankShift))
 			// if mode is true, then writes affect 0x0000 - 0x7fff & 0xa000 - 0xbfff
 			if c.mbc1Mode {
 				bankNumber := (value << c.mbc1BankShift) % (uint8(len(c.ROM) / 0x4000))
@@ -425,13 +360,18 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				}
 			}
 		case MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
-			if value <= 3 {
+			if value <= 3 && c.ramEnabled {
 				c.updateRAMBank(value & 3)
-			} else if value >= 0x08 && value <= 0x0c {
-				// TODO handle RTC
+			} else if value >= 0x08 && value <= 0x0c && c.rtcEnabled {
+				c.rtcRegister = value
 			}
 		case MBC5RAM, MBC5RAMBATT:
 			c.updateRAMBank(value & 0x0f)
+		case MBC5RUMBLE, MBC5RUMBLERAM, MBC5RUMBLERAMBATT:
+			// bit 3 controls rumble on cartridges that feature a rumble motor
+			c.RumbleCallback(value&types.Bit3 > 0)
+
+			c.updateRAMBank(value & 7)
 		}
 	case address < 0x8000:
 		switch c.CartridgeType {
@@ -444,7 +384,17 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.updateRAMBank(0)
 			}
 		case MBC3TIMERBATT, MBC3TIMERRAMBATT:
-			// TODO handle RTC
+			if c.rtcLatchValue == 0 && value == 1 {
+				c.updateRTC()
+
+				c.rtcLatchedS = c.rtcS
+				c.rtcLatchedM = c.rtcM
+				c.rtcLatchedH = c.rtcH
+				c.rtcLatchedDL = c.rtcDL
+				c.rtcLatchedDH = c.rtcDH
+			}
+
+			c.rtcLatchValue = value
 		}
 	case address >= 0xA000 && address < 0xC000:
 		switch c.CartridgeType {
@@ -459,7 +409,25 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				}
 			}
 		case MBC3TIMERBATT, MBC3TIMERRAMBATT:
-		// TODO handle RTC
+			if c.rtcEnabled {
+				c.rtcLastUpdate = c.b.s.Cycle()
+				switch c.rtcRegister {
+				case 0x08:
+					c.rtcS = value & 0x3f
+				case 0x09:
+					c.rtcM = value & 0x3f
+				case 0x0A:
+					c.rtcH = value & 0x1f
+				case 0x0B:
+					c.rtcDL = value
+				case 0x0C:
+					c.rtcDH = value & 0xc1
+				}
+
+				return
+			}
+
+			fallthrough
 		default:
 			// if there is no RAM or RAM is disabled, do nothing
 			if len(c.RAM) == 0 || !c.ramEnabled {
@@ -473,23 +441,37 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 	}
 }
 
+func (c *Cartridge) readRTC() byte {
+	switch c.rtcRegister {
+	case 0x08:
+		return c.rtcLatchedS
+	case 0x09:
+		return c.rtcLatchedM
+	case 0x0A:
+		return c.rtcLatchedH
+	case 0x0B:
+		return c.rtcLatchedDL
+	case 0x0C:
+		return c.rtcLatchedDH
+	default:
+		return 0xff
+	}
+}
+
 // NewCartridge creates a new cartridge from the provided ROM.
 func NewCartridge(rom []byte, b *Bus) *Cartridge {
-	// TODO handle incorrect length
-
 	// create cartridge and parse header
 	c := &Cartridge{
-		ROM: rom,
-
-		romOffset: 0x4000,
-		b:         b,
-		mbc1Bank1: 1,
+		ROM:           rom,
+		romOffset:     0x4000,
+		b:             b,
+		mbc1Bank1:     1,
+		mbc1BankShift: 5,
 	}
 	c.parseHeader()
 
 	if c.CartridgeType >= MBC1 && c.CartridgeType <= MBC1RAMBATT {
-		c.mbc1BankShift = 5
-		c.isMultiCart()
+		c.detectMultiCart()
 	}
 
 	// override RAM size for MBC2
@@ -502,7 +484,7 @@ func NewCartridge(rom []byte, b *Bus) *Cartridge {
 
 	// copy initial ROM contents to bus
 	c.b.CopyTo(0, 0x8000, c.ROM)
-
+	fmt.Println(c)
 	return c
 }
 
