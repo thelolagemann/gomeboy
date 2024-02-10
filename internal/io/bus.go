@@ -266,10 +266,10 @@ func (b *Bus) Map(m types.Model, cartCGB bool) {
 	if b.model == types.CGBABC || b.model == types.CGB0 {
 		b.ReserveAddress(types.VBK, func(v byte) byte {
 			// copy currently banked data to VRAM
-			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0x9FFF])
+			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
 
 			// copy VRAM to currently banked data
-			copy(b.data[0x8000:0x9FFF], b.vRAM[v&0x1][:])
+			copy(b.data[0x8000:0xA000], b.vRAM[v&0x1][:])
 
 			return v | 0b1111_1110
 		})
@@ -596,9 +596,17 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 			value = b.dmaConflict
 		}
 	case addr <= 0xBFFF:
-		// ERAM can't be conflicted so additional check for rLock here
-		if !b.Cartridge().ramEnabled || b.rLocks[addr>>12] {
-			value = 0xff
+		switch b.c.CartridgeType {
+		case MBC3TIMERBATT, MBC3TIMERRAMBATT:
+			if b.c.rtc.enabled && b.c.rtc.register != 0 {
+				value = b.c.RAM[b.c.RAMSize+int(b.c.rtc.register-3)]
+			}
+		case MBC7:
+			value = b.c.readMBC7RAM(addr)
+		default:
+			if !b.c.ramEnabled {
+				value = 0xff
+			}
 		}
 	// HRAM/IO can't be locked or conflicted
 	case addr >= 0xFF00:

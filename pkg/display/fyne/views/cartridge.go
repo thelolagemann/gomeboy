@@ -38,7 +38,7 @@ ROM Size		` + humanReadable(uint(c.C.ROMSize)) + `
 RAM Size		` + humanReadable(uint(c.C.RAMSize)) + `
 Destination		` + c.C.Destination() + `
 Licensee		` + c.C.Licensee() + `
-ROM Version		` + strconv.Itoa(int(c.C.MaskROMVersionNumber)) + `
+ROM Version		` + strconv.Itoa(int(c.C.MaskROMVersion)) + `
 Header Checksum	` + strconv.Itoa(int(c.C.HeaderChecksum)) + `
 Global Checksum	` + strconv.Itoa(int(c.C.GlobalChecksum)))
 
