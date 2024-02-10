@@ -678,79 +678,81 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 	}
 }
 
-func (p *PPU) writeOAM(address uint16, value uint8) {
-	// get the current sprite and x, y pos
-	s := &p.Sprites[address>>2]
-	oldY, oldX := s.y, s.x
+func (p *PPU) writeOAM(b [160]byte) {
+	for i, value := range b {
+		// get the current sprite and x, y pos
+		s := &p.Sprites[i>>2]
+		oldY, oldX := s.y, s.x
 
-	switch address & 3 {
-	case 0:
-		s.y = value - 16
+		switch i & 3 {
+		case 0:
+			s.y = value - 16
 
-		// was the sprite visible before?
-		if oldY < ScreenHeight && oldX < ScreenWidth {
-			// we need to remove the positions that the sprite was visible on before
-			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
-				p.spriteScanlines[i] = false
-				p.dirtyScanlines[i] = true
-				for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
-					p.spriteScanlinesColumn[i][j] = false
+			// was the sprite visible before?
+			if oldY < ScreenHeight && oldX < ScreenWidth {
+				// we need to remove the positions that the sprite was visible on before
+				for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
+					p.spriteScanlines[i] = false
+					p.dirtyScanlines[i] = true
+					for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
+						p.spriteScanlinesColumn[i][j] = false
+					}
 				}
 			}
-		}
 
-		// is the sprite visible now?
-		newYPos := s.y
-		if newYPos > ScreenHeight || oldX > ScreenHeight {
-			return // sprite is not visible
-		}
-
-		// we need to add the positions that the sprite is now visible on
-		for i := newYPos; i < newYPos+8 && i < ScreenHeight; i++ {
-			p.spriteScanlines[i] = true
-			for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
-				p.spriteScanlinesColumn[i][j] = true
+			// is the sprite visible now?
+			newYPos := s.y
+			if newYPos > ScreenHeight || oldX > ScreenHeight {
+				continue // sprite is not visible
 			}
-		}
-	case 1:
-		s.x = value - 8
-		// was the sprite visible before?
-		if oldY < ScreenHeight && oldX < ScreenWidth {
-			// we need to remove the positions that the sprite was visible on
-			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
-				p.spriteScanlines[i] = false
-				p.dirtyScanlines[i] = true
+
+			// we need to add the positions that the sprite is now visible on
+			for i := newYPos; i < newYPos+8 && i < ScreenHeight; i++ {
+				p.spriteScanlines[i] = true
 				for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
-					p.spriteScanlinesColumn[i][j] = false
+					p.spriteScanlinesColumn[i][j] = true
 				}
 			}
-		}
-
-		// is the sprite visible now?
-		newXPos := s.x
-		if newXPos > ScreenWidth || oldY > ScreenHeight {
-			return // sprite is not visible
-		}
-
-		// we need to add the positions that the sprite is now visible on
-		for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
-			p.spriteScanlines[i] = true
-			for j := newXPos; j < newXPos+8 && j < ScreenWidth; j++ {
-				p.spriteScanlinesColumn[i][j] = true
+		case 1:
+			s.x = value - 8
+			// was the sprite visible before?
+			if oldY < ScreenHeight && oldX < ScreenWidth {
+				// we need to remove the positions that the sprite was visible on
+				for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
+					p.spriteScanlines[i] = false
+					p.dirtyScanlines[i] = true
+					for j := oldX; j < oldX+8 && j < ScreenWidth; j++ {
+						p.spriteScanlinesColumn[i][j] = false
+					}
+				}
 			}
-		}
-	case 2:
-		s.id = value
-	case 3:
-		s.priority = value&types.Bit7 == 0
-		s.yFlip = value&types.Bit6 != 0
-		s.xFlip = value&types.Bit5 != 0
-		s.vRAMBank = (value >> 3) & 1
 
-		if p.b.IsGBCCart() {
-			s.paletteNumber = value & 0x7
-		} else {
-			s.paletteNumber = value & types.Bit4 >> 4
+			// is the sprite visible now?
+			newXPos := s.x
+			if newXPos > ScreenWidth || oldY > ScreenHeight {
+				continue // sprite is not visible
+			}
+
+			// we need to add the positions that the sprite is now visible on
+			for i := oldY; i < oldY+8 && i < ScreenHeight; i++ {
+				p.spriteScanlines[i] = true
+				for j := newXPos; j < newXPos+8 && j < ScreenWidth; j++ {
+					p.spriteScanlinesColumn[i][j] = true
+				}
+			}
+		case 2:
+			s.id = value
+		case 3:
+			s.priority = value&types.Bit7 == 0
+			s.yFlip = value&types.Bit6 != 0
+			s.xFlip = value&types.Bit5 != 0
+			s.vRAMBank = (value >> 3) & 1
+
+			if p.b.IsGBCCart() {
+				s.paletteNumber = value & 0x7
+			} else {
+				s.paletteNumber = value & types.Bit4 >> 4
+			}
 		}
 	}
 }
