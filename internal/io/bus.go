@@ -35,6 +35,8 @@ type Bus struct {
 	lazyReaders   [0x100]LazyReader
 	blockWriters  [16]func(uint16, byte)
 
+	c *Cartridge
+
 	model     types.Model
 	isGBC     bool
 	isGBCCart bool
@@ -66,12 +68,14 @@ type Bus struct {
 }
 
 // NewBus creates a new Bus instance.
-func NewBus(s *scheduler.Scheduler) *Bus {
+func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	b := &Bus{
 		s:           s,
 		gbcHandlers: make([]func(), 0),
 		dmaConflict: 0xff,
 	}
+
+	b.c = NewCartridge(rom, b)
 
 	// setup DMA events
 	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
@@ -262,10 +266,10 @@ func (b *Bus) Map(m types.Model, cartCGB bool) {
 	if b.model == types.CGBABC || b.model == types.CGB0 {
 		b.ReserveAddress(types.VBK, func(v byte) byte {
 			// copy currently banked data to VRAM
-			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0x9FFF])
+			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
 
 			// copy VRAM to currently banked data
-			copy(b.data[0x8000:0x9FFF], b.vRAM[v&0x1][:])
+			copy(b.data[0x8000:0xA000], b.vRAM[v&0x1][:])
 
 			return v | 0b1111_1110
 		})
@@ -442,7 +446,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 		// 0x0000 - 0x7FFF ROM
 		// 0xA000 - 0xBFFF ERAM (RAM on cartridge)
 		case addr <= 0x7FFF || addr >= 0xA000 && addr <= 0xBFFF:
-			b.blockWriters[addr/0x1000](addr, value)
+			b.c.Write(addr, value)
 			return
 		// 0x8000 - 0x9FFF VRAM
 		case addr >= 0x8000 && addr <= 0x9FFF:
@@ -592,9 +596,17 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 			value = b.dmaConflict
 		}
 	case addr <= 0xBFFF:
-		// ERAM can't be conflicted so additional check for rLock here
-		if b.rLocks[addr>>12] {
-			value = 0xff
+		switch b.c.CartridgeType {
+		case MBC3TIMERBATT, MBC3TIMERRAMBATT:
+			if b.c.rtc.enabled && b.c.rtc.register != 0 {
+				value = b.c.RAM[b.c.RAMSize+int(b.c.rtc.register-3)]
+			}
+		case MBC7:
+			value = b.c.readMBC7RAM(addr)
+		default:
+			if !b.c.ramEnabled {
+				value = 0xff
+			}
 		}
 	// HRAM/IO can't be locked or conflicted
 	case addr >= 0xFF00:
@@ -625,4 +637,9 @@ func (b *Bus) ClockedWrite(address uint16, value byte) {
 
 func (b *Bus) IsBooting() bool {
 	return !b.bootROMDone
+}
+
+// Cartridge returns the Cartridge that is currently attached to the bus.
+func (b *Bus) Cartridge() *Cartridge {
+	return b.c
 }

@@ -3,10 +3,12 @@ package glfw
 import (
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/pkg/display"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/log"
+	"github.com/veandco/go-sdl2/sdl"
 	"runtime"
 	"time"
 )
@@ -56,6 +58,17 @@ func init() {
 			Description: "Force the window to maintain the correct aspect ratio",
 		},
 	})
+
+	if err := sdl.Init(sdl.INIT_JOYSTICK | sdl.INIT_VIDEO); err != nil {
+		panic(err)
+	}
+
+	if sdl.NumJoysticks() > 0 {
+		sdl.JoystickEventState(sdl.ENABLE)
+		for i := 0; i < sdl.NumJoysticks(); i++ {
+			joystick = sdl.JoystickOpen(i)
+		}
+	}
 }
 
 var (
@@ -72,7 +85,8 @@ var (
 )
 
 var (
-	mon *glfw.Monitor
+	mon      *glfw.Monitor
+	joystick *sdl.Joystick
 )
 
 // glfwDriver implements a barebones display driver using GLFW
@@ -195,7 +209,16 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 		offsetY = (int32(h) - targetHeight) / 2
 	})
 
-	pollTicker := time.NewTicker(time.Millisecond * 100) // to handle when paused
+	g.emu.(*gameboy.GameBoy).Bus.Cartridge().RumbleCallback = func(b bool) {
+		if b {
+			joystick.Rumble(0xf100, 0x3100, 100)
+		} else {
+			joystick.Rumble(0, 0, 0)
+		}
+	}
+
+	pollTicker := time.NewTicker(time.Millisecond * 20) // to handle when paused
+	var sdlEvent sdl.Event
 	// draw loop
 	for {
 		select {
@@ -218,6 +241,19 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 				window.SetTitle(e.Data.(string))
 			}
 		case <-pollTicker.C:
+
+			for sdlEvent = sdl.PollEvent(); sdlEvent != nil; sdlEvent = sdl.PollEvent() {
+				switch t := sdlEvent.(type) {
+				case *sdl.JoyAxisEvent:
+					switch t.Axis {
+					case 3: // x-axis
+						g.emu.(*gameboy.GameBoy).Bus.Cartridge().AccelerometerX = -(float32(t.Value) / 32768.0)
+					case 4: // y-axis
+						g.emu.(*gameboy.GameBoy).Bus.Cartridge().AccelerometerY = -(float32(t.Value) / 32768.0)
+					}
+				}
+			}
+
 			glfw.PollEvents()
 		}
 	}

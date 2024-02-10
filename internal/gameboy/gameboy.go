@@ -1,12 +1,8 @@
-// Package gameboy provides an emulation of a Nintendo Game Boy.
-//
-
 package gameboy
 
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/apu"
-	"github.com/thelolagemann/gomeboy/internal/cartridge"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
@@ -19,14 +15,15 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
+	"math"
 	"sync"
 	"time"
 	"unsafe"
 )
 
 const (
-	maxArraySize = 1 << 30                                // 1 GB
-	frameSize    = ppu.ScreenWidth * ppu.ScreenHeight * 3 // 0.75 MB
+	maxArraySize = ppu.ScreenWidth * ppu.ScreenHeight * 4 // 90KiB (RGBA frame)
+	frameSize    = ppu.ScreenWidth * ppu.ScreenHeight * 3 // 67.5KiB (ppu produced frame)
 )
 
 var (
@@ -47,10 +44,9 @@ type GameBoy struct {
 
 	cmdChannel chan emulator.CommandPacket
 
-	APU       *apu.APU
-	Cartridge *cartridge.Cartridge
-	Timer     *timer.Controller
-	Serial    *serial.Controller
+	APU    *apu.APU
+	Timer  *timer.Controller
+	Serial *serial.Controller
 
 	Bus *io.Bus
 
@@ -65,6 +61,7 @@ type GameBoy struct {
 	save            *emulator.Save
 	Scheduler       *scheduler.Scheduler
 	dontBoot        bool
+	rumbling        bool
 }
 
 func (g *GameBoy) State() emulator.State {
@@ -204,7 +201,7 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	frameBufferPtr := unsafe.Pointer(&frameBuffer[0])
 
 	// update window title
-	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.Cartridge.Header().Title)}
+	events <- event.Event{Type: event.Title, Data: fmt.Sprintf("GomeBoy (%s)", g.Bus.Cartridge().Title)}
 
 	// create event handlers for input
 	for i := io.ButtonA; i <= io.ButtonDown; i++ {
@@ -243,13 +240,14 @@ emuLoop:
 
 				// close the save file
 				if g.save != nil {
-					b := g.Cartridge.MemoryBankController.RAM()
+					b := g.Bus.Cartridge().RAM
 					if err := g.save.SetBytes(b); err != nil {
 						g.Logger.Errorf("error saving emulator: %v", err)
 					}
 					if err := g.save.Close(); err != nil {
 						g.Logger.Errorf("error closing save file: %v", err)
 					}
+					fmt.Println("am saved")
 				}
 				g.running = false
 				break emuLoop
@@ -264,6 +262,11 @@ emuLoop:
 				frameStart = time.Now()
 
 				frame = g.Frame()
+				if g.rumbling {
+					applyHorizontalShake(&frame, g.frames)
+				}
+				frame = Rotate2DFrame(frame, float64(g.Bus.Cartridge().AccelerometerY), float64(g.Bus.Cartridge().AccelerometerX), 0)
+
 				frameEnd := time.Now()
 				renderTimes = append(renderTimes, frameEnd.Sub(frameStart))
 				// copy the memory block from frame to frameBuffer
@@ -318,8 +321,7 @@ func (g *GameBoy) TogglePause() {
 func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	sched := scheduler.NewScheduler()
 
-	b := io.NewBus(sched)
-	cart := cartridge.NewCartridge(rom, b)
+	b := io.NewBus(sched, rom)
 	serialCtl := serial.NewController(b, sched)
 	sound := apu.NewAPU(sched, b)
 	timerCtl := timer.NewController(b, sched, sound)
@@ -327,7 +329,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	processor := cpu.NewCPU(b, sched, video)
 
 	var model = types.DMGABC
-	if cart.Header().GameboyColor() {
+	if b.Cartridge().IsCGBCartridge() {
 		model = types.CGBABC
 	}
 
@@ -345,7 +347,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		Scheduler:  sched,
 		cmdChannel: make(chan emulator.CommandPacket, 10),
 	}
-	g.Cartridge = cart
+
 	// apply options
 	for _, opt := range opts {
 		opt(g)
@@ -353,31 +355,36 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 	sound.SetModel(g.model)
 
-	// does the cartridge have RAM? (and therefore a save file)
-	if cart.Header().RAMSize > 0 {
+	// does the cartridge have battery backed RAM? (and therefore a save file)
+	if b.Cartridge().Features.Battery {
 		// try to load the save file
 		var err error
-		g.save, err = emulator.NewSave(g.Cartridge.Title(), g.Cartridge.Header().RAMSize)
+		g.save, err = emulator.NewSave(b.Cartridge().Title, uint(b.Cartridge().RAMSize))
 
 		if err != nil {
 			// was there an error loading the save files?
 			g.Logger.Errorf(fmt.Sprintf("error loading save files: %s", err))
 		} else {
-			g.Cartridge.LoadRAM(g.save.Bytes(), g.Bus)
+			copy(g.Bus.Cartridge().RAM, g.save.Bytes())
+			var length = len(g.save.Bytes())
+			if length > 0x2000 {
+				length = 0x2000
+			}
+			g.Bus.CopyTo(0xA000, 0xC000, g.save.Bytes()[:length])
 		}
 	}
 	// try to load cheats using filename of rom
-	g.Bus.Map(g.model, cart.Header().GameboyColor())
+	g.Bus.Map(g.model, b.Cartridge().IsCGBCartridge())
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
 		g.Bus.Boot()
 
 		// handle colourisation
-		if !cart.Header().GameboyColor() && (g.model == types.CGBABC || g.model == types.CGB0) {
+		if !b.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
 			video.BGColourisationPalette = &palette.Palette{}
 			video.OBJ0ColourisationPalette = &palette.Palette{}
 			video.OBJ1ColourisationPalette = &palette.Palette{}
-			colourisationPalette := palette.LoadColourisationPalette([]byte(cart.Header().Title))
+			colourisationPalette := palette.LoadColourisationPalette([]byte(b.Cartridge().Title))
 
 			for i := 0; i < 4; i++ {
 				video.BGColourisationPalette[i] = colourisationPalette.BG[i]
@@ -389,6 +396,10 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 		// schedule the frame sequencer event for the next 8192 ticks
 		g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer, uint64(8192-g.Scheduler.SysClock()&0x0fff))
+	}
+
+	g.Bus.Cartridge().RumbleCallback = func(b bool) {
+		g.rumbling = b
 	}
 
 	return g
@@ -445,4 +456,116 @@ func (g *GameBoy) Save(s *types.State) {
 	g.PPU.Save(s)
 	// g.APU.SaveRAM(s) TODO implement APU state
 	g.Serial.Save(s)
+}
+
+func applyHorizontalShake(frame *[ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, offset int) {
+	// Create a temporary frame to store the result
+	var tempFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
+	for y := 0; y < ppu.ScreenHeight; y++ {
+		for x := 0; x < ppu.ScreenWidth; x++ {
+			tempFrame[y][x] = frame[y][x]
+		}
+	}
+
+	const amplitude, frequency = 2.0, 0
+	var phase = float64(offset)
+
+	// Calculate the offset based on sine function
+	offsetX := func(t float64) int {
+		return int(amplitude * math.Sin(2*math.Pi*frequency*t+phase))
+	}
+
+	// Apply the oscillating offset
+	for y := 0; y < ppu.ScreenHeight; y++ {
+		for x := 0; x < ppu.ScreenWidth; x++ {
+			// Calculate the time component based on the current x position
+			t := float64(x) / float64(ppu.ScreenWidth)
+
+			// Calculate the offset
+			offset := offsetX(t)
+
+			// Apply the offset, ensuring it stays within bounds
+			newX := x + offset
+			if newX >= 0 && newX < ppu.ScreenWidth {
+				tempFrame[y][newX] = frame[y][x]
+			}
+		}
+	}
+
+	// Copy the result back to the original frame
+	*frame = tempFrame
+}
+
+const (
+	ScreenWidth  = ppu.ScreenWidth
+	ScreenHeight = ppu.ScreenHeight
+)
+
+// Point represents a point in 3D space.
+type Point struct {
+	X, Y, Z float64
+}
+
+var lastX, lastY float64
+
+func diff(a, b float64) float64 {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
+// Rotate2DFrame rotates a 2D framebuffer in 3D space with perspective correction.
+func Rotate2DFrame(frame [ScreenHeight][ScreenWidth][3]uint8, angleX, angleY, angleZ float64) [ScreenHeight][ScreenWidth][3]uint8 {
+	angleX /= 64
+	angleY /= 64
+
+	var rotatedFrame [ScreenHeight][ScreenWidth][3]uint8
+
+	// Define the rotation matrices.
+	rotateX := func(p Point, angleX float64) Point {
+		sinX, cosX := math.Sin(angleX), math.Cos(angleX)
+		return Point{
+			X: p.X,
+			Y: p.Y*cosX - p.Z*sinX,
+			Z: p.Y*sinX + p.Z*cosX,
+		}
+	}
+
+	rotateY := func(p Point, angleY float64) Point {
+		sinY, cosY := math.Sin(angleY), math.Cos(angleY)
+		return Point{
+			X: p.X*cosY + p.Z*sinY,
+			Y: p.Y,
+			Z: -p.X*sinY + p.Z*cosY,
+		}
+	}
+
+	// Define the viewer's position.
+	viewer := Point{X: 0, Y: 0, Z: -10}
+
+	// Iterate over each pixel in the framebuffer.
+	for y := 0; y < ScreenHeight; y++ {
+		for x := 0; x < ScreenWidth; x++ {
+			// Define the point in 3D space corresponding to the pixel.
+			point := Point{X: float64(x - ScreenWidth/2), Y: float64(y - ScreenHeight/2), Z: 0}
+
+			// Apply rotations around X, Y, and Z axes.
+			point = rotateX(point, angleX)
+			point = rotateY(point, angleY)
+
+			// Apply perspective correction.
+			scale := viewer.Z / (viewer.Z + point.Z)
+			projectedX := int((point.X*scale + viewer.X) + ScreenWidth/2)
+			projectedY := int((point.Y*scale + viewer.Y) + ScreenHeight/2)
+
+			// Check if the projected point is within the bounds of the framebuffer.
+			if projectedX >= 0 && projectedX < ScreenWidth && projectedY >= 0 && projectedY < ScreenHeight {
+				// Copy the color of the pixel from the original frame to the rotated frame.
+				rotatedFrame[y][x] = frame[projectedY][projectedX]
+			}
+		}
+	}
+
+	return rotatedFrame
 }
