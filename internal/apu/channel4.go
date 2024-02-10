@@ -109,6 +109,11 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 }
 
 func (c *channel4) catchup() {
+	if c.lastCatchup > c.a.s.Cycle() {
+		c.lastCatchup = c.a.s.Cycle()
+		return // TODO find out root cause
+	}
+
 	// determine how many steps we should perform
 	steps := (c.a.s.Cycle() - c.lastCatchup) / c.frequencyTimer
 
