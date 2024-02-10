@@ -265,7 +265,9 @@ emuLoop:
 				if g.rumbling {
 					applyHorizontalShake(&frame, g.frames)
 				}
-				frame = Rotate2DFrame(frame, float64(g.Bus.Cartridge().AccelerometerY), float64(g.Bus.Cartridge().AccelerometerX), 0)
+				if g.Bus.Cartridge().Features.Accelerometer {
+					frame = Rotate2DFrame(frame, -float64(g.Bus.Cartridge().AccelerometerY), float64(g.Bus.Cartridge().AccelerometerX), 0)
+				}
 
 				frameEnd := time.Now()
 				renderTimes = append(renderTimes, frameEnd.Sub(frameStart))
