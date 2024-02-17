@@ -1,6 +1,7 @@
 package ppu
 
 import (
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
@@ -28,6 +29,10 @@ const (
 type Sprite struct {
 	x, y uint8
 	TileEntry
+}
+
+func (s Sprite) String() string {
+	return fmt.Sprintf("X: %d Y: %d\n ID: %d VRAM: %d Palette: %d\n", s.x, s.y, s.id, s.vRAMBank, s.paletteNumber)
 }
 
 // A Tile has a size of 8x8 pixels, using a 2bpp format.
@@ -681,7 +686,7 @@ func (p *PPU) writeOAM(b [160]byte) {
 
 		switch i & 3 {
 		case 0:
-			s.y = value - 16
+			s.y = value
 
 			// was the sprite visible before?
 			if oldY < ScreenHeight && oldX < ScreenWidth {
@@ -709,7 +714,7 @@ func (p *PPU) writeOAM(b [160]byte) {
 				}
 			}
 		case 1:
-			s.x = value - 8
+			s.x = value
 			// was the sprite visible before?
 			if oldY < ScreenHeight && oldX < ScreenWidth {
 				// we need to remove the positions that the sprite was visible on
@@ -953,7 +958,8 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
 	for _, sprite := range p.Sprites {
-		if sprite.y > scanline || sprite.y+p.objSize <= scanline {
+		adjustedScanline := scanline + 16
+		if sprite.y > adjustedScanline || sprite.y+p.objSize <= adjustedScanline {
 			continue
 		}
 
@@ -964,7 +970,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 		yPixelPos &= 7
 		tileID := sprite.id
 		if p.objSize == 16 {
-			if (scanline-sprite.y < 8 && sprite.yFlip) || (scanline-sprite.y >= 8 && !sprite.yFlip) { // todo this needs reworking
+			if (adjustedScanline-sprite.y < 8 && sprite.yFlip) || (adjustedScanline-sprite.y >= 8 && !sprite.yFlip) {
 				tileID |= 0x01
 			} else {
 				tileID &= 0xFE
@@ -977,16 +983,19 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 
 		pal := p.ColourSpritePalette.Palettes[sprite.paletteNumber]
 
-		for x := uint8(0); x < 8 && sprite.x+x < ScreenWidth; x++ {
+		for x := uint8(0); x < 8 && (sprite.x)+x < ScreenWidth+8; x++ {
 			colourNumber := colorNumber(b1, b2, x, sprite.xFlip)
-			pixelPos := sprite.x + x
+			pixelPos := (sprite.x - 8) + x
+			if pixelPos >= ScreenWidth {
+				continue
+			}
 
 			// skip if the color is transparent
 			if colourNumber == 0 ||
 				// handle bg/win tile -> sprite priority
 				(!p.b.IsGBCCart() || p.bgEnabled) && !(sprite.priority && p.scanlineInfo[pixelPos]&4 == 0) && p.scanlineInfo[pixelPos]&3 != 0 ||
 				// skip if sprite is already drawn on this pixel
-				spriteXPerScreen[pixelPos] != 0 && (p.b.IsGBCCart() || spriteXPerScreen[pixelPos] <= sprite.x+8) {
+				spriteXPerScreen[pixelPos] != 0 && (p.b.IsGBCCart() || spriteXPerScreen[pixelPos] <= sprite.x) {
 				continue
 			}
 
@@ -997,7 +1006,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 			}
 
 			// mark the pixel as occupied
-			spriteXPerScreen[pixelPos] = sprite.x + 8
+			spriteXPerScreen[pixelPos] = sprite.x
 		}
 
 		if spriteCount++; spriteCount == 10 {
@@ -1023,6 +1032,12 @@ func (p *PPU) DumpRender(img *image.RGBA) {
 			}
 		}
 	}
+}
+
+func (p *PPU) DrawSprite(img *image.RGBA, spr Sprite) {
+	// get the tile that sprite is using and call tile.Draw
+	p.TileData[spr.vRAMBank][spr.id].Draw(img, 0, 0, p.ColourSpritePalette.Palettes[spr.paletteNumber])
+
 }
 
 func combine(c1, c2 color.Color) color.Color {
