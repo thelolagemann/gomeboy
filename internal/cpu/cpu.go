@@ -57,9 +57,7 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	})
 	b.Set(0xff7e, 0xff)
 
-	sched.RegisterEvent(scheduler.EIPending, func() {
-		c.b.EnableInterrupts()
-	})
+	sched.RegisterEvent(scheduler.EIPending, c.b.EnableInterrupts)
 	sched.RegisterEvent(scheduler.EIHaltDelay, func() {
 		c.b.EnableInterrupts()
 
@@ -77,7 +75,7 @@ func (c *CPU) Boot(m types.Model) {
 	c.SP = 0xFFFE
 
 	// get the CPU registers
-	startingRegs := m.Registers()
+	startingRegs := types.ModelRegisters[m]
 	for i, reg := range []*uint8{&c.A, &c.F, &c.B, &c.C, &c.D, &c.E, &c.H, &c.L} {
 		*reg = startingRegs[i]
 	}
@@ -306,34 +304,4 @@ func (c *CPU) addSPSigned() uint16 {
 
 	c.s.Tick(4)
 	return result
-}
-
-var _ types.Stater = (*CPU)(nil)
-
-func (c *CPU) Load(s *types.State) {
-	c.A = s.Read8()
-	c.F = s.Read8()
-	c.B = s.Read8()
-	c.C = s.Read8()
-	c.D = s.Read8()
-	c.E = s.Read8()
-	c.H = s.Read8()
-	c.L = s.Read8()
-	c.SP = s.Read16()
-	c.PC = s.Read16()
-	c.doubleSpeed = s.ReadBool()
-}
-
-func (c *CPU) Save(s *types.State) {
-	s.Write8(c.A)
-	s.Write8(c.F)
-	s.Write8(c.B)
-	s.Write8(c.C)
-	s.Write8(c.D)
-	s.Write8(c.E)
-	s.Write8(c.H)
-	s.Write8(c.L)
-	s.Write16(c.SP)
-	s.Write16(c.PC)
-	s.WriteBool(c.doubleSpeed)
 }

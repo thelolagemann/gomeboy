@@ -13,7 +13,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/display"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	views2 "github.com/thelolagemann/gomeboy/pkg/display/fyne/views"
@@ -513,15 +512,6 @@ var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
 		}
 
 		f.Close()
-	},
-	fyne.KeyS: func(gb *gameboy.GameBoy) {
-		st := types.NewState()
-		gb.Save(st)
-		if err := st.SaveToFile("state.json"); err != nil {
-			gb.Logger.Errorf("failed to save state: %v", err)
-		} else {
-			gb.Logger.Infof("saved state to state.json")
-		}
 	},
 }
 

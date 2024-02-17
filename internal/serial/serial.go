@@ -155,33 +155,3 @@ func (c *Controller) Receive(bit bool) {
 		c.checkTransfer()
 	}
 }
-
-var _ types.Stater = (*Controller)(nil)
-
-// Load implements the types.Stater interface.
-//
-// The values are loaded in the following order:
-//   - data (uint8)
-//   - control (uint8)
-//   - TransferRequest (bool)
-//   - count (uint8)
-//   - InternalClock (bool)
-func (c *Controller) Load(s *types.State) {
-	c.TransferRequest = s.ReadBool()
-	c.count = s.Read8()
-	c.InternalClock = s.ReadBool()
-}
-
-// Save implements the types.Stater interface.
-//
-// The values are saved in the following order:
-//   - data (uint8)
-//   - control (uint8)
-//   - TransferRequest (bool)
-//   - count (uint8)
-//   - InternalClock (bool)
-func (c *Controller) Save(s *types.State) {
-	s.WriteBool(c.TransferRequest)
-	s.Write8(c.count)
-	s.WriteBool(c.InternalClock)
-}

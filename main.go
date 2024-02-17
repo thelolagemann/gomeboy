@@ -38,7 +38,6 @@ func main() {
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
 	// saveFolder := flag.String("save", "", "The folder to ")
-	state := flag.String("state", "", "The state file to load") // TODO determine state file from ROM file
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	printer := flag.Bool("printer", false, "enable printer")
 	displayDriver := flag.String("driver", "auto", "The display driver to use. Can be auto, glfw, fyne or web")
@@ -69,14 +68,6 @@ func main() {
 	if *printer {
 		printer := accessories.NewPrinter()
 		opts = append(opts, gameboy.WithPrinter(printer))
-	}
-
-	if *state != "" {
-		state, err := utils.LoadFile(*state)
-		if err != nil {
-			panic(err)
-		}
-		opts = append(opts, gameboy.WithState(state))
 	}
 
 	// has model been set?

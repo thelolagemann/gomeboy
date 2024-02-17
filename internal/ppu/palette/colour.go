@@ -136,20 +136,6 @@ func (p *CGBPalette) SaveExample(imgOutput string) {
 	}
 }
 
-func (p *CGBPalette) Load(s *types.State) {
-	for i := range p.Palettes {
-		p.Palettes[i] = LoadPaletteFromState(s)
-	}
-	p.Index = s.Read8()
-}
-
-func (p *CGBPalette) Save(s *types.State) {
-	for _, pa := range p.Palettes {
-		pa.Save(s)
-	}
-	s.Write8(p.Index)
-}
-
 // LoadColourisationPalette attempts to load a colourisation
 // palette from the specified title. If no palette is found,
 // a default palette is returned.

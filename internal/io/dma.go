@@ -5,47 +5,22 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
-var (
-	noConflicts = [16]bool{}
-)
-
-// startDMATransfer
-// DMA (Direct Memory Access) is used to transfer data from
-// the CPU's memory to the PPU's OAM (Object Attribute Memory).
-//
-// The CPU is unable to directly access the PPU's OAM whilst the
-// display is being updated; as this is most of the time, DMA
-// transfers are used instead.
-//
-// A DMA transfer copies data from ROM or RAM to the OAM, taking
-// 160 M-cycles to complete. The source address is specified by
-// writing a value to the types.DMA register, which will then get
-// bit shifted by 8 to provide the source address.
-//
-// E.g. If a write to types.DMA is 0x84, then the source becomes
-// 0x8400 (0x84 << 8).
+// startDMATransfer initiates a DMA transfer.
 func (b *Bus) startDMATransfer() {
 	b.dmaActive = true
+	b.dmaRestarting = false
 	b.doDMATransfer()
 	b.s.ScheduleEvent(scheduler.DMAEndTransfer, 640)
 }
 
 // doDMATransfer transfers a single byte from the source to the
 // PPU's OAM.
-// todo conflict
-// todo oam changed
-// todo increment
 func (b *Bus) doDMATransfer() {
-	// handle restarting latch
-	b.dmaRestarting = false
-
 	// copy byte from source to OAM
 	b.dmaConflict = b.data[b.dmaSource]
 
-	if b.data[b.dmaDestination] != b.dmaConflict {
-		// set OAM changed so PPU knows to update
-		b.oamChanged = true
-	}
+	// set OAM changed so PPU knows to update
+	b.oamChanged = true
 
 	b.data[b.dmaDestination] = b.dmaConflict
 
@@ -64,7 +39,7 @@ func (b *Bus) endDMATransfer() {
 	b.dmaEnabled = false
 
 	// clear any conflicts
-	b.dmaConflicts = noConflicts
+	b.dmaConflicted = 0
 	b.dmaConflict = 0xff
 }
 
@@ -74,19 +49,25 @@ func (b *Bus) isDMATransferring() bool {
 	return b.dmaActive || b.dmaRestarting
 }
 
-// OAMChanged returns true when the OAM memory is updated.
-// This is used by the PPU to determine when to recalculate
-// its sprites.
 func (b *Bus) OAMChanged() bool {
 	return b.oamChanged
 }
 
-// OAMCatchup sets the OAMChanged flag to false. This is used
-// by the PPU to indicate to the bus that it has caught up to
-// the current values in the OAM.
+// OAMCatchup calls f with the OAM memory region
 func (b *Bus) OAMCatchup(f func([160]byte)) {
 	f([160]byte(b.data[0xfe00 : 0xfe00+160]))
 	b.oamChanged = false
+}
+
+func (b *Bus) VRAMChanged() bool {
+	return b.vramChanged
+}
+
+// VRAMCatchup calls f with any pending vRAM changes.
+func (b *Bus) VRAMCatchup(f func([]VRAMChange)) {
+	f(b.vramChanges)
+	b.vramChanges = b.vramChanges[:0]
+	b.vramChanged = false
 }
 
 func (b *Bus) newDMA(length uint8) {
@@ -100,7 +81,7 @@ func (b *Bus) newDMA(length uint8) {
 			}
 
 			// perform the transfer
-			b.Write(b.hdmaDestination|0x8000, b.Get(b.hdmaSource))
+			b.Write(b.hdmaDestination&0x1fff|0x8000, b.Get(b.hdmaSource))
 
 			// increment the source and destination
 			b.hdmaSource++

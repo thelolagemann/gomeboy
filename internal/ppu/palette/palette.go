@@ -1,7 +1,6 @@
 package palette
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/types"
 	"image/color"
 )
 
@@ -65,22 +64,4 @@ func ByteToPalette(colourPalette Palette, b byte) Palette {
 func (p Palette) GetColour(index uint8) [3]uint8 {
 	// map provided index to the current palette
 	return p[index]
-}
-
-func (p Palette) Save(s *types.State) {
-	for _, pal := range p {
-		for _, col := range pal {
-			s.Write8(col)
-		}
-	}
-}
-
-func LoadPaletteFromState(s *types.State) Palette {
-	p := Palette{}
-	for i := 0; i < 4; i++ {
-		for j := 0; j < 3; j++ {
-			p[i][j] = s.Read8()
-		}
-	}
-	return p
 }

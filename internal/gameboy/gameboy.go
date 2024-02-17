@@ -376,7 +376,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 		}
 	}
 	// try to load cheats using filename of rom
-	g.Bus.Map(g.model, b.Cartridge().IsCGBCartridge())
+	g.Bus.Map(g.model)
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
 		g.Bus.Boot()
@@ -444,22 +444,6 @@ func (g *GameBoy) SetModel(m types.Model) {
 	g.model = m
 }
 
-var _ types.Stater = (*GameBoy)(nil)
-
-func (g *GameBoy) Load(s *types.State) {
-	g.CPU.Load(s)
-	g.PPU.Load(s)
-	// g.APU.LoadRAM(s) TODO implement APU state
-	g.Serial.Load(s)
-}
-
-func (g *GameBoy) Save(s *types.State) {
-	g.CPU.Save(s)
-	g.PPU.Save(s)
-	// g.APU.SaveRAM(s) TODO implement APU state
-	g.Serial.Save(s)
-}
-
 func applyHorizontalShake(frame *[ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, offset int) {
 	// Create a temporary frame to store the result
 	var tempFrame [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8
@@ -506,15 +490,6 @@ const (
 // Point represents a point in 3D space.
 type Point struct {
 	X, Y, Z float64
-}
-
-var lastX, lastY float64
-
-func diff(a, b float64) float64 {
-	if a > b {
-		return a - b
-	}
-	return b - a
 }
 
 // Rotate2DFrame rotates a 2D framebuffer in 3D space with perspective correction.

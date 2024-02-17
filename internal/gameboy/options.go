@@ -67,15 +67,6 @@ func WithLogger(log log.Logger) Opt {
 	}
 }
 
-func WithState(b []byte) Opt {
-	return func(gb *GameBoy) {
-		// get state from bytes
-		state := types.StateFromBytes(b)
-		gb.Load(state)
-		gb.loadedFromState = true
-	}
-}
-
 // WithBootROM sets the boot ROM for the emulator.
 func WithBootROM(rom []byte) Opt {
 	return func(gb *GameBoy) {

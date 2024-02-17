@@ -3,7 +3,6 @@ package cpu
 import (
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
 var incDecBit = []uint16{0x01, 0xffff}
@@ -313,9 +312,9 @@ decode:
 		c.setFlags(val&bitIndex != bitIndex, false, true, c.isFlagSet(flagCarry))
 		return // BIT doesn't change the value of the source register
 	case 2: // RES
-		val = utils.Reset(val, 1<<(instr>>3&0x7))
+		val &^= 1 << (instr >> 3 & 0x7)
 	case 3: // SET
-		val = utils.Set(val, 1<<(instr>>3&0x7))
+		val |= 1 << (instr >> 3 & 0x7)
 	}
 
 	if srcMem {

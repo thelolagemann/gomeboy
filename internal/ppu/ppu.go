@@ -5,7 +5,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image"
 	"image/color"
 	"unsafe"
@@ -147,12 +146,12 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		}
 
 		p.winTileMap = v >> 6 & 1
-		p.winEnabled = utils.Test(v, 5)
+		p.winEnabled = v&types.Bit5 > 0
 		p.addressMode = 1 &^ (v >> 4 & 1)
 		p.bgTileMap = v >> 3 & 1
-		p.objSize = 8 + uint8(utils.Val(v, 2))*8
-		p.objEnabled = utils.Test(v, 1)
-		p.bgEnabled = utils.Test(v, 0)
+		p.objSize = 8 + (v & types.Bit2 << 1)
+		p.objEnabled = v&types.Bit1 > 0
+		p.bgEnabled = v&types.Bit0 > 0
 
 		return v
 	})
@@ -373,9 +372,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 4)
 	})
 
-	b.ReserveBlockWriter(0x8000, p.writeVRAM)
-	b.ReserveBlockWriter(0x9000, p.writeVRAM)
-
 	// setup line changed
 	for i := 0; i < len(p.backgroundLineChanged); i++ {
 		p.backgroundLineChanged[i] = true
@@ -520,8 +516,7 @@ func (p *PPU) endOAM() {
 	p.mode, p.modeToInt = ModeVRAM, ModeVRAM
 	p.statUpdate()
 
-	p.b.Lock(io.OAM)
-	p.b.Lock(io.VRAM)
+	p.b.Lock(io.OAM | io.VRAM)
 
 	// schedule end of VRAM search
 	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(168+scroll(p.b.Get(types.SCX))))
@@ -757,30 +752,34 @@ func (p *PPU) writeOAM(b [160]byte) {
 	}
 }
 
-func (p *PPU) writeVRAM(address uint16, value uint8) {
-	address &= 0x1FFF
+func (p *PPU) writeVRAM(changes []io.VRAMChange) {
+	for _, c := range changes {
+		address, bank, value := c.Address, c.Bank, c.Value
+		address &= 0x1FFF
 
-	switch {
-	case address <= 0x17FF:
-		p.TileData[p.b.Get(types.VBK)&1][address>>4][(address>>1)&0x7+((address&1)*8)] = value
-		p.dirtyBackground(tile)
-	case address <= 0x1FFF:
-		y, x, id := (address>>5)&0x1f, address&0x1f, (address>>10)&1
-		switch p.b.Get(types.VBK) & 1 {
-		case 0:
-			p.TileMaps[id][y][x].id = value
-			p.dirtyBackground(tileMap)
-		case 1:
-			// update the tilemap
-			t := &p.TileMaps[id][y][x]
-			t.priority = value&0x80 != 0
-			t.yFlip = value&types.Bit6 != 0
-			t.xFlip = value&types.Bit5 != 0
-			t.paletteNumber = value & 0b111
-			t.vRAMBank = value >> 3 & 0x1
-			p.dirtyBackground(tileAttr)
+		switch {
+		case address <= 0x17FF:
+			p.TileData[bank][address>>4][(address>>1)&0x7+((address&1)*8)] = value
+			p.dirtyBackground(tile)
+		case address <= 0x1FFF:
+			y, x, id := (address>>5)&0x1f, address&0x1f, (address>>10)&1
+			switch bank {
+			case 0:
+				p.TileMaps[id][y][x].id = value
+				p.dirtyBackground(tileMap)
+			case 1:
+				// update the tilemap
+				t := &p.TileMaps[id][y][x]
+				t.priority = value&0x80 != 0
+				t.yFlip = value&types.Bit6 != 0
+				t.xFlip = value&types.Bit5 != 0
+				t.paletteNumber = value & 0b111
+				t.vRAMBank = value >> 3 & 0x1
+				p.dirtyBackground(tileAttr)
+			}
 		}
 	}
+
 }
 
 // colorNumber is a helper function to determine the colour number of the given index
@@ -827,6 +826,9 @@ func (p *PPU) statUpdate() {
 
 func (p *PPU) renderScanline() {
 	currentScanline := p.b.Get(types.LY)
+	if p.b.VRAMChanged() {
+		p.b.VRAMCatchup(p.writeVRAM)
+	}
 	if (!p.backgroundLineRendered[currentScanline] || p.dirtyScanlines[currentScanline] || p.backgroundDirty) && (p.bgEnabled || p.b.IsGBCCart()) {
 		p.renderBackgroundScanline()
 	}
@@ -1002,20 +1004,6 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 			break
 		}
 	}
-}
-
-var _ types.Stater = (*PPU)(nil)
-
-func (p *PPU) Load(s *types.State) {
-	p.windowInternal = s.Read8()
-	p.ColourPalette.Load(s)
-	p.ColourSpritePalette.Load(s)
-}
-
-func (p *PPU) Save(s *types.State) {
-	s.Write8(p.windowInternal) // 1 byte
-	p.ColourPalette.Save(s)
-	p.ColourSpritePalette.Save(s)
 }
 
 func (p *PPU) DumpRender(img *image.RGBA) {
