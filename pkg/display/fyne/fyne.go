@@ -99,16 +99,21 @@ func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed ch
 	go func() {
 		for {
 			select {
-			case f := <-fb:
+			case b := <-fb:
 				for i := 0; i < ppu.ScreenWidth*ppu.ScreenHeight; i++ {
-					img.Pix[i*4] = f[i*3]
-					img.Pix[i*4+1] = f[i*3+1]
-					img.Pix[i*4+2] = f[i*3+2]
+					img.Pix[i*4] = b[i*3]
+					img.Pix[i*4+1] = b[i*3+1]
+					img.Pix[i*4+2] = b[i*3+2]
 					img.Pix[i*4+3] = 255
 				}
 
 				// refresh canvas
 				raster.Refresh()
+
+				// send frame event to windows
+				for _, w := range f.windows {
+					w.events <- event.Event{Type: event.FrameTime}
+				}
 			}
 		}
 	}()
@@ -379,7 +384,7 @@ func (f *fyneDriver) toggleMainMenu() {
 		debugViews.ChildMenu = fyne.NewMenu("")
 
 		// add views to debug menu
-		for _, view := range []string{"Palette Viewer", "Frame Renderer", "Tile Viewer", "Tilemap Viewer", "", "Cartridge Info"} {
+		for _, view := range []string{"Palette Viewer", "Frame Renderer", "Tile Viewer", "Tilemap Viewer", "OAM", "", "Cartridge Info"} {
 			// copy the view name to a new variable
 			newView := view
 			if view == "" {
@@ -394,6 +399,8 @@ func (f *fyneDriver) toggleMainMenu() {
 					f.openWindowIfNotOpen(&views2.Render{Video: gb.PPU})
 				case "Tile Viewer":
 					f.openWindowIfNotOpen(&views2.Tiles{PPU: gb.PPU})
+				case "OAM":
+					f.openWindowIfNotOpen(&views2.OAM{PPU: gb.PPU})
 				case "Tilemap Viewer":
 					f.openWindowIfNotOpen(&views2.Tilemaps{PPU: gb.PPU})
 				case "Cartridge Info":
