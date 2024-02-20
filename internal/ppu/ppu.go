@@ -84,11 +84,10 @@ var ColourisationPalettes = map[uint16]ColourisationPalette{}
 func init() {
 	r := csv.NewReader(strings.NewReader(colourisationPaletteData))
 	r.TrimLeadingSpace = true
-	_, _ = r.Read() // discard header
 	records, _ := r.ReadAll()
 
 	toRGB := func(s string) [3]uint8 {
-		rgb, _ := strconv.ParseUint(s, 16, 32)
+		rgb, _ := strconv.ParseUint(s, 16, 24)
 		return [3]uint8{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb)}
 	}
 
@@ -96,15 +95,15 @@ func init() {
 		pal := ColourisationPalette{}
 
 		for x := 0; x < 4; x++ {
-			pal.BG[x] = toRGB(row[2+x][1:])
-			pal.OBJ0[x] = toRGB(row[6+x][1:])
-			pal.OBJ1[x] = toRGB(row[10+x][1:])
+			pal.BG[x] = toRGB(row[2+x])
+			pal.OBJ0[x] = toRGB(row[6+x])
+			pal.OBJ1[x] = toRGB(row[10+x])
 		}
 
-		hash, _ := strconv.ParseUint(row[0][2:], 16, 8)
+		hash, _ := strconv.ParseUint(row[0], 16, 8)
 		var disambiguation uint64 = 0
 		if len(row[1]) > 0 {
-			disambiguation, _ = strconv.ParseUint(row[1][2:], 16, 8)
+			disambiguation, _ = strconv.ParseUint(row[1], 16, 8)
 		}
 
 		ColourisationPalettes[uint16(hash)|uint16(disambiguation)<<8] = pal
