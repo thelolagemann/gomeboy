@@ -106,17 +106,17 @@ func (p *PPU) Run(w fyne.Window, events <-chan event.Event) error {
 					// set the colors
 					for i := uint8(0); i < 12; i++ {
 						if i < 4 {
-							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.Palettes[0].GetColour(i % 4))
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette[0][i%4])
 						} else if i < 8 {
-							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.Palettes[0].GetColour(i % 4))
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette[0][i%4])
 						} else {
-							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.Palettes[1].GetColour(i % 4))
+							p.dmgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette[1][i%4])
 						}
 						p.dmgPaletteEntryRects[i].Refresh()
 					}
 					for i := uint8(0); i < 32; i++ {
-						p.cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette.GetColour(i/4, i%4))
-						p.cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette.GetColour(i/4, i%4))
+						p.cgbBgPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourPalette[i/4][i%4])
+						p.cgbObjPaletteEntryRects[i].FillColor = toRGB(p.PPU.ColourSpritePalette[i/4][i%4])
 						p.cgbBgPaletteEntryRects[i].Refresh()
 						p.cgbObjPaletteEntryRects[i].Refresh()
 					}

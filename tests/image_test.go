@@ -3,7 +3,6 @@ package tests
 import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
 	"image/color"
@@ -18,7 +17,6 @@ import (
 
 // imageTest is a test that compares the output of a rom to an expected image
 type imageTest struct {
-	palette         *palette.Palette
 	emulatedSeconds int
 	expectedImage   string
 
@@ -42,12 +40,6 @@ func asModel(model types.Model) imageTestOption {
 func asName(name string) imageTestOption {
 	return func(t *imageTest) {
 		t.name = name
-	}
-}
-
-func withPalette(palette palette.Palette) imageTestOption {
-	return func(t *imageTest) {
-		t.palette = &palette
 	}
 }
 
@@ -196,9 +188,6 @@ func (i *imageTest) Run(t *testing.T) {
 	i.passed = true
 	t.Run(i.name, func(t *testing.T) {
 		opts := []gameboy.Opt{gameboy.AsModel(i.model)}
-		if i.palette != nil {
-			opts = append(opts, gameboy.WithPalette(*i.palette))
-		}
 		g, err := runGameboy(i.romPath, i.emulatedSeconds, CycleBreakpoint, opts...)
 		if err != nil {
 			t.Errorf("Test %s failed: %s", i.name, err)

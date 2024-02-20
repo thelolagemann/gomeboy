@@ -189,8 +189,10 @@ eventLoop:
 		// until we find the correct position
 		prev = currentRoot
 		currentRoot = currentRoot.next
-		nextCycle = currentRoot.cycle
-		goto eventLoop
+		if currentRoot != nil {
+			nextCycle = currentRoot.cycle
+			goto eventLoop
+		}
 	}
 
 	// TODO use positions instead of nil checks

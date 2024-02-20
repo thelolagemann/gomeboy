@@ -1,13 +1,16 @@
 package ppu
 
 import (
+	_ "embed"
+	"encoding/csv"
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
 	"image/color"
+	"strconv"
+	"strings"
 	"unsafe"
 )
 
@@ -39,7 +42,7 @@ func (s Sprite) String() string {
 type Tile [16]uint8
 
 // Draw draws the tile to the given image at the given position.
-func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal palette.Palette) {
+func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal Palette) {
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
 			copy(img.Pix[((i2+y)*img.Stride)+((i+x)*4):], append(pal[(t[y]>>(7-x)&1)|(t[y+8]>>(7-x)&1)<<1][:], 0xff))
@@ -51,6 +54,68 @@ func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal palette.Palette) {
 type TileEntry struct {
 	id, paletteNumber, vRAMBank uint8
 	priority, xFlip, yFlip      bool
+}
+
+type Palette [4][3]uint8 // 4 RGB values
+
+func (p Palette) remap(v uint8) Palette { return Palette{p[v&3], p[v>>2&3], p[v>>4&3], p[v>>6&3]} } // remaps a palette
+
+const (
+	Greyscale = iota // default
+	Green            // mimics the original green screen
+)
+
+var ColourPalettes = []Palette{
+	{{0xFF, 0xFF, 0xFF}, {0xAA, 0xAA, 0xAA}, {0x55, 0x55, 0x55}, {0x00, 0x00, 0x00}}, // Greyscale
+	{{0x9B, 0xBC, 0x0F}, {0x8B, 0xAC, 0x0F}, {0x30, 0x62, 0x30}, {0x0F, 0x38, 0x0F}}, // Green
+}
+
+type ColourPalette [8]Palette
+
+//go:embed palettes.csv
+var colourisationPaletteData string
+
+type ColourisationPalette struct {
+	BG, OBJ0, OBJ1 Palette
+}
+
+var ColourisationPalettes = map[uint16]ColourisationPalette{}
+
+func init() {
+	r := csv.NewReader(strings.NewReader(colourisationPaletteData))
+	r.TrimLeadingSpace = true
+	_, _ = r.Read() // discard header
+	records, _ := r.ReadAll()
+
+	for _, row := range records {
+		pal := ColourisationPalette{}
+
+		for x := 0; x < 4; x++ {
+			bgRGB, _ := strconv.ParseUint(row[2+x][1:], 16, 32)
+			pal.BG[x][0] = uint8(bgRGB >> 16)
+			pal.BG[x][1] = uint8(bgRGB >> 8)
+			pal.BG[x][2] = uint8(bgRGB)
+
+			obj0RGB, _ := strconv.ParseUint(row[6+x][1:], 16, 32)
+			pal.OBJ0[x][0] = uint8(obj0RGB >> 16)
+			pal.OBJ0[x][1] = uint8(obj0RGB >> 8)
+			pal.OBJ0[x][2] = uint8(obj0RGB)
+
+			obj1RGB, _ := strconv.ParseUint(row[10+x][1:], 16, 32)
+			pal.OBJ1[x][0] = uint8(obj1RGB >> 16)
+			pal.OBJ1[x][1] = uint8(obj1RGB >> 8)
+			pal.OBJ1[x][2] = uint8(obj1RGB)
+		}
+
+		hash, _ := strconv.ParseUint(row[0][2:], 16, 8)
+		var disambiguation uint64 = 0
+		if len(row[1]) > 0 {
+			disambiguation, _ = strconv.ParseUint(row[1][2:], 16, 8)
+		}
+
+		ColourisationPalettes[uint16(hash)|uint16(disambiguation)<<8] = pal
+	}
+	fmt.Println(ColourisationPalettes[0x14])
 }
 
 type PPU struct {
@@ -71,6 +136,10 @@ type PPU struct {
 	TileData [2][384]Tile         // 384 tiles, 8x8 pixels each (double in CGB mode)
 	TileMaps [2][32][32]TileEntry // 32x32 tiles, 8x8 pixels each
 
+	cRAM                         [128]uint8 // 64 bytes BG+OBJ
+	bcpsIncrement, ocpsIncrement bool
+	bcpsIndex, ocpsIndex         uint8
+
 	backgroundDirty                               bool
 	backgroundLineRendered, backgroundLineChanged [ScreenHeight]bool
 	dirtyScanlines, spriteScanlines               [ScreenHeight]bool              // used to determine when to re-render background
@@ -83,22 +152,14 @@ type PPU struct {
 	b *io.Bus
 	s *scheduler.Scheduler
 
-	// palettes used for DMG -> CGB colourisation,
-	// loaded either from the boot ROM or db
-	BGColourisationPalette   *palette.Palette
-	OBJ0ColourisationPalette *palette.Palette
-	OBJ1ColourisationPalette *palette.Palette
-
-	// palettes used to translate the displays
-	// 2bpp pixel format into an RGB value
-	ColourPalettes []palette.Palette
+	// palettes used for DMG -> CGB colourisation
+	BGColourisationPalette   Palette
+	OBJ0ColourisationPalette Palette
+	OBJ1ColourisationPalette Palette
 
 	// palettes used by the ppu to display colours
-	// even though they are defined as CGBPalette
-	// they are also used in DMG mode by indexing into
-	// their palettes.
-	ColourPalette       *palette.CGBPalette
-	ColourSpritePalette *palette.CGBPalette
+	ColourPalette       ColourPalette
+	ColourSpritePalette ColourPalette
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
 
@@ -110,11 +171,16 @@ type PPU struct {
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	p := &PPU{
-		b:              b,
-		s:              s,
-		ColourPalettes: make([]palette.Palette, len(palette.ColourPalettes)),
+		b: b,
+		s: s,
 	}
-	copy(p.ColourPalettes, palette.ColourPalettes)
+
+	for pal := 0; pal < 8; pal++ {
+		for c := 0; c < 4; c++ {
+			p.ColourPalette[pal][c] = [3]uint8{0xff, 0xff, 0xff}
+			p.ColourSpritePalette[pal][c] = [3]uint8{0xff, 0xff, 0xff}
+		}
+	}
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
 		// is the screen turning off?
@@ -214,50 +280,29 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.BGP, func(v byte) byte {
-		// do we need to force a re-render on background?
-		if v == b.Get(types.BGP) {
+		if v == b.Get(types.BGP) || p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
-
 		p.dirtyBackground(bgp)
-
-		// if launched without a boot ROM, then check to see if a colourisation palette is loaded
-		if p.BGColourisationPalette != nil {
-			p.ColourPalette.Palettes[0] = palette.ByteToPalette(*p.BGColourisationPalette, v)
-		} else {
-			p.ColourPalette.Palettes[0] = palette.ByteToPalette(p.ColourPalettes[palette.Greyscale], v)
-		}
+		p.ColourPalette[0] = p.BGColourisationPalette.remap(v)
 
 		return v
 	})
 	b.ReserveAddress(types.OBP0, func(v byte) byte {
-		// do we need to force a re-render on background?
-		if v == b.Get(types.OBP0) {
+		if v == b.Get(types.OBP0) || p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
 		p.dirtyBackground(obp0)
-
-		if p.OBJ0ColourisationPalette != nil {
-			p.ColourSpritePalette.Palettes[0] = palette.ByteToPalette(*p.OBJ0ColourisationPalette, v)
-		} else {
-			p.ColourSpritePalette.Palettes[0] = palette.ByteToPalette(p.ColourPalettes[palette.Greyscale], v)
-		}
+		p.ColourSpritePalette[0] = p.OBJ0ColourisationPalette.remap(v)
 
 		return v
 	})
 	b.ReserveAddress(types.OBP1, func(v byte) byte {
-		// do we need to force a re-render on background?
-		if v == b.Get(types.OBP1) {
+		if v == b.Get(types.OBP1) || p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
-
 		p.dirtyBackground(obp1)
-
-		if p.OBJ1ColourisationPalette != nil {
-			p.ColourSpritePalette.Palettes[1] = palette.ByteToPalette(*p.OBJ1ColourisationPalette, v)
-		} else {
-			p.ColourSpritePalette.Palettes[1] = palette.ByteToPalette(p.ColourPalettes[palette.Greyscale], v)
-		}
+		p.ColourSpritePalette[1] = p.OBJ1ColourisationPalette.remap(v)
 
 		return v
 	})
@@ -268,83 +313,102 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 
-	b.WhenGBC(func() {
-		// special address handler for colourisation (not on real hardware)
-		b.ReserveAddress(0xFF7F, func(b byte) byte {
-			if p.BGColourisationPalette != nil {
-				return 0xff
-			}
-			p.BGColourisationPalette = &palette.Palette{}
-			p.OBJ0ColourisationPalette = &palette.Palette{}
-			p.OBJ1ColourisationPalette = &palette.Palette{}
-			*p.BGColourisationPalette = p.ColourPalette.Palettes[0]
-			*p.OBJ0ColourisationPalette = p.ColourSpritePalette.Palettes[0]
-			*p.OBJ1ColourisationPalette = p.ColourSpritePalette.Palettes[1]
-			return 0xff
-		})
-		// setup CGB only registers
-		b.ReserveAddress(types.BCPS, func(v byte) byte {
-			if p.b.IsGBCCart() || p.b.IsBooting() {
-				p.ColourPalette.SetIndex(v)
-				p.dirtyBackground(bcps)
-				return p.ColourPalette.GetIndex() | 0x40
-			}
+	b.RegisterBootHandler(func() {
+		p.BGColourisationPalette = p.ColourPalette[0]
+		p.OBJ0ColourisationPalette = p.ColourSpritePalette[0]
+		p.OBJ1ColourisationPalette = p.ColourSpritePalette[1]
+		p.TileMaps = [2][32][32]TileEntry{}
+	})
 
-			return 0xff
-		})
-		b.ReserveSetAddress(types.BCPS, func(a any) {
-			p.ColourPalette.SetIndex(a.(byte))
-			p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
+	// setup CGB only registers
+	b.WhenGBC(func() {
+		b.ReserveAddress(types.BCPS, func(v byte) byte {
+			p.bcpsIndex = v & 0x3F
+			p.bcpsIncrement = v&types.Bit7 > 0
+			p.dirtyBackground(bcps)
+			return v | types.Bit6
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
 			if p.b.IsGBCCart() || p.b.IsBooting() {
-				p.ColourPalette.Write(v)
+				if p.mode != ModeVRAM {
+					p.cRAM[p.bcpsIndex] = v
+					palIndex, colorIndex := p.bcpsIndex>>3&7, p.bcpsIndex&7>>1
+
+					colour := uint16(p.ColourPalette[palIndex][colorIndex][0]>>3) |
+						uint16(p.ColourPalette[palIndex][colorIndex][1]>>3)<<5 |
+						uint16(p.ColourPalette[palIndex][colorIndex][2]>>3)<<10
+
+					if p.bcpsIndex&1 == 1 {
+						colour = (colour & 0x00FF) | uint16(v)<<8
+					} else {
+						colour = (colour & 0xFF00) | uint16(v)
+					}
+
+					p.ColourPalette[palIndex][colorIndex][0] = uint8(colour&0x1f)<<3 | uint8(colour&0x1f)>>2
+					p.ColourPalette[palIndex][colorIndex][1] = uint8(colour>>5&0x1f)<<3 | uint8(colour>>5&0x1f)>>2
+					p.ColourPalette[palIndex][colorIndex][2] = uint8(colour>>10&0x1f)<<3 | uint8(colour>>10&0x1f)>>2
+				}
+				if p.bcpsIncrement {
+					p.bcpsIndex = (p.bcpsIndex + 1) & 0x3f
+					p.b.Set(types.BCPS, p.b.Get(types.BCPS)&0xC0|p.bcpsIndex)
+				}
 				p.dirtyBackground(bcpd)
 
-				// update bcps
-				p.b.Set(types.BCPS, p.ColourPalette.GetIndex()|0x40)
-				return p.ColourPalette.Read()
+				return v
 			}
 
 			return 0xff
-
 		})
-		b.Set(types.BCPD, p.ColourPalette.Read())
 		b.ReserveLazyReader(types.BCPD, func() byte {
-			if !p.b.IsGBCCart() || p.mode == ModeVRAM {
-				return 0xff
+			if p.mode != ModeVRAM && p.b.IsGBCCart() {
+				return p.cRAM[p.bcpsIndex]
 			}
-
-			return p.ColourPalette.Read()
+			return 0xff
 		})
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
-			if p.mode != ModeVRAM {
-				p.ColourSpritePalette.SetIndex(v)
-				p.dirtyBackground(ocps)
-				p.b.Set(types.OCPD, p.ColourSpritePalette.Read())
-				return p.ColourSpritePalette.GetIndex() | 0x40
-			}
-			return 0xFF
-		})
-		b.ReserveSetAddress(types.OCPS, func(a any) {
-			// bc some models boot into VRAM mode
-			p.ColourSpritePalette.SetIndex(a.(byte))
+			p.ocpsIndex = v & 0x3F
+			p.ocpsIncrement = v&types.Bit7 > 0
 			p.dirtyBackground(ocps)
-			p.b.Set(types.OCPD, p.ColourSpritePalette.Read())
-			p.b.Set(types.OCPS, a.(byte)|0x40)
+			return v | types.Bit6
 		})
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
 			if p.b.IsGBCCart() || p.b.IsBooting() {
-				p.ColourSpritePalette.Write(v)
+				if p.mode != ModeVRAM {
+					p.cRAM[64+p.ocpsIndex] = v
+					palIndex, colorIndex := p.ocpsIndex>>3&7, p.ocpsIndex&7>>1
+
+					colour := uint16(p.ColourSpritePalette[palIndex][colorIndex][0]>>3) |
+						uint16(p.ColourSpritePalette[palIndex][colorIndex][1]>>3)<<5 |
+						uint16(p.ColourSpritePalette[palIndex][colorIndex][2]>>3)<<10
+
+					if p.ocpsIndex&1 == 1 {
+						colour = (colour & 0x00FF) | uint16(v)<<8
+					} else {
+						colour = (colour & 0xFF00) | uint16(v)
+					}
+
+					p.ColourSpritePalette[palIndex][colorIndex][0] = uint8(colour&0x1f)<<3 | uint8(colour&0x1f)>>2
+					p.ColourSpritePalette[palIndex][colorIndex][1] = uint8(colour>>5&0x1f)<<3 | uint8(colour>>5&0x1f)>>2
+					p.ColourSpritePalette[palIndex][colorIndex][2] = uint8(colour>>10&0x1f)<<3 | uint8(colour>>10&0x1f)>>2
+				}
+
+				if p.ocpsIncrement {
+					p.ocpsIndex = (p.ocpsIndex + 1) & 0x3f
+					p.b.Set(types.OCPS, p.b.Get(types.OCPS)&0xC0|p.ocpsIndex)
+				}
 				p.dirtyBackground(ocpd)
-				p.b.Set(types.OCPS, p.ColourSpritePalette.GetIndex()|0x40)
-				return p.ColourSpritePalette.Read()
+
+				return v
 			}
 
 			return 0xff
-
 		})
-		b.Set(types.OCPD, p.ColourSpritePalette.Read())
+		b.ReserveLazyReader(types.OCPD, func() byte {
+			if p.mode != ModeVRAM && p.b.IsGBCCart() {
+				return p.cRAM[64+p.ocpsIndex]
+			}
+			return 0xff
+		})
 	})
 
 	s.RegisterEvent(scheduler.PPUStartHBlank, p.startHBlank)
@@ -381,9 +445,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	for i := 0; i < len(p.backgroundLineChanged); i++ {
 		p.backgroundLineChanged[i] = true
 	}
-
-	p.ColourPalette = palette.NewCGBPallette()
-	p.ColourSpritePalette = palette.NewCGBPallette()
 
 	return p
 }
@@ -667,13 +728,13 @@ func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
 			tileEntry := p.TileMaps[0][j][i]
 			// get tile data
 			tile := p.TileData[tileEntry.vRAMBank][getID(tileEntry.id, p.addressMode)]
-			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[0])
+			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette[0])
 
 			tileEntry = p.TileMaps[1][j][i]
 
 			// get tile data
 			tile = p.TileData[tileEntry.vRAMBank][getID(tileEntry.id, p.addressMode)]
-			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette.Palettes[0])
+			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette[0])
 		}
 	}
 }
@@ -850,7 +911,7 @@ func (p *PPU) renderScanline() {
 func (p *PPU) renderBlank() {
 	for y := uint8(0); y < ScreenHeight; y++ {
 		for x := uint8(0); x < ScreenWidth; x++ {
-			p.PreparedFrame[y][x] = p.ColourPalette.Palettes[0][0] // TODO handle GBC
+			p.PreparedFrame[y][x] = p.ColourPalette[0][0] // TODO handle GBC
 		}
 	}
 	p.cleared = true
@@ -896,7 +957,7 @@ func (p *PPU) renderWindowScanline() {
 
 // getTile returns the TileEntry, and palette for the
 // tile at the given xPos and yPos on the given tile map.
-func (p *PPU) getTile(xPos, yPos, tileMap uint8) (tileEntry TileEntry, b1, b2 uint8, pal palette.Palette) {
+func (p *PPU) getTile(xPos, yPos, tileMap uint8) (tileEntry TileEntry, b1, b2 uint8, pal Palette) {
 	tileEntry = p.TileMaps[tileMap][yPos>>3][xPos>>3]
 	tileData := p.TileData[tileEntry.vRAMBank][getID(tileEntry.id, p.addressMode)]
 
@@ -905,7 +966,7 @@ func (p *PPU) getTile(xPos, yPos, tileMap uint8) (tileEntry TileEntry, b1, b2 ui
 		yPixelPos = 7 - yPixelPos
 	}
 	b1, b2 = tileData[yPixelPos], tileData[yPixelPos+8]
-	pal = p.ColourPalette.Palettes[tileEntry.paletteNumber]
+	pal = p.ColourPalette[tileEntry.paletteNumber]
 
 	return
 }
@@ -981,7 +1042,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 		b1 := p.TileData[sprite.vRAMBank][tileID][yPixelPos]
 		b2 := p.TileData[sprite.vRAMBank][tileID][yPixelPos+8]
 
-		pal := p.ColourSpritePalette.Palettes[sprite.paletteNumber]
+		pal := p.ColourSpritePalette[sprite.paletteNumber]
 
 		for x := uint8(0); x < 8 && (sprite.x)+x < ScreenWidth+8; x++ {
 			colourNumber := colorNumber(b1, b2, x, sprite.xFlip)
@@ -1036,7 +1097,7 @@ func (p *PPU) DumpRender(img *image.RGBA) {
 
 func (p *PPU) DrawSprite(img *image.RGBA, spr Sprite) {
 	// get the tile that sprite is using and call tile.Draw
-	p.TileData[spr.vRAMBank][spr.id].Draw(img, 0, 0, p.ColourSpritePalette.Palettes[spr.paletteNumber])
+	p.TileData[spr.vRAMBank][spr.id].Draw(img, 0, 0, p.ColourSpritePalette[spr.paletteNumber])
 
 }
 

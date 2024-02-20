@@ -43,6 +43,8 @@ type Bus struct {
 	setHandlers   [0x100]func(any)
 	lazyReaders   [0x100]func() byte
 
+	bootHandlers []func()
+
 	c *Cartridge
 
 	model types.Model
@@ -99,15 +101,6 @@ func (b *Bus) Map(m types.Model) {
 
 	// setup CGB only registers
 	if b.isGBC && b.c.IsCGBCartridge() {
-		b.ReserveAddress(types.VBK, func(v byte) byte {
-			// copy currently banked data to VRAM
-			copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
-
-			// copy VRAM to currently banked data
-			copy(b.data[0x8000:0xA000], b.vRAM[v&0x1][:])
-
-			return v | 0b1111_1110
-		})
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -205,22 +198,40 @@ func (b *Bus) Map(m types.Model) {
 			}
 		})
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
+			oldBank := b.data[types.SVBK] & 7
+			if oldBank == 0 {
+				oldBank = 1
+			}
 			// copy currently banked data to wRAM
-			copy(b.wRAM[(b.data[types.SVBK]&0x7)-1][:], b.data[0xD000:0xE000])
-			if v == 0 {
-				v = 1
+			copy(b.wRAM[oldBank-1][:], b.data[0xD000:0xE000])
+			bank := v & 7
+			if bank == 0 {
+				bank = 1
 			}
 			// copy new wRAM bank to banked data
-			copy(b.data[0xD000:0xE000], b.wRAM[(v&0x7)-1][:])
+			copy(b.data[0xD000:0xE000], b.wRAM[(bank&0x7)-1][:])
 
 			return v | 0b1111_1000
 		})
-		b.Set(types.SVBK, 0xF9)
+		b.Set(types.SVBK, 0xF8)
 
 	}
 
 	// setup cgb model registers
 	if b.model == types.CGBABC || b.model == types.CGB0 {
+		b.ReserveAddress(types.VBK, func(v byte) byte {
+			if b.IsGBCCart() || b.IsBooting() {
+				// copy currently banked data to VRAM
+				copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
+
+				// copy VRAM to currently banked data
+				copy(b.data[0x8000:0xA000], b.vRAM[v&0x1][:])
+
+				return v | 0b1111_1110
+			}
+
+			return 0xff
+		})
 		for i := types.FF72; i < types.FF74; i++ {
 			b.ReserveAddress(i, func(v byte) byte {
 				return v
@@ -337,6 +348,8 @@ func (b *Bus) ReserveSetAddress(addr uint16, handler func(any)) {
 	b.setHandlers[addr&0xFF] = handler
 }
 
+func (b *Bus) RegisterBootHandler(f func()) { b.bootHandlers = append(b.bootHandlers, f) } // called after boot ROM
+
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
 func (b *Bus) Write(addr uint16, value byte) {
@@ -362,17 +375,11 @@ func (b *Bus) Write(addr uint16, value byte) {
 			if b.bootROMDone {
 				return
 			}
-			// any write to BDIS will unmap the boot ROM,
-			// and it should always read 0xFF
 			b.bootROMDone = true
-			value = 0xFF
+			value = 0xff
 
-			// copy rom contents back
-			b.CopyTo(0, 0x900, b.data[0xE000:0xE900])
-
-			// load colourisation palette into PPU (if in CGB mode with a DMG cart)
-			if b.isGBC && !b.c.IsCGBCartridge() {
-				b.Write(0xFF7F, 0xFF)
+			for _, f := range b.bootHandlers {
+				f()
 			}
 		case types.IF:
 			value = value | 0xE0 // upper bits are always 1
@@ -500,7 +507,6 @@ func (b *Bus) WhenGBC(f func()) {
 // bus.
 func (b *Bus) ClockedRead(addr uint16) byte {
 	b.s.Tick(4)
-
 	switch {
 	case addr <= 0x9FFF || addr >= 0xC000 && addr <= 0xFDFF:
 		if b.regionLocks&0xff00&(1<<((addr>>12)&0xe)) > 0 || (b.isDMATransferring() && b.dmaConflicted&(1<<(addr>>12)) > 0) {

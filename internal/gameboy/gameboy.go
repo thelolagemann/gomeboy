@@ -379,22 +379,8 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	g.Bus.Map(g.model)
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
+		g.Colourise()
 		g.Bus.Boot()
-
-		// handle colourisation
-		if !b.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
-			video.BGColourisationPalette = &palette.Palette{}
-			video.OBJ0ColourisationPalette = &palette.Palette{}
-			video.OBJ1ColourisationPalette = &palette.Palette{}
-			colourisationPalette := palette.LoadColourisationPalette([]byte(b.Cartridge().Title))
-
-			for i := 0; i < 4; i++ {
-				video.BGColourisationPalette[i] = colourisationPalette.BG[i]
-				video.OBJ0ColourisationPalette[i] = colourisationPalette.OBJ0[i]
-				video.OBJ1ColourisationPalette[i] = colourisationPalette.OBJ1[i]
-			}
-
-		}
 
 		// schedule the frame sequencer event for the next 8192 ticks
 		g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer, uint64(8192-g.Scheduler.SysClock()&0x0fff))
@@ -428,6 +414,21 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 
 	// return the prepared frames
 	return g.PPU.PreparedFrame, g.attachedGameBoy.PPU.PreparedFrame
+}
+
+func (g *GameBoy) Colourise() {
+	if !g.Bus.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
+		pal := palette.LoadColourisationPalette([]byte(g.Bus.Cartridge().Title))
+		for i := 0; i < 4; i++ {
+			g.PPU.BGColourisationPalette[i] = pal.BG[i]
+			g.PPU.OBJ0ColourisationPalette[i] = pal.OBJ0[i]
+			g.PPU.OBJ1ColourisationPalette[i] = pal.OBJ1[i]
+		}
+	} else {
+		g.PPU.BGColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
+		g.PPU.OBJ0ColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
+		g.PPU.OBJ1ColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
+	}
 }
 
 // Frame will step the emulation until the PPU has finished
