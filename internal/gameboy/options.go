@@ -2,7 +2,6 @@ package gameboy
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -46,12 +45,6 @@ func AsModel(m types.Model) func(gb *GameBoy) {
 	}
 }
 
-func WithPalette(p palette.Palette) Opt {
-	return func(gb *GameBoy) {
-		gb.PPU.ColourPalettes[0] = p
-	}
-}
-
 func SerialConnection(gbFrom *GameBoy) Opt {
 	return func(gbTo *GameBoy) {
 		gbTo.Serial.Attach(gbFrom.Serial)
@@ -70,22 +63,16 @@ func WithLogger(log log.Logger) Opt {
 // WithBootROM sets the boot ROM for the emulator.
 func WithBootROM(rom []byte) Opt {
 	return func(gb *GameBoy) {
-		// flag the gameboy not to lle the boot process
-		gb.dontBoot = true
+		gb.dontBoot = true // don't hle boot process
 
-		// this is a cheeky hack to handle remapping the rom
-		// copy to the WRAM mirror (which *should* never be accessed
-		// by the bus as reads will wrap around) then on writes
-		// to types.BDIS the rom contents will be copied back
 		romContents := make([]byte, 0x0900)
 		gb.Bus.CopyFrom(0, 0x0900, romContents)
-		gb.Bus.CopyTo(0xE000, 0xE900, romContents)
+		gb.Bus.RegisterBootHandler(func() {
+			gb.Bus.CopyTo(0, 0x0900, romContents)
+		})
 
-		// is it a DMG or CGB boot ROM?
-		if len(rom) == 0x100 {
-			gb.Bus.CopyTo(0, 0x0100, rom)
-		} else if len(rom) == 0x900 {
-			gb.Bus.CopyTo(0, 0x0100, rom)
+		gb.Bus.CopyTo(0, 0x0100, rom)
+		if len(rom) == 0x900 {
 			gb.Bus.CopyTo(0x0200, 0x0900, rom[0x200:])
 		}
 

@@ -2,7 +2,7 @@ package accessories
 
 import (
 	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
+	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
 	"image/color"
@@ -239,7 +239,7 @@ func (p *Printer) runCommand(cmd Command) {
 			colourData := make([]color.RGBA, p.imageOffset)
 			pal := p.data[2]
 
-			colors := palette.ColourPalettes[palette.Greyscale]
+			colors := ppu.ColourPalettes[ppu.Greyscale]
 
 			for i := 0; i < p.imageOffset; i++ {
 				cData := colors[(pal>>(p.imageData[i]<<1))&0b11]

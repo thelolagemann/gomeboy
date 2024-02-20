@@ -43,7 +43,7 @@ func (v *Tiles) Run(window fyne.Window, events <-chan event.Event) error {
 	settings.Add(container.NewGridWithColumns(2, widget.NewLabelWithStyle("Scale  ", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), scaleDropdown))
 
 	// create paletteView selection container
-	var selectedPalette = v.PPU.ColourPalette.Palettes[0]
+	var selectedPalette = v.PPU.ColourPalette[0]
 	paletteSelection := container.NewGridWithColumns(2)
 	paletteSelection.Add(widget.NewLabelWithStyle("Palette", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 
@@ -115,7 +115,7 @@ func (v *Tiles) Run(window fyne.Window, events <-chan event.Event) error {
 					high, low := v.PPU.TileData[selectedTileBank][selectedTileIndex][y], v.PPU.TileData[selectedTileBank][selectedTileIndex][y+8]
 					var colourNum = int((high >> (7 - x)) & 1)
 					colourNum |= int((low>>(7-x))&1) << 1
-					rgb := selectedPalette.GetColour(uint8(colourNum))
+					rgb := selectedPalette[colourNum]
 
 					rect.rec.FillColor = color.RGBA{
 						R: rgb[0],
@@ -378,7 +378,7 @@ Address	0x8000`)
 					high, low := v.PPU.TileData[bank][tile][y], v.PPU.TileData[bank][tile][y+8]
 					var colourNum = int((high >> (7 - x)) & 1)
 					colourNum |= int((low>>(7-x))&1) << 1
-					rgb := selectedPalette.GetColour(uint8(colourNum))
+					rgb := selectedPalette[colourNum]
 
 					recGrid.Objects[x].(*fyne.Container).Objects[y].(*tappableRectangle).rec.FillColor = color.RGBA{
 						R: rgb[0],
@@ -500,10 +500,10 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 		if s[0:2] == "BG" {
 			// get number
 			paletteNumber, _ := strconv.Atoi(s[3:])
-			selectedPalette = v.PPU.ColourPalette.Palettes[paletteNumber]
+			selectedPalette = v.PPU.ColourPalette[paletteNumber]
 		} else {
 			paletteNumber, _ := strconv.Atoi(s[4:])
-			selectedPalette = v.PPU.ColourPalette.Palettes[paletteNumber]
+			selectedPalette = v.PPU.ColourPalette[paletteNumber]
 		}
 
 		// get text grid contents

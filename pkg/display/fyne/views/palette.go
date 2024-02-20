@@ -10,7 +10,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image/color"
-	"reflect"
 )
 
 type Palette struct {
@@ -95,10 +94,10 @@ func (p Palette) Run(window fyne.Window, events <-chan event.Event) error {
 			// create a rectangle for obj and bg paletteView
 			bgRect := newTappableRectangle(func() {
 				// set the color of the selected paletteView
-				selectedPalette.FillColor = toRGB(p.PPU.ColourPalette.GetColour(uint8(newI), uint8(newJ)))
+				selectedPalette.FillColor = toRGB(p.PPU.ColourPalette[newI][newJ])
 				selectedPalette.Refresh()
 				// set the color of the selected paletteView info
-				selectedPaletteColour = toRGB(p.PPU.ColourPalette.GetColour(uint8(newI), uint8(newJ)))
+				selectedPaletteColour = toRGB(p.PPU.ColourPalette[newI][newJ])
 				selectedPaletteRedLabel.SetText(fmt.Sprintf("0x%02X", selectedPaletteColour.R))
 				selectedPaletteGreenLabel.SetText(fmt.Sprintf("0x%02X", selectedPaletteColour.G))
 				selectedPaletteBlueLabel.SetText(fmt.Sprintf("0x%02X", selectedPaletteColour.B))
@@ -144,8 +143,8 @@ func (p Palette) Run(window fyne.Window, events <-chan event.Event) error {
 					for i := uint8(0); i < 8; i++ {
 						for j := uint8(0); j < 4; j++ {
 							// get the color from the paletteView
-							bgColor := toRGB(p.PPU.ColourPalette.GetColour(i, j))
-							objColor := toRGB(p.PPU.ColourSpritePalette.GetColour(i, j))
+							bgColor := toRGB(p.PPU.ColourPalette[i][j])
+							objColor := toRGB(p.PPU.ColourSpritePalette[i][j])
 
 							// get the rectangle
 							bgRect := cgbBGPaletteBox.Objects[i+1].(*fyne.Container).Objects[j].(*tappableRectangle).rec
@@ -207,20 +206,11 @@ func (s selectedPaletteLayout) Layout(objects []fyne.CanvasObject, size fyne.Siz
 	if len(objects) != 3 {
 		return
 	}
-	for i, obj := range objects {
-		fmt.Println("selectedPaletteLayout: type of object", i, reflect.TypeOf(obj))
-	}
-	// set the size of the selected paletteView
 	objects[0].(*canvas.Rectangle).Resize(fyne.NewSize(78, 78))
-	// set the position of the selected paletteView
 	objects[0].(*canvas.Rectangle).Move(fyne.NewPos(8, 0))
-	// set the size of the selected paletteView info
 	objects[1].Resize(fyne.NewSize(48, 78))
-	// set the position of the selected paletteView info
 	objects[1].Move(fyne.NewPos(88, 4))
-	// set the size of the selected paletteView action buttons
 	objects[2].Resize(fyne.NewSize(48, 48))
-	// set the position of the selected paletteView action buttons
 	objects[2].Move(fyne.NewPos(222, 0))
 }
 
@@ -233,10 +223,7 @@ type selectedPaletteInfoLayout struct {
 
 func (s selectedPaletteInfoLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	if len(objects) != 3 {
-		fmt.Println("selectedPaletteInfoLayout: invalid number of objects", len(objects))
 		return
-	} else {
-		fmt.Println("selectedPaletteInfoLayout: valid number of objects", len(objects))
 	}
 
 	objects[0].Resize(fyne.NewSize(48, 16))

@@ -6,7 +6,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/cpu"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/serial"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
@@ -379,22 +378,8 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	g.Bus.Map(g.model)
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
+		g.Colourise()
 		g.Bus.Boot()
-
-		// handle colourisation
-		if !b.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
-			video.BGColourisationPalette = &palette.Palette{}
-			video.OBJ0ColourisationPalette = &palette.Palette{}
-			video.OBJ1ColourisationPalette = &palette.Palette{}
-			colourisationPalette := palette.LoadColourisationPalette([]byte(b.Cartridge().Title))
-
-			for i := 0; i < 4; i++ {
-				video.BGColourisationPalette[i] = colourisationPalette.BG[i]
-				video.OBJ0ColourisationPalette[i] = colourisationPalette.OBJ0[i]
-				video.OBJ1ColourisationPalette[i] = colourisationPalette.OBJ1[i]
-			}
-
-		}
 
 		// schedule the frame sequencer event for the next 8192 ticks
 		g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer, uint64(8192-g.Scheduler.SysClock()&0x0fff))
@@ -428,6 +413,36 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 
 	// return the prepared frames
 	return g.PPU.PreparedFrame, g.attachedGameBoy.PPU.PreparedFrame
+}
+
+func (g *GameBoy) Colourise() {
+	if !g.Bus.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
+		var pal = ppu.ColourisationPalettes[0]
+		if g.Bus.Cartridge().Licensee() == "Nintendo" {
+			// compute title hash
+			hash := uint8(0)
+			title := []byte(g.Bus.Cartridge().Title)
+			for i := 0; i < len(title); i++ {
+				hash += title[i]
+			}
+			var ok bool
+			pal, ok = ppu.ColourisationPalettes[uint16(hash)]
+
+			if !ok {
+				pal, ok = ppu.ColourisationPalettes[uint16(title[3])<<8|uint16(hash)]
+				if !ok {
+					pal = ppu.ColourisationPalettes[0]
+				}
+			}
+		}
+		g.PPU.BGColourisationPalette = pal.BG
+		g.PPU.OBJ0ColourisationPalette = pal.OBJ0
+		g.PPU.OBJ1ColourisationPalette = pal.OBJ1
+	} else {
+		g.PPU.BGColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
+		g.PPU.OBJ0ColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
+		g.PPU.OBJ1ColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
+	}
 }
 
 // Frame will step the emulation until the PPU has finished
