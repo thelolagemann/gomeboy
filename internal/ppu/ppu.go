@@ -87,24 +87,18 @@ func init() {
 	_, _ = r.Read() // discard header
 	records, _ := r.ReadAll()
 
+	toRGB := func(s string) [3]uint8 {
+		rgb, _ := strconv.ParseUint(s, 16, 32)
+		return [3]uint8{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb)}
+	}
+
 	for _, row := range records {
 		pal := ColourisationPalette{}
 
 		for x := 0; x < 4; x++ {
-			bgRGB, _ := strconv.ParseUint(row[2+x][1:], 16, 32)
-			pal.BG[x][0] = uint8(bgRGB >> 16)
-			pal.BG[x][1] = uint8(bgRGB >> 8)
-			pal.BG[x][2] = uint8(bgRGB)
-
-			obj0RGB, _ := strconv.ParseUint(row[6+x][1:], 16, 32)
-			pal.OBJ0[x][0] = uint8(obj0RGB >> 16)
-			pal.OBJ0[x][1] = uint8(obj0RGB >> 8)
-			pal.OBJ0[x][2] = uint8(obj0RGB)
-
-			obj1RGB, _ := strconv.ParseUint(row[10+x][1:], 16, 32)
-			pal.OBJ1[x][0] = uint8(obj1RGB >> 16)
-			pal.OBJ1[x][1] = uint8(obj1RGB >> 8)
-			pal.OBJ1[x][2] = uint8(obj1RGB)
+			pal.BG[x] = toRGB(row[2+x][1:])
+			pal.OBJ0[x] = toRGB(row[6+x][1:])
+			pal.OBJ1[x] = toRGB(row[10+x][1:])
 		}
 
 		hash, _ := strconv.ParseUint(row[0][2:], 16, 8)
@@ -115,7 +109,6 @@ func init() {
 
 		ColourisationPalettes[uint16(hash)|uint16(disambiguation)<<8] = pal
 	}
-	fmt.Println(ColourisationPalettes[0x14])
 }
 
 type PPU struct {

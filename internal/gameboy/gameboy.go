@@ -6,7 +6,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/cpu"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/internal/ppu/palette"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/serial"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
@@ -418,12 +417,27 @@ func (g *GameBoy) LinkFrame() ([ppu.ScreenHeight][ppu.ScreenWidth][3]uint8, [ppu
 
 func (g *GameBoy) Colourise() {
 	if !g.Bus.Cartridge().IsCGBCartridge() && (g.model == types.CGBABC || g.model == types.CGB0) {
-		pal := palette.LoadColourisationPalette([]byte(g.Bus.Cartridge().Title))
-		for i := 0; i < 4; i++ {
-			g.PPU.BGColourisationPalette[i] = pal.BG[i]
-			g.PPU.OBJ0ColourisationPalette[i] = pal.OBJ0[i]
-			g.PPU.OBJ1ColourisationPalette[i] = pal.OBJ1[i]
+		var pal = ppu.ColourisationPalettes[0]
+		if g.Bus.Cartridge().Licensee() == "Nintendo" {
+			// compute title hash
+			hash := uint8(0)
+			title := []byte(g.Bus.Cartridge().Title)
+			for i := 0; i < len(title); i++ {
+				hash += title[i]
+			}
+			var ok bool
+			pal, ok = ppu.ColourisationPalettes[uint16(hash)]
+
+			if !ok {
+				pal, ok = ppu.ColourisationPalettes[uint16(title[3])<<8|uint16(hash)]
+				if !ok {
+					pal = ppu.ColourisationPalettes[0]
+				}
+			}
 		}
+		g.PPU.BGColourisationPalette = pal.BG
+		g.PPU.OBJ0ColourisationPalette = pal.OBJ0
+		g.PPU.OBJ1ColourisationPalette = pal.OBJ1
 	} else {
 		g.PPU.BGColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
 		g.PPU.OBJ0ColourisationPalette = ppu.ColourPalettes[ppu.Greyscale]
