@@ -284,14 +284,26 @@ func (b *Bus) Boot() {
 		}
 	}
 
-	// set initial tile data
-	for i := 0; i < len(initialTileData)*2; i += 2 {
-		// every other byte is 0x00, whilst the other byte is set from
-		// the initial tile data
-		b.data[0x8000+i+16] = initialTileData[i/2]
+	// unpack logo data
+	logoData := b.data[0x0104:0x0134]
+	var unpackedLogoData []byte
+	for i := 0; i < len(logoData); i++ {
+		var currentData [8]uint8 // every other byte is 0
+		for bit := uint8(0); bit < 8; bit++ {
+			n := logoData[i] >> bit & 1
+			currentData[0] |= n<<(2*(bit-4)) | n<<(2*(bit-4)+1)
+			currentData[4] |= n<<(2*bit) | n<<(2*bit+1)
+		}
+		currentData[2], currentData[6] = currentData[0], currentData[4] // double bytes
+
+		unpackedLogoData = append(unpackedLogoData, currentData[:]...)
 	}
-	// set initial tile map
-	copy(b.data[0x9904:], initialTileMap)
+	copy(b.data[0x8010:], append(unpackedLogoData, 0x3C, 0, 0x42, 0, 0xB9, 0, 0xA5, 0, 0xB9, 0, 0xA5, 0, 0x42, 0, 0x3C))
+	for i := uint8(0); i < 12; i++ {
+		b.data[0x9904+uint16(i)] = i + 1
+		b.data[0x9924+uint16(i)] = i + 13
+	}
+	b.data[0x9910] = 0x19
 
 	// wRAM is randomized on boot (not accurate to hardware, but random enough to pass most anti-emu checks)
 	for i := 0; i < 0x2000; i++ {
