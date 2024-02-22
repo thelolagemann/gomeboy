@@ -70,17 +70,16 @@ type Bus struct {
 	dmaComplete, dmaPaused      bool
 
 	// various IO
-	buttonState uint8
-	ime         bool
-	bootROMDone bool
-	wRAMBank    uint8 // 1 - 7 in CGB mode
+	buttonState  uint8
+	ime          bool
+	bootROMDone  bool
+	vRAMBankMask uint8
 }
 
 // NewBus creates a new Bus instance.
 func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	b := &Bus{
 		s:           s,
-		gbcHandlers: make([]func(), 0),
 		dmaConflict: 0xff,
 		vramChanges: make([]VRAMChange, 0x4000),
 	}
@@ -103,6 +102,7 @@ func (b *Bus) Map(m types.Model) {
 
 	// setup CGB only registers
 	if b.isGBC && b.c.IsCGBCartridge() {
+		b.vRAMBankMask = 1
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -460,7 +460,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 				return
 			}
 
-			b.vramChanges = append(b.vramChanges, VRAMChange{addr, value, b.Get(types.VBK) & 1})
+			b.vramChanges = append(b.vramChanges, VRAMChange{addr, value, b.Get(types.VBK) & b.vRAMBankMask})
 			b.vramChanged = true
 		// 0xC000-0xFDFF WRAM & mirror
 		case addr >= 0xC000 && addr <= 0xFDFF:
@@ -482,12 +482,6 @@ func (b *Bus) Write(addr uint16, value byte) {
 
 // Get gets the value at the specified memory address.
 func (b *Bus) Get(addr uint16) byte {
-	switch addr {
-	case types.VBK:
-		if !b.isGBC {
-			return 0xFE // return VRAM bank 0 always
-		}
-	}
 	return b.data[addr]
 }
 
