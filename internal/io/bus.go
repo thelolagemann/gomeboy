@@ -31,6 +31,8 @@ const (
 //		0xFF80 | 0xFFFE | High RAM
 //		0xFFFF | 0xFFFF | Interrupt Enable Register
 type Bus struct {
+	InterruptCallback func(v uint8)
+
 	data [0x10000]byte   // 64 KiB memory
 	wRAM [7][0x1000]byte // 7 banks of 4 KiB each (bank 0 is fixed)
 	vRAM [2][0x2000]byte // 2 banks of 8 KiB each
@@ -152,7 +154,7 @@ func (b *Bus) Map(m types.Model) {
 				// if the LCD is disabled, one HDMA transfer is performed immediately
 				// and the rest are performed during the next HBlank period
 				if b.Get(types.LCDC)&types.Bit7 != types.Bit7 && b.dmaRemaining > 0 {
-					b.newDMA(1)
+					b.colorDMA(1)
 					b.dmaRemaining--
 				}
 
@@ -160,7 +162,7 @@ func (b *Bus) Map(m types.Model) {
 				// performed by the scheduler until the next HBlank period, so we perform
 				// the transfer immediately here and decrement the remaining length
 				if b.Get(types.LCDC)&types.Bit7 == types.Bit7 && b.LazyRead(types.STAT)&0b11 == 0 && b.dmaRemaining > 0 {
-					b.newDMA(1)
+					b.colorDMA(1)
 					b.dmaRemaining--
 				}
 			} else {
@@ -172,7 +174,7 @@ func (b *Bus) Map(m types.Model) {
 					b.dmaRemaining = b.dmaLength
 				} else {
 					// if we're not in the middle of a HDMA transfer, perform a GDMA transfer
-					b.newDMA(b.dmaLength)
+					b.colorDMA(b.dmaLength)
 				}
 			}
 
@@ -396,7 +398,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 		case types.IF:
 			value = value | 0xE0 // upper bits are always 1
 			if b.ime && b.data[types.IE]&value&0x1f != 0 {
-				b.Write(0xFF7e, 0)
+				b.InterruptCallback(0)
 			}
 		case types.DMA:
 			b.dmaSource = uint16(value) << 8
@@ -431,7 +433,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 			b.s.ScheduleEvent(scheduler.DMAStartTransfer, 8) // TODO find out why 8 instead of 4?
 		case types.IE:
 			if b.ime && b.data[types.IF]&value != 0 {
-				b.Write(0xFF7e, 0)
+				b.InterruptCallback(0)
 			}
 		default:
 			// check to see if a component has reserved this address
@@ -568,6 +570,157 @@ func (b *Bus) IsBooting() bool       { return !b.bootROMDone }       // returns 
 func (b *Bus) IsGBC() bool           { return b.isGBC }              // returns if in CGB mode
 func (b *Bus) IsGBCCart() bool       { return b.c.IsCGBCartridge() } // returns if cart supports CGB
 func (b *Bus) Model() types.Model    { return b.model }              // returns the current model
+
+func (b *Bus) OAMChanged() bool        { return b.oamChanged }                   // has oam changed
+func (b *Bus) VRAMChanged() bool       { return b.vramChanged }                  // has vram changed
+func (b *Bus) isDMATransferring() bool { return b.dmaActive || b.dmaRestarting } // DMA transfer in progress
+
+// OAMCatchup calls f with the OAM memory region.
+func (b *Bus) OAMCatchup(f func([160]byte)) {
+	f([160]byte(b.data[0xfe00 : 0xfe00+160]))
+	b.oamChanged = false
+}
+
+// VRAMCatchup calls f with pending vRAM changes.
+func (b *Bus) VRAMCatchup(f func([]VRAMChange)) {
+	f(b.vramChanges)
+	b.vramChanges = b.vramChanges[:0]
+	b.vramChanged = false
+}
+
+// startDMATransfer initiates a DMA transfer.
+func (b *Bus) startDMATransfer() {
+	b.dmaActive = true
+	b.dmaRestarting = false
+	b.doDMATransfer()
+	b.s.ScheduleEvent(scheduler.DMAEndTransfer, 640)
+}
+
+// doDMATransfer performs a single DMA operation, copying a byte from the source to OAM.
+func (b *Bus) doDMATransfer() {
+	b.dmaConflict = b.data[b.dmaSource]
+	b.data[b.dmaDestination] = b.dmaConflict
+	b.oamChanged = true
+
+	b.dmaSource++
+	b.dmaDestination++
+
+	if b.dmaDestination < 0xfea0 {
+		b.s.ScheduleEvent(scheduler.DMATransfer, 4)
+	}
+}
+
+// endDMATransfer ends a DMA transfer.
+func (b *Bus) endDMATransfer() {
+	b.dmaActive, b.dmaEnabled = false, false
+	b.dmaConflicted = 0
+	b.dmaConflict = 0xff
+}
+
+// colorDMA performs a GDMA/HDMA transfer of length, transferring from source to vRAM.
+func (b *Bus) colorDMA(length uint8) {
+	for i := uint8(0); i < length; i++ {
+		for j := uint8(0); j < 16; j++ {
+			// tick the scheduler
+			if b.s.DoubleSpeed() {
+				b.s.Tick(4)
+			} else {
+				b.s.Tick(2)
+			}
+
+			// perform the transfer
+			b.Write(b.hdmaDestination&0x1fff|0x8000, b.Get(b.hdmaSource))
+
+			// increment the source and destination
+			b.hdmaSource++
+			b.hdmaDestination++
+		}
+	}
+}
+
+func (b *Bus) HandleHDMA() {
+	// is there any remaining data to transfer and
+	// has the DMA not been paused?
+	if b.dmaRemaining > 0 && !b.dmaPaused {
+		// update HDMA5 register as the next DMA will tick
+		b.Set(types.HDMA5, b.Get(types.HDMA5)&0x80|(b.dmaRemaining-1)&0x7f)
+		b.colorDMA(1)
+		b.dmaRemaining--
+	} else if !b.dmaPaused {
+		b.dmaRemaining = 0
+		b.dmaComplete = true
+		b.Set(types.HDMA5, 0xFF)
+	}
+}
+
+const (
+	VBlankINT = types.Bit0 // ppu vblank
+	LCDINT    = types.Bit1 // lcd stat
+	TimerINT  = types.Bit2 // timer overflow
+	SerialINT = types.Bit3 // serial transfer
+	JoypadINT = types.Bit4 // joypad
+)
+
+// EnableInterrupts sets IME
+func (b *Bus) EnableInterrupts() {
+	b.ime = true
+
+	if b.HasInterrupts() {
+		b.InterruptCallback(0)
+	}
+}
+
+// RaiseInterrupt sets the requested interrupt high in types.IF
+func (b *Bus) RaiseInterrupt(interrupt uint8) {
+	b.data[types.IF] |= interrupt
+	if interrupt == VBlankINT {
+		b.InterruptCallback(interrupt)
+	}
+	if b.CanInterrupt() {
+		b.InterruptCallback(0)
+	}
+}
+
+// IRQVector returns the current interrupt vector and clears the corresponding
+// interrupt from types.IF.
+//
+// When an interrupt occurs, there is a chance for the interrupt vector to change
+// during the execution of the dispatch handler.
+// https://mgba.io/2018/03/09/holy-grail-bugs-revisited/
+func (b *Bus) IRQVector(irq uint8) uint16 {
+	for i := uint8(0); i < 5; i++ {
+		f := uint8(1 << i)
+
+		if irq&b.data[types.IF]&f == f {
+			b.data[types.IF] &^= f
+
+			return uint16(0x0040 + i<<3)
+		}
+	}
+
+	return 0
+}
+
+func (b *Bus) CanInterrupt() bool      { return b.ime && b.HasInterrupts() }                 // IME set & pending interrupts
+func (b *Bus) DisableInterrupts()      { b.ime = false }                                     // resets IME
+func (b *Bus) HasInterrupts() bool     { return b.data[types.IE]&b.data[types.IF]&0x1F > 0 } // pending interrupts
+func (b *Bus) InterruptsEnabled() bool { return b.ime }                                      // IME set
+
+type Button = uint8
+
+const (
+	ButtonA Button = iota
+	ButtonB
+	ButtonSelect
+	ButtonStart
+	ButtonRight
+	ButtonLeft
+	ButtonUp
+	ButtonDown
+)
+
+func (b *Bus) Press(i uint8)   { b.buttonState |= 1 << i; b.RaiseInterrupt(JoypadINT) } // presses the requested button
+func (b *Bus) Release(i uint8) { b.buttonState &^= 1 << i }                             // releases the requested button
 
 type VRAMChange struct {
 	Address uint16

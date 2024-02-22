@@ -42,20 +42,12 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	var hl uint8
 	c.registerPointers = [8]*uint8{&c.B, &c.C, &c.D, &c.E, &c.H, &c.L, &hl, &c.A}
 
-	// these are fake addresses used by the bus to communicate to the CPU that an
-	// interrupt occurred. This is used to breakout of the loop in Frame.
-	b.ReserveAddress(0xFF7D, func(b byte) byte {
+	b.InterruptCallback = func(v uint8) {
+		if v&io.VBlankINT > 0 {
+			c.hasFrame = true
+		}
 		c.hasInt = true
-		c.hasFrame = true
-		return 0xff
-	})
-	b.Set(0xff7d, 0xff)
-	b.ReserveAddress(0xFF7E, func(b byte) byte {
-		c.hasInt = true
-
-		return 0xff
-	})
-	b.Set(0xff7e, 0xff)
+	}
 
 	sched.RegisterEvent(scheduler.EIPending, c.b.EnableInterrupts)
 	sched.RegisterEvent(scheduler.EIHaltDelay, func() {
