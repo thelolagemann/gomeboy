@@ -1,9 +1,9 @@
 package io
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"math/rand"
 )
 
@@ -31,18 +31,14 @@ const (
 //		0xFF80 | 0xFFFE | High RAM
 //		0xFFFF | 0xFFFF | Interrupt Enable Register
 type Bus struct {
-	InterruptCallback func(v uint8)
+	InterruptCallback func(v uint8) // used to notify CPU of interrupts
 
-	data [0x10000]byte   // 64 KiB memory
-	wRAM [7][0x1000]byte // 7 banks of 4 KiB each (bank 0 is fixed)
-	vRAM [2][0x2000]byte // 2 banks of 8 KiB each
-
-	// used to cache vRAM changes in between scanlines, avoids context
-	// switching to the ppu on vRAM writes
-	vramChanges []VRAMChange
+	data        [0x10000]byte   // 64 KiB memory
+	wRAM        [7][0x1000]byte // 7 banks of 4 KiB each (bank 0 is fixed)
+	vRAM        [2][0x2000]byte // 2 banks of 8 KiB each
+	vramChanges []VRAMChange    // cache vRAM changes for the PPU
 
 	writeHandlers [0x100]func(byte) byte
-	setHandlers   [0x100]func(any)
 	lazyReaders   [0x100]func() byte
 
 	bootHandlers []func()
@@ -83,10 +79,9 @@ func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 		dmaConflict: 0xff,
 		vramChanges: make([]VRAMChange, 0x4000),
 	}
-
 	b.c = NewCartridge(rom, b)
+	b.ReserveLazyReader(types.DIV, func() byte { return byte(b.s.SysClock() >> 8) })
 
-	// setup DMA events
 	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
 	s.RegisterEvent(scheduler.DMAStartTransfer, b.startDMATransfer)
 	s.RegisterEvent(scheduler.DMAEndTransfer, b.endDMATransfer)
@@ -97,8 +92,6 @@ func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 func (b *Bus) Map(m types.Model) {
 	b.model = m
 	b.isGBC = m == types.CGBABC || m == types.CGB0
-
-	b.ReserveLazyReader(types.DIV, func() byte { return byte(b.s.SysClock() >> 8) })
 
 	// setup CGB only registers
 	if b.isGBC && b.c.IsCGBCartridge() {
@@ -111,10 +104,7 @@ func (b *Bus) Map(m types.Model) {
 
 			return 0xFF
 		})
-		b.ReserveAddress(types.KEY1, func(v byte) byte {
-			return b.Get(types.KEY1)&types.Bit7 | v&0x1 | 0x7e
-		})
-		b.Set(types.KEY1, 0x7e)
+		b.ReserveAddress(types.KEY1, func(v byte) byte { return b.data[types.KEY1]&types.Bit7 | v&0x1 | 0x7e })
 
 		// setup hdma registers
 		b.ReserveAddress(types.HDMA1, func(v byte) byte {
@@ -126,17 +116,14 @@ func (b *Bus) Map(m types.Model) {
 		})
 		b.ReserveAddress(types.HDMA2, func(v byte) byte {
 			b.hdmaSource = b.hdmaSource&0xFF00 | uint16(v&0xF0)
-
 			return 0xff
 		})
 		b.ReserveAddress(types.HDMA3, func(v byte) byte {
 			b.hdmaDestination = b.hdmaDestination&0x00F0 | uint16(v)<<8
-
 			return 0xff
 		})
 		b.ReserveAddress(types.HDMA4, func(v byte) byte {
 			b.hdmaDestination = b.hdmaDestination&0xFF00 | uint16(v&0xF0)
-
 			return 0xff
 		})
 		b.ReserveAddress(types.HDMA5, func(v byte) byte {
@@ -200,53 +187,26 @@ func (b *Bus) Map(m types.Model) {
 			}
 		})
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
-			oldBank := b.data[types.SVBK] & 7
-			if oldBank == 0 {
-				oldBank = 1
-			}
-			// copy currently banked data to wRAM
-			copy(b.wRAM[oldBank-1][:], b.data[0xD000:0xE000])
-			bank := v & 7
-			if bank == 0 {
-				bank = 1
-			}
-			// copy new wRAM bank to banked data
-			copy(b.data[0xD000:0xE000], b.wRAM[(bank&0x7)-1][:])
-
-			return v | 0b1111_1000
+			copy(b.wRAM[utils.ZeroAdjust8(b.data[types.SVBK]&7)-1][:], b.data[0xD000:0xE000]) // bus -> wRAM
+			copy(b.data[0xD000:0xE000], b.wRAM[utils.ZeroAdjust8(v&7)-1][:])                  // wRAM -> bus
+			return v | 0xF8
 		})
 		b.Set(types.SVBK, 0xF8)
-
 	}
 
 	// setup cgb model registers
 	if b.model == types.CGBABC || b.model == types.CGB0 {
 		b.ReserveAddress(types.VBK, func(v byte) byte {
-			if b.IsGBCCart() || b.IsBooting() {
-				// copy currently banked data to VRAM
+			if b.IsGBCCart() || b.IsBooting() { // CGB boot ROM makes use of both banks
 				copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
-
-				// copy VRAM to currently banked data
 				copy(b.data[0x8000:0xA000], b.vRAM[v&0x1][:])
-
-				return v | 0b1111_1110
+				return v | 0xfe
 			}
-
 			return 0xff
 		})
-		for i := types.FF72; i < types.FF74; i++ {
-			b.ReserveAddress(i, func(v byte) byte {
-				return v
-			})
-		}
-		b.ReserveAddress(types.FF74, func(b byte) byte {
-			return 0xFF
-		})
-		b.Set(types.FF74, 0xFF)
-		b.ReserveAddress(types.FF75, func(v byte) byte {
-			// only bits 4-6 are writable
-			return v&0x70 | 0x8F
-		})
+		b.ReserveAddress(types.FF72, func(v byte) byte { return v })
+		b.ReserveAddress(types.FF73, func(v byte) byte { return v })
+		b.ReserveAddress(types.FF75, func(v byte) byte { return v&0x70 | 0x8F })
 		b.Set(types.FF75, 0x8F)
 
 		for _, f := range b.gbcHandlers {
@@ -254,13 +214,15 @@ func (b *Bus) Map(m types.Model) {
 		}
 	}
 
-	b.data[0xff7f] = 0xff
+	for i := 0xFF00; i < 0xFF80; i++ {
+		if wHandler := b.writeHandlers[i&0xFF]; wHandler == nil {
+			b.data[i] = 0xFF // default to 0xff if no write handler exists
+		}
+	}
 }
 
-// Boot sets up the bus to the state that it would be
-// in after having completed the boot ROM.
+// Boot the Bus to the state it would be in after execution of the boot ROM.
 func (b *Bus) Boot() {
-	// set initial HW
 	ioRegs := make(map[types.HardwareAddress]interface{})
 	for k, v := range types.CommonIO {
 		ioRegs[k] = v
@@ -268,21 +230,16 @@ func (b *Bus) Boot() {
 	for k, v := range types.ModelIO[b.model] {
 		ioRegs[k] = v
 	}
-	for i := 0xFF00; i < 0xFF80; i++ {
-		// has the model provided a set value?
-		if ioRegs[types.HardwareAddress(i)] != nil {
-			// is there a set handler registered for this address?
-			if handler := b.setHandlers[i&0xFF]; handler != nil {
-				handler(ioRegs[types.HardwareAddress(i)])
+	for i := types.HardwareAddress(0xFF00); i < 0xFF80; i++ {
+		// has the model provided a value?
+		if ioRegs[i] != nil {
+			if i == types.DIV { // special case for DIV
+				b.s.OverrideDiv(ioRegs[i].(uint16))
 			} else if wHandler := b.writeHandlers[i&0xFF]; wHandler != nil {
-				b.data[i] = wHandler(ioRegs[types.HardwareAddress(i)].(byte))
-			} else if _, ok := ioRegs[types.HardwareAddress(i)].(byte); ok {
-				// set data as is
-				b.data[i] = ioRegs[types.HardwareAddress(i)].(byte)
+				b.data[i] = wHandler(ioRegs[i].(byte))
+			} else if _, ok := ioRegs[i].(byte); ok {
+				b.data[i] = ioRegs[i].(byte)
 			}
-		} else if wHandler := b.writeHandlers[i&0xFF]; wHandler == nil {
-			// default to 0xFF if no write handler exists
-			b.data[i] = 0xFF
 		}
 	}
 
@@ -297,7 +254,6 @@ func (b *Bus) Boot() {
 			currentData[4] |= n<<(2*bit) | n<<(2*bit+1)
 		}
 		currentData[2], currentData[6] = currentData[0], currentData[4] // double bytes
-
 		unpackedLogoData = append(unpackedLogoData, currentData[:]...)
 	}
 	copy(b.data[0x8010:], append(unpackedLogoData, 0x3C, 0, 0x42, 0, 0xB9, 0, 0xA5, 0, 0xB9, 0, 0xA5, 0, 0x42, 0, 0x3C))
@@ -306,6 +262,9 @@ func (b *Bus) Boot() {
 		b.data[0x9924+uint16(i)] = i + 13
 	}
 	b.data[0x9910] = 0x19
+	for i := uint16(0x8000); i < 0x9930; i++ {
+		b.vramChanges = append(b.vramChanges, VRAMChange{i, b.data[i], 0})
+	}
 
 	// wRAM is randomized on boot (not accurate to hardware, but random enough to pass most anti-emu checks)
 	for i := 0; i < 0x2000; i++ {
@@ -332,37 +291,14 @@ func (b *Bus) Boot() {
 		b.Set(types.VBK, 0xFE)
 	}
 
-	// handle special case registers
-	b.data[types.BDIS] = 0xFF
 	b.bootROMDone = true
-	b.writeHandlers[types.LCDC&0xFF](0x91)
-	b.writeHandlers[types.STAT&0xFF](0x87)
-	b.writeHandlers[types.BGP&0xFF](0xFC)
 	b.data[types.IF] = 0xE1
 }
 
-// ReserveAddress reserves a memory address on the bus.
-func (b *Bus) ReserveAddress(addr uint16, handler func(byte) byte) {
-	// check to make sure address hasn't already been reserved
-	if ok := b.writeHandlers[addr&0xFF]; ok != nil {
-		// SB can be reserved again for debug purposes
-		if addr != types.SB {
-			panic(fmt.Sprintf("address %04X has already been reserved", addr))
-
-		}
-	}
-	b.writeHandlers[addr&0xFF] = handler
-}
-
-func (b *Bus) ReserveLazyReader(addr uint16, handler func() byte) {
-	b.lazyReaders[addr&0xFF] = handler
-}
-
-func (b *Bus) ReserveSetAddress(addr uint16, handler func(any)) {
-	b.setHandlers[addr&0xFF] = handler
-}
-
-func (b *Bus) RegisterBootHandler(f func()) { b.bootHandlers = append(b.bootHandlers, f) } // called after boot ROM
+func (b *Bus) ReserveAddress(addr uint16, f func(byte) byte) { b.writeHandlers[addr&0xff] = f }             // reserve IO address
+func (b *Bus) ReserveLazyReader(addr uint16, f func() byte)  { b.lazyReaders[addr&0xff] = f }               // reserve IO lazy reader
+func (b *Bus) RegisterBootHandler(f func())                  { b.bootHandlers = append(b.bootHandlers, f) } // called after boot ROM
+func (b *Bus) RegisterGBCHandler(f func())                   { b.gbcHandlers = append(b.gbcHandlers, f) }   // called when model is CGB
 
 // Write writes to the specified memory address. This function
 // calls the write handler if it exists.
@@ -436,8 +372,11 @@ func (b *Bus) Write(addr uint16, value byte) {
 				b.InterruptCallback(0)
 			}
 		default:
-			// check to see if a component has reserved this address
 			if handler := b.writeHandlers[addr&0xFF]; handler != nil {
+				// check to see if a component has reserved this address
+				if addr == 0xff15 {
+					panic("how")
+				}
 				value = handler(value)
 			} else if addr <= 0xff7f {
 				return
@@ -480,11 +419,6 @@ func (b *Bus) Write(addr uint16, value byte) {
 	b.data[addr] = value
 }
 
-// Get gets the value at the specified memory address.
-func (b *Bus) Get(addr uint16) byte {
-	return b.data[addr]
-}
-
 func (b *Bus) LazyRead(addr uint16) byte {
 	if handler := b.lazyReaders[addr&0xFF]; handler != nil {
 		return handler()
@@ -494,6 +428,7 @@ func (b *Bus) LazyRead(addr uint16) byte {
 }
 
 func (b *Bus) ClearBit(addr uint16, bit byte) { b.data[addr] &^= bit } // clear bit at address
+func (b *Bus) Get(addr uint16) byte           { return b.data[addr] }  // get value at address
 func (b *Bus) Set(addr uint16, value byte)    { b.data[addr] = value } // set value at address
 func (b *Bus) SetBit(addr uint16, bit byte)   { b.data[addr] |= bit }  // set bit at address
 
@@ -506,10 +441,6 @@ func (b *Bus) Unlock(region uint16)  { b.regionLocks &^= region | region>>8 } //
 
 func (b *Bus) CopyFrom(start, end uint16, dest []byte) { copy(dest, b.data[start:end]) } // copy from bus -> dest
 func (b *Bus) CopyTo(start, end uint16, src []byte)    { copy(b.data[start:end], src) }  // copy from src -> bus
-
-func (b *Bus) WhenGBC(f func()) {
-	b.gbcHandlers = append(b.gbcHandlers, f)
-}
 
 // ClockedRead clocks the Game Boy and reads a byte from the
 // bus.
@@ -667,11 +598,8 @@ func (b *Bus) EnableInterrupts() {
 // RaiseInterrupt sets the requested interrupt high in types.IF
 func (b *Bus) RaiseInterrupt(interrupt uint8) {
 	b.data[types.IF] |= interrupt
-	if interrupt == VBlankINT {
+	if interrupt == VBlankINT || b.CanInterrupt() {
 		b.InterruptCallback(interrupt)
-	}
-	if b.CanInterrupt() {
-		b.InterruptCallback(0)
 	}
 }
 

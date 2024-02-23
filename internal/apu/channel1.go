@@ -52,12 +52,6 @@ func newChannel1(a *APU, b *io.Bus) *channel1 {
 		}
 		return c.duty<<6 | 0x3F
 	})
-	b.ReserveSetAddress(types.NR11, func(a any) {
-		c.setDuty(a.(uint8))
-		c.setLength(a.(uint8))
-
-		b.Set(types.NR11, c.duty<<6|0x3F)
-	})
 	b.ReserveAddress(types.NR12, whenEnabled(a, types.NR12, didChange(a, c2, func(v byte) byte {
 		c.setNRx2(v)
 		return c.getNRx2()

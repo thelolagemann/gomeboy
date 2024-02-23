@@ -93,6 +93,13 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		Samples:            make(Samples, emulatedSampleRate/64),
 	}
 	b.ReserveAddress(types.NR50, func(v byte) byte {
+		if b.IsBooting() {
+			a.volumeRight = v & 0x7
+			a.volumeLeft = v >> 4 & 7
+
+			a.vinRight = v&types.Bit3 != 0
+			a.vinLeft = v&types.Bit7 != 0
+		}
 		if !a.enabled {
 			return b.Get(types.NR50)
 		}
@@ -105,16 +112,19 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 
 		return v
 	})
-	b.ReserveSetAddress(types.NR50, func(v any) {
-		a.volumeRight = v.(uint8) & 0x7
-		a.volumeLeft = (v.(uint8) >> 4) & 0x7
-
-		a.vinRight = v.(uint8)&types.Bit3 != 0
-		a.vinLeft = v.(uint8)&types.Bit7 != 0
-
-		b.Set(types.NR50, v.(byte))
-	})
 	b.ReserveAddress(types.NR51, func(v byte) byte {
+		if b.IsBooting() {
+			a.rightEnable[0] = v&types.Bit0 != 0
+			a.rightEnable[1] = v&types.Bit1 != 0
+			a.rightEnable[2] = v&types.Bit2 != 0
+			a.rightEnable[3] = v&types.Bit3 != 0
+
+			a.leftEnable[0] = v&types.Bit4 != 0
+			a.leftEnable[1] = v&types.Bit5 != 0
+			a.leftEnable[2] = v&types.Bit6 != 0
+			a.leftEnable[3] = v&types.Bit7 != 0
+			return v
+		}
 		if !a.enabled {
 			return b.Get(types.NR51)
 		}
@@ -130,32 +140,17 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 		a.leftEnable[3] = v&types.Bit7 != 0
 
 		return v
-
-		// TODO onset
-	})
-	b.ReserveSetAddress(types.NR51, func(val any) {
-		v := val.(uint8)
-		a.rightEnable[0] = v&types.Bit0 != 0
-		a.rightEnable[1] = v&types.Bit1 != 0
-		a.rightEnable[2] = v&types.Bit2 != 0
-		a.rightEnable[3] = v&types.Bit3 != 0
-
-		a.leftEnable[0] = v&types.Bit4 != 0
-		a.leftEnable[1] = v&types.Bit5 != 0
-		a.leftEnable[2] = v&types.Bit6 != 0
-		a.leftEnable[3] = v&types.Bit7 != 0
-
-		b.Set(types.NR51, v)
-
 	})
 	b.ReserveAddress(types.NR52, func(v byte) byte {
+		if b.IsBooting() {
+			a.enabled = v&types.Bit7 != 0
+			a.chan1.enabled = v&types.Bit0 != 0
+			a.chan2.enabled = v&types.Bit1 != 0
+			a.chan3.enabled = v&types.Bit2 != 0
+			a.chan4.enabled = v&types.Bit3 != 0
+			return v
+		}
 		if v&types.Bit7 == 0 && a.enabled {
-			aChans := []*channel{a.chan1.channel, a.chan2.channel, a.chan3.channel, a.chan4.channel}
-
-			oldVals := [4]bool{}
-			for i, ch := range aChans {
-				oldVals[i] = ch.enabled
-			}
 			for i := types.NR10; i <= types.NR51; i++ {
 				b.Write(i, 0)
 			}
@@ -174,20 +169,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			}
 		}
 
-		//fmt.Printf("NR52: %08b %08b\n", b.Get(types.NR52)|0x70, v)
 		return b.LazyRead(types.NR52) | 0x70
-
-		// TODO onset
-	})
-	b.ReserveSetAddress(types.NR52, func(val any) {
-		v := val.(uint8)
-		a.enabled = v&types.Bit7 != 0
-		a.chan1.enabled = v&types.Bit0 != 0
-		a.chan2.enabled = v&types.Bit1 != 0
-		a.chan3.enabled = v&types.Bit2 != 0
-		a.chan4.enabled = v&types.Bit3 != 0
-
-		//b.Set(types.NR52, v|0x70)
 	})
 	b.ReserveLazyReader(types.NR52, func() byte {
 		b := uint8(0x70)
@@ -211,8 +193,7 @@ func NewAPU(s *scheduler.Scheduler, b *io.Bus) *APU {
 			return a.chan3.readWaveRAM(cI)
 		})
 	}
-	b.WhenGBC(func() {
-
+	b.RegisterGBCHandler(func() {
 		b.ReserveAddress(types.PCM12, func(v byte) byte {
 			if a.model == types.CGBABC || a.model == types.CGB0 {
 				return channel1Duty[a.chan1.duty][a.chan1.waveDutyPosition]*a.chan1.currentVolume |

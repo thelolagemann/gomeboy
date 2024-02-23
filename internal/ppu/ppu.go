@@ -254,13 +254,13 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.LY, func(v byte) byte {
+		if b.IsBooting() {
+			p.currentLine = v
+			return v
+		}
 		// any write to LY resets to 0
 		p.currentLine = 0
 		return 0
-	})
-	b.ReserveSetAddress(types.LY, func(v any) {
-		p.currentLine = v.(uint8)
-		p.b.Set(types.LY, v.(uint8))
 	})
 	b.ReserveAddress(types.LYC, func(v byte) byte {
 		p.lyCompare = v
@@ -313,7 +313,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	// setup CGB only registers
-	b.WhenGBC(func() {
+	b.RegisterGBCHandler(func() {
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
 			p.bcpsIndex = v & 0x3F
 			p.bcpsIncrement = v&types.Bit7 > 0

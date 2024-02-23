@@ -86,9 +86,6 @@ func NewController(b *io.Bus, s *scheduler.Scheduler, a *apu.APU) *Controller {
 
 		return 0 // any write to DIV resets it
 	})
-	b.ReserveSetAddress(types.DIV, func(b any) {
-		s.OverrideDiv(b.(uint16))
-	})
 
 	b.ReserveAddress(types.TIMA, func(v byte) byte {
 		// handle reload
