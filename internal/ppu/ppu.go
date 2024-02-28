@@ -306,9 +306,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	b.RegisterBootHandler(func() {
-		p.BGColourisationPalette = p.ColourPalette[0]
-		p.OBJ0ColourisationPalette = p.ColourSpritePalette[0]
-		p.OBJ1ColourisationPalette = p.ColourSpritePalette[1]
+		if b.IsGBC() && !b.IsGBCCart() {
+			p.BGColourisationPalette = p.ColourPalette[0]
+			p.OBJ0ColourisationPalette = p.ColourSpritePalette[0]
+			p.OBJ1ColourisationPalette = p.ColourSpritePalette[1]
+		}
 		p.TileMaps = [2][32][32]TileEntry{}
 	})
 

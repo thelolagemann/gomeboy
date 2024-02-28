@@ -376,9 +376,9 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	}
 	// try to load cheats using filename of rom
 	g.Bus.Map(g.model)
+	g.Colourise()
 	if !g.dontBoot {
 		g.CPU.Boot(g.model)
-		g.Colourise()
 		g.Bus.Boot()
 
 		// schedule the frame sequencer event for the next 8192 ticks

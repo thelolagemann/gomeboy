@@ -95,7 +95,6 @@ func (b *Bus) Map(m types.Model) {
 
 	// setup CGB only registers
 	if b.isGBC && b.c.IsCGBCartridge() {
-		b.vRAMBankMask = 1
 		b.ReserveAddress(types.KEY0, func(v byte) byte {
 			// KEY0 is only writable when boot ROM is running TODO verify
 			if !b.bootROMDone {
@@ -196,6 +195,7 @@ func (b *Bus) Map(m types.Model) {
 
 	// setup cgb model registers
 	if b.model == types.CGBABC || b.model == types.CGB0 {
+		b.vRAMBankMask = 1
 		b.ReserveAddress(types.VBK, func(v byte) byte {
 			if b.IsGBCCart() || b.IsBooting() { // CGB boot ROM makes use of both banks
 				copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
@@ -289,6 +289,10 @@ func (b *Bus) Boot() {
 
 	if b.model == types.CGBABC || b.model == types.CGB0 {
 		b.Set(types.VBK, 0xFE)
+
+		if !b.IsGBCCart() {
+			b.vRAMBankMask = 0
+		}
 	}
 
 	b.bootROMDone = true
@@ -327,6 +331,9 @@ func (b *Bus) Write(addr uint16, value byte) {
 			}
 			b.bootROMDone = true
 			value = 0xff
+			if b.isGBC && !b.IsGBCCart() {
+				b.vRAMBankMask = 0
+			}
 
 			for _, f := range b.bootHandlers {
 				f()
@@ -374,9 +381,6 @@ func (b *Bus) Write(addr uint16, value byte) {
 		default:
 			if handler := b.writeHandlers[addr&0xFF]; handler != nil {
 				// check to see if a component has reserved this address
-				if addr == 0xff15 {
-					panic("how")
-				}
 				value = handler(value)
 			} else if addr <= 0xff7f {
 				return
