@@ -923,15 +923,19 @@ func (p *PPU) renderWindowScanline() {
 	// get the first tile entry
 	tileEntry, b1, b2, pal := p.getTile(xPos, p.windowInternal, p.winTileMap)
 
-	scanline := &p.PreparedFrame[p.b.Get(types.LY)]
+	scanline := &p.PreparedFrame[p.currentLine]
 
-	for i := p.b.Get(types.WX) - 7; i < ScreenWidth; i++ {
+	for i := int(p.b.Get(types.WX)) - 7; i < ScreenWidth; i++ {
+		if i < 0 {
+			continue
+		}
 		colorNum := colorNumber(b1, b2, xPixelPos, tileEntry.xFlip)
+		scanline[i] = pal[colorNum]
+
 		p.scanlineInfo[i] = colorNum
 		if tileEntry.priority {
 			p.scanlineInfo[i] |= 0b100
 		}
-		scanline[i] = pal[colorNum]
 
 		// did we just finish a tile?
 		if xPixelPos++; xPixelPos == 8 {
@@ -943,7 +947,7 @@ func (p *PPU) renderWindowScanline() {
 		}
 	}
 
-	p.dirtyScanlines[p.b.Get(types.LY)] = true
+	p.dirtyScanlines[p.currentLine] = true
 	p.windowInternal++
 }
 
