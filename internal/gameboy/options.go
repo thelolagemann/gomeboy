@@ -1,7 +1,6 @@
 package gameboy
 
 import (
-	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/log"
@@ -76,7 +75,7 @@ func WithBootROM(rom []byte) Opt {
 			gb.Bus.CopyTo(0x0200, 0x0900, rom[0x200:])
 		}
 
-		gb.model = io.Which(rom)
+		gb.model = types.Which(rom)
 	}
 }
 

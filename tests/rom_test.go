@@ -460,6 +460,7 @@ func CreateMarkdownTableFromTests(tests []ROMTest) string {
 
 func testROMs(t *testing.T, roms ...ROMTest) {
 	for _, rom := range roms {
+		t.Parallel()
 		rom.Run(t)
 	}
 }

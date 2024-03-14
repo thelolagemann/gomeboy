@@ -38,8 +38,10 @@ type Bus struct {
 	vRAM        [2][0x2000]byte // 2 banks of 8 KiB each
 	vramChanges []VRAMChange    // cache vRAM changes for the PPU
 
-	writeHandlers [0x100]func(byte) byte
-	lazyReaders   [0x100]func() byte
+	writeHandlers  [0x100]func(byte) byte
+	lazyReaders    [0x100]func() byte
+	gameGenieCodes []GameGenieCode
+	gameSharkCodes []GameSharkCode
 
 	bootHandlers []func()
 
@@ -70,6 +72,7 @@ type Bus struct {
 	ime          bool
 	bootROMDone  bool
 	vRAMBankMask uint8
+	debug        bool
 }
 
 // NewBus creates a new Bus instance.
@@ -444,7 +447,20 @@ func (b *Bus) Lock(region uint16)    { b.regionLocks |= region | region>>8 }  //
 func (b *Bus) Unlock(region uint16)  { b.regionLocks &^= region | region>>8 } // unlock read/writing from region
 
 func (b *Bus) CopyFrom(start, end uint16, dest []byte) { copy(dest, b.data[start:end]) } // copy from bus -> dest
-func (b *Bus) CopyTo(start, end uint16, src []byte)    { copy(b.data[start:end], src) }  // copy from src -> bus
+func (b *Bus) CopyTo(start, end uint16, src []byte) {
+	copy(b.data[start:end], src)
+
+	// check to see if any game genie ROM patches should be applied to the src
+	if len(b.gameGenieCodes) > 0 {
+		for _, c := range b.gameGenieCodes {
+			if c.Address >= start && c.Address <= end {
+				if b.data[c.Address] == c.OldData {
+					b.data[c.Address] = c.NewData
+				}
+			}
+		}
+	}
+}
 
 // ClockedRead clocks the Game Boy and reads a byte from the
 // bus.
@@ -452,7 +468,8 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 	b.s.Tick(4)
 	switch {
 	case addr <= 0x9FFF || addr >= 0xC000 && addr <= 0xFDFF:
-		if b.regionLocks&0xff00&(1<<((addr>>12)&0xe)) > 0 || (b.isDMATransferring() && b.dmaConflicted&(1<<(addr>>12)) > 0) {
+		addrBitmask := uint16(1 << (addr >> 12))
+		if b.regionLocks&0xff00&(addrBitmask&0x7fff) > 0 || (b.isDMATransferring() && b.dmaConflicted&addrBitmask > 0) {
 			return b.dmaConflict
 		}
 	case addr <= 0xBFFF:
@@ -604,6 +621,20 @@ func (b *Bus) RaiseInterrupt(interrupt uint8) {
 	b.data[types.IF] |= interrupt
 	if interrupt == VBlankINT || b.CanInterrupt() {
 		b.InterruptCallback(interrupt)
+	}
+
+	if interrupt == VBlankINT && len(b.gameSharkCodes) > 0 {
+		for _, c := range b.gameSharkCodes {
+			if c.Address < 0xD000 {
+				b.data[c.Address] = c.NewData
+			} else if c.Address < 0xE000 {
+				if utils.ZeroAdjust8(b.Get(types.SVBK)&7) == c.ExternalRAMBank { // banked data - write to bus
+					b.data[c.Address] = c.NewData
+				} else { // not banked so write to sRAM
+					b.wRAM[c.ExternalRAMBank][c.Address&0x0fff] = c.NewData
+				}
+			}
+		}
 	}
 }
 

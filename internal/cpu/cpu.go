@@ -7,11 +7,9 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
-// CPU represents the Game Boy's 8-bit CPU (sm83). It contains the registers,
-// the program counter (PC) & the stack pointer (SP) as well as other various
-// flags and other internal state.
+// CPU represents the Game Boy's 8-bit CPU (sm83).
 type CPU struct {
-	PC, SP uint16
+	PC, SP uint16 // (P)rogram (C)ounter, (S)tack (P)ointer
 	Registers
 
 	Debug, DebugBreakpoint    bool
@@ -25,20 +23,17 @@ type CPU struct {
 	ppu *ppu.PPU
 }
 
-// NewCPU creates a new CPU instance with the given io.Bus.
 func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	c := &CPU{
-		Registers: Registers{},
-		b:         b,
-		s:         sched,
-		ppu:       ppu,
+		b:   b,
+		s:   sched,
+		ppu: ppu,
 	}
 
-	// create register pairs
-	c.BC = &RegisterPair{High: &c.B, Low: &c.C}
-	c.DE = &RegisterPair{High: &c.D, Low: &c.E}
-	c.HL = &RegisterPair{High: &c.H, Low: &c.L}
-	c.AF = &RegisterPair{High: &c.A, Low: &c.F}
+	c.BC = RegisterPair{&c.B, &c.C}
+	c.DE = RegisterPair{&c.D, &c.E}
+	c.HL = RegisterPair{&c.H, &c.L}
+	c.AF = RegisterPair{&c.A, &c.F}
 	var hl uint8
 	c.registerPointers = [8]*uint8{&c.B, &c.C, &c.D, &c.E, &c.H, &c.L, &hl, &c.A}
 
@@ -50,17 +45,13 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
 	}
 
 	sched.RegisterEvent(scheduler.EIPending, c.b.EnableInterrupts)
-	sched.RegisterEvent(scheduler.EIHaltDelay, func() {
-		c.b.EnableInterrupts()
-
-		c.PC--
-	})
+	sched.RegisterEvent(scheduler.EIHaltDelay, func() { c.b.EnableInterrupts(); c.PC-- })
 
 	return c
 }
 
-// Boot emulates the boot process by setting the initial
-// PC, SP and Register values, provided by the given model.
+// Boot emulates the boot process by setting the Registers to the starting value provided
+// by the types.Model.
 func (c *CPU) Boot(m types.Model) {
 	// PC, SP is the same across all models
 	c.PC = 0x100
@@ -86,12 +77,11 @@ func (c *CPU) Frame() {
 	// 2. Debug && DebugBreakpoint = true
 	// 3. hasFrame = true
 step:
-	for ; !c.hasInt; c.decode(c.readOperand()) {
+	for ; !c.hasInt; InstructionSet[c.readOperand()].fn(c) {
 	}
 
 	// check to see if hasInt was triggered by an interrupt
 	if c.b.CanInterrupt() {
-		// handle interrupt
 		c.s.Tick(4)
 		c.s.Tick(4)
 
@@ -104,10 +94,7 @@ step:
 		c.SP--
 		c.b.ClockedWrite(c.SP, uint8(c.PC&0xFF))
 
-		// get vector from IRQ
-		c.PC = c.b.IRQVector(irq)
-
-		// final 4 cycles
+		c.PC = c.b.IRQVector(irq) // get irq vector
 		c.s.Tick(4)
 
 		c.b.DisableInterrupts()
@@ -142,41 +129,17 @@ func (c *CPU) skipHALT() {
 	}
 }
 
-// readOperand reads the next operand from memory.
-func (c *CPU) readOperand() uint8 {
-	value := c.b.ClockedRead(c.PC)
-	c.PC++
-	return value
-}
+func (c *CPU) readOperand() (v uint8) { v = c.b.ClockedRead(c.PC); c.PC++; return } // read next operand from memory
+func (c *CPU) skipOperand()           { c.s.Tick(4); c.PC++ }                       // skip the next operand from memory
 
-// skipOperand skips the next operand from memory.
-func (c *CPU) skipOperand() {
-	c.s.Tick(4)
-	c.PC++
-}
-
-// Register represents a GB Register which is used to hold an 8-bit value.
-// The CPU has 8 registers: A, B, C, D, E, H, L, and F. The F register is
-// special in that it is used to hold the flags.
+// Register represents a Register used to hold an 8-bit value.
 type Register = uint8
 
-// RegisterPair represents a pair of GB Registers which is used to hold a 16-bit
-// value. The CPU has 4 register pairs: AF, BC, DE, and HL.
-type RegisterPair struct {
-	High *Register
-	Low  *Register
-}
+// RegisterPair is a pair of Registers used to address them as a 16-bit value.
+type RegisterPair [2]*Register
 
-// Uint16 returns the value of the RegisterPair as an uint16.
-func (r *RegisterPair) Uint16() uint16 {
-	return uint16(*r.High)<<8 | uint16(*r.Low)
-}
-
-// SetUint16 sets the value of the RegisterPair to the given value.
-func (r *RegisterPair) SetUint16(value uint16) {
-	*r.High = uint8(value >> 8)
-	*r.Low = uint8(value)
-}
+func (r RegisterPair) Uint16() uint16         { return uint16(*r[0])<<8 | uint16(*r[1]) }         // get 16-bit value
+func (r RegisterPair) SetUint16(value uint16) { *r[0] = uint8(value >> 8); *r[1] = uint8(value) } // set 16-bit value
 
 // Registers represents the GB CPU registers.
 type Registers struct {
@@ -189,10 +152,10 @@ type Registers struct {
 	H Register
 	L Register
 
-	BC *RegisterPair
-	DE *RegisterPair
-	HL *RegisterPair
-	AF *RegisterPair
+	BC RegisterPair
+	DE RegisterPair
+	HL RegisterPair
+	AF RegisterPair
 }
 
 // flag represents a flag in the F register, which is
@@ -252,15 +215,9 @@ const (
 	flagCarry = types.Bit4
 )
 
-// clearFlag clears the given flag in the F register,
-// leaving all other flags unchanged.
-func (c *CPU) clearFlag(flag flag) {
-	c.F &^= flag
-}
-
 // setFlags sets all the flags in the F register,
 // as specified by the given arguments.
-func (c *CPU) setFlags(Z bool, N bool, H bool, C bool) {
+func (c *CPU) setFlags(Z, N, H, C bool) {
 	v := uint8(0)
 	if Z {
 		v |= flagZero
@@ -277,11 +234,8 @@ func (c *CPU) setFlags(Z bool, N bool, H bool, C bool) {
 	c.F = v
 }
 
-// isFlagSet returns true if the given flag is set,
-// false otherwise.
-func (c *CPU) isFlagSet(flag flag) bool {
-	return c.F&flag == flag
-}
+func (c *CPU) isFlagSet(flag flag) bool { return c.F&flag == flag } // is the given flag set?
+func (c *CPU) clearFlag(flag flag)      { c.F &^= flag }            // clear the given flag
 
 // addSPSigned adds the signed value of the next
 // operand to the SP register, and returns the

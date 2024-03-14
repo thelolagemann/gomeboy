@@ -61,3 +61,18 @@ Global Checksum	` + strconv.Itoa(int(c.C.GlobalChecksum)))
 
 	return nil
 }
+
+func runUntilQuit(evts <-chan event.Event, onQuit func()) {
+	go func() {
+		for {
+			select {
+			case e := <-evts:
+				switch e.Type {
+				case event.Quit:
+					onQuit()
+					return
+				}
+			}
+		}
+	}()
+}
