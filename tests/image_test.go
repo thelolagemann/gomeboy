@@ -187,6 +187,7 @@ func imageTestForModels(name string, emulatedSeconds int, models ...types.Model)
 func (i *imageTest) Run(t *testing.T) {
 	i.passed = true
 	t.Run(i.name, func(t *testing.T) {
+		t.Parallel()
 		opts := []gameboy.Opt{gameboy.AsModel(i.model)}
 		g, err := runGameboy(i.romPath, i.emulatedSeconds, CycleBreakpoint, opts...)
 		if err != nil {

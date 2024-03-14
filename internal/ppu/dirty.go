@@ -17,8 +17,6 @@ const (
 	ocps
 	ocpd
 	tile
-	tileMap
-	tileAttr
 )
 
 type dirtyEvent struct {

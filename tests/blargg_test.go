@@ -53,6 +53,7 @@ func newBlarggTestCollectionFromDir(suite *TestSuite, dir string) *TestCollectio
 func (b *blarrgTest) Run(t *testing.T) {
 	b.passed = true
 	t.Run(filepath.Base(b.name), func(t *testing.T) {
+		t.Parallel()
 		output := ""
 		g, err := runGameboy(b.romPath, 5, DebugBreakpoint, gameboy.SerialDebugger(&output))
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"unsafe"
 )
 
 const (
@@ -307,13 +308,10 @@ func (a *APU) sample() {
 			right += uint16(amplitude)
 		}
 	}
-	left *= 128 * uint16(a.volumeLeft)
-	right *= 128 * uint16(a.volumeRight)
+	left *= uint16(a.volumeLeft) << 7
+	right *= uint16(a.volumeRight) << 7
 
-	a.buffer[a.bufferPos] = uint8(left)
-	a.buffer[a.bufferPos+1] = uint8(left >> 8)
-	a.buffer[a.bufferPos+2] = uint8(right)
-	a.buffer[a.bufferPos+3] = uint8(right >> 8)
+	*(*uint32)(unsafe.Pointer(&a.buffer[a.bufferPos])) = uint32(left)<<16 | uint32(right)
 
 	a.bufferPos += 4
 

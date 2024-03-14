@@ -8,18 +8,18 @@ import (
 type channel4 struct {
 	*volumeChannel
 
-	lfsr uint16
-	a    *APU
-
+	a *APU
 	// NR41
 	lengthLoad uint8
 
 	// NR43
-	clockShift  uint8
+	clockShift uint8
+
 	widthMode   bool
 	divisorCode uint8
-
 	isScheduled bool
+
+	lfsr        uint16
 	lastCatchup uint64
 }
 
@@ -108,6 +108,34 @@ func newChannel4(a *APU, b *io.Bus) *channel4 {
 	return c
 }
 
+func stepShortLFSR(lfsr uint16) uint16 {
+	newBit := (lfsr & 1) ^ ((lfsr & 2) >> 1)
+	lfsr |= newBit << 15
+	lfsr &^= 1 << 7
+	lfsr |= newBit << 7
+	lfsr >>= 1
+	return lfsr
+}
+func stepLFSR(lfsr uint16) uint16 {
+	newBit := (lfsr & 1) ^ ((lfsr & 2) >> 1)
+	lfsr |= newBit << 15
+	lfsr >>= 1
+	return lfsr
+}
+
+func getTransitionValue(lfsr uint16, step uint64, short bool) uint16 {
+	if short {
+		for i := uint64(0); i < step; i++ {
+			lfsr = stepShortLFSR(lfsr)
+		}
+	} else {
+		for i := uint64(0); i < step; i++ {
+			lfsr = stepLFSR(lfsr)
+		}
+	}
+	return lfsr
+}
+
 func (c *channel4) catchup() {
 	if c.lastCatchup > c.a.s.Cycle() {
 		c.lastCatchup = c.a.s.Cycle()
@@ -117,16 +145,7 @@ func (c *channel4) catchup() {
 	// determine how many steps we should perform
 	steps := (c.a.s.Cycle() - c.lastCatchup) / c.frequencyTimer
 
-	for i := uint64(0); i < steps; i++ {
-		// step the LFSR
-		newBit := (c.lfsr & 0b01) ^ ((c.lfsr & 0b10) >> 1)
-		c.lfsr >>= 1
-		c.lfsr |= newBit << 14
-		if c.widthMode {
-			c.lfsr &^= 1 << 6
-			c.lfsr |= newBit << 6
-		}
-	}
+	c.lfsr = getTransitionValue(c.lfsr, steps, c.widthMode)
 
 	// how many cycles do we have left to catch up?
 	c.lastCatchup = c.a.s.Cycle() - (c.a.s.Cycle()-c.lastCatchup)%c.frequencyTimer

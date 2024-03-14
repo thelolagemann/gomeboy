@@ -122,7 +122,7 @@ func (s *Scheduler) SysClockReset() {
 func (s *Scheduler) doEvents(until uint64) uint64 {
 	nextEvent := s.nextEventAt
 
-	for {
+	for nextEvent <= until {
 		// we need to copy the event to a local variable
 		// as the handler may schedule a new event, which
 		// could modify the event in the list
@@ -135,11 +135,6 @@ func (s *Scheduler) doEvents(until uint64) uint64 {
 		event.handler()
 
 		nextEvent = s.root.cycle
-
-		// check if there are events to execute
-		if nextEvent > until {
-			break
-		}
 	}
 
 	return nextEvent
