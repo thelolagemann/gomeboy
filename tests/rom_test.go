@@ -274,7 +274,7 @@ func createProgressBar(suite *TestSuite) string {
 	passRate := float64(passed) / float64(total)
 
 	progressBar := fmt.Sprintf(
-		"![progress](https://progress-bar.dev/%s/?scale=100&title=passing%%20%s,%%20failing%%20%s&width=500)",
+		"![progress](https://progress-bar.xyz/%s/?scale=100&title=passing%%20%s,%%20failing%%20%s&width=500)",
 		fmt.Sprintf("%d", int(passRate*100)),
 		fmt.Sprintf("%d", passed),
 		fmt.Sprintf("%d", total-passed))
@@ -306,7 +306,7 @@ func (t *TestTable) createProgressBar() string {
 	}
 	passRate := float64(passed) / float64(total)
 	progressBar := fmt.Sprintf(
-		"![progress](https://progress-bar.dev/%s/?scale=100&title=passing%%20%s,%%20failing%%20%s&width=500)",
+		"![progress](https://progress-bar.xyz/%s/?scale=100&title=passing%%20%s,%%20failing%%20%s&width=500)",
 		fmt.Sprintf("%d", int(passRate*100)),
 		fmt.Sprintf("%d", passed),
 		fmt.Sprintf("%d", total-passed))
