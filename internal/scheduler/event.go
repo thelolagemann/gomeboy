@@ -8,6 +8,7 @@ func (e EventType) String() string {
 
 const (
 	APUFrameSequencer EventType = iota
+	APUFrameSequencer2
 	APUChannel1
 	APUChannel2
 	APUChannel3
@@ -66,7 +67,7 @@ const (
 )
 
 const (
-	eventTypes = 49
+	eventTypes = 50
 )
 
 var eventTypeNames = []string{

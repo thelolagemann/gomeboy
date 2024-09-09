@@ -18,12 +18,6 @@ func Debug() Opt {
 	}
 }
 
-func NoAudio() Opt {
-	return func(gb *GameBoy) {
-		gb.APU.Pause()
-	}
-}
-
 func SerialDebugger(output *string) Opt {
 	return func(gb *GameBoy) {
 		// used to intercept serial output and store it in a string

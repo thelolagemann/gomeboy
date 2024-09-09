@@ -79,10 +79,6 @@ func (g *GameBoy) SendCommand(command emulator.CommandPacket) emulator.ResponseP
 	return emulator.ResponsePacket{}
 }
 
-func (g *GameBoy) AttachAudioListener(player func([]uint8)) {
-	g.APU.AttachPlayback(player)
-}
-
 func (g *GameBoy) StartLinked(
 	frames1 chan<- []byte,
 	events1 chan<- event.Event,
@@ -178,7 +174,6 @@ func (g *GameBoy) Start(frames chan<- []byte, events chan<- event.Event, pressed
 	start := time.Now()
 	frameStart := time.Now()
 	renderTimes := make([]time.Duration, 0, int(FrameRate))
-	g.APU.Play()
 
 	// set initial image
 	avgRenderTimes := make([]time.Duration, 0, int(FrameRate))
@@ -229,10 +224,8 @@ emuLoop:
 			switch cmd.Command {
 			case emulator.CommandPause:
 				g.paused = true
-				g.APU.Pause()
 			case emulator.CommandResume:
 				g.paused = false
-				g.APU.Play()
 			case emulator.CommandClose:
 				// once the gameboy is closed, stop the ticker
 				ticker.Stop()
@@ -324,7 +317,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 	b := io.NewBus(sched, rom)
 	serialCtl := serial.NewController(b, sched)
-	sound := apu.NewAPU(sched, b)
+	sound := apu.New(b, sched)
 	timerCtl := timer.NewController(b, sched, sound)
 	video := ppu.New(b, sched)
 	processor := cpu.NewCPU(b, sched, video)
@@ -353,8 +346,6 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 	for _, opt := range opts {
 		opt(g)
 	}
-
-	sound.SetModel(g.model)
 
 	// does the cartridge have battery backed RAM? (and therefore a save file)
 	if b.Cartridge().Features.Battery {
