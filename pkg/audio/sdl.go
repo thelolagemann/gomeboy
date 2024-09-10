@@ -6,85 +6,15 @@ package audio
 // void AudioData(void *userdata, Uint8 *stream, int len);
 import "C"
 import (
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
+	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/veandco/go-sdl2/sdl"
 	"reflect"
 	"unsafe"
 )
 
-var (
-	buffer = newBuffer(1024 * 1024)
-	paused = false
-)
-
-// circularBuffer is a circular buffer of bytes.
-type circularBuffer struct {
-	buffer      []byte
-	size        uint64
-	readCursor  uint64
-	writeCursor uint64
-}
-
-func newBuffer(size uint64) *circularBuffer {
-	b := &circularBuffer{
-		buffer: make([]byte, size),
-		size:   size,
-	}
-
-	return b
-}
-
-func (b *circularBuffer) write(data []byte) {
-	remaining := b.size - b.writeCursor
-	copy(b.buffer[b.writeCursor:], data)
-	if uint64(len(data)) > remaining {
-		copy(b.buffer, data[remaining:])
-	}
-
-	b.writeCursor = (b.writeCursor + uint64(len(data))) % b.size
-}
-
-func (b *circularBuffer) read(data []byte) {
-	if paused {
-		return
-	}
-	n := len(data)
-
-	if b.writeCursor-b.readCursor < bufferSize {
-		// if there is less than the bufferSize available to read, then
-		// we need to copy the currently buffered data, and repeat the last
-		// sample until the  buffer is full again - very cursed approach to handling
-		// audio desync, but it works enough to not make my ears bleed anymore :D
-
-		// how many samples are buffered? (U16)
-		samplesBuffered := (b.writeCursor - b.readCursor) / 4
-
-		// how many samples does data want?
-		samplesWanted := uint64(len(data) / 4)
-
-		// copy the buffered samples to data
-		copy(data, b.buffer[b.readCursor:b.readCursor+(samplesBuffered*4)])
-
-		// get the last buffered sample
-		bufferedSample := b.buffer[b.readCursor+(samplesBuffered*4) : b.readCursor+(samplesBuffered*4)+4]
-
-		// for each remaining wanted sample, copy the last buffered sample
-		for i := samplesBuffered; i < samplesWanted; i++ {
-			copy(data[i*4:], bufferedSample)
-		}
-
-		// update the read cursor to reflect the new data
-		b.readCursor = (b.readCursor + samplesBuffered*4) % b.size
-		return
-	}
-
-	remaining := b.size - b.readCursor
-	copy(data, b.buffer[b.readCursor:])
-	if uint64(len(data)) > remaining {
-		copy(data[remaining:], b.buffer)
-	}
-
-	b.readCursor = (b.readCursor + uint64(n)) % b.size
-}
+var sampleBuffer []uint8
+var frame [144][160][3]uint8
 
 //export AudioData
 func AudioData(userdata unsafe.Pointer, stream *C.Uint8, length C.int) {
@@ -92,23 +22,58 @@ func AudioData(userdata unsafe.Pointer, stream *C.Uint8, length C.int) {
 	hdr := reflect.SliceHeader{Data: uintptr(unsafe.Pointer(stream)), Len: n, Cap: n}
 	data := *(*[]C.Uint8)(unsafe.Pointer(&hdr))
 
-	samples := make([]byte, n)
-	buffer.read(samples)
+	// if we already have a frame's worth of buffered samples then no need to step
+	if len(sampleBuffer) > n {
+		for i := 0; i < n; i++ {
+			data[i] = C.Uint8(sampleBuffer[i])
+		}
+		sampleBuffer = sampleBuffer[n:]
+	} else {
+		//	start := time.Now()
 
-	for i, sample := range samples {
-		data[i] = C.Uint8(sample)
+		frame = gb.Frame()
+		s, sN := gb.APU.Samples()
+
+		samples := append(sampleBuffer, unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), len(s)*4)...)
+		for i := 0; i < n; i++ {
+			if uint32(i) < sN*4 {
+				data[i] = C.Uint8(samples[i])
+			}
+		}
+
+		if len(samples) > n {
+			sampleBuffer = samples[n:]
+		} else {
+			sampleBuffer = sampleBuffer[0:]
+		}
 	}
+
+	copy((*[maxArraySize]byte)(frameBufferPtr)[:frameSize:frameSize], (*[maxArraySize]byte)(unsafe.Pointer(&frame[0]))[:frameSize:frameSize])
+	frameBuffer <- tempFb
 }
 
-func OpenAudio() error {
-	if err := sdl.Init(sdl.INIT_AUDIO); err != nil {
-		return err
+var gb *gameboy.GameBoy
+var (
+	frameBuffer chan []byte
+	events      chan event.Event
+
+	tempFb         = make([]byte, 144*160*3)
+	frameBufferPtr = unsafe.Pointer(&tempFb[0])
+)
+
+func OpenAudio(g *gameboy.GameBoy, fb chan []byte, e chan event.Event) error {
+	if err := sdl.AudioInit("pulsewire"); err != nil {
+		if err := sdl.InitSubSystem(sdl.INIT_AUDIO); err != nil {
+			return err
+		}
 	}
+	frameBuffer = fb
+	events = e
 
 	var err error
 	if audioDeviceID, err = sdl.OpenAudioDevice("", false, &sdl.AudioSpec{
 		Freq:     sampleRate,
-		Format:   sdl.AUDIO_U16LSB,
+		Format:   sdl.AUDIO_F32,
 		Channels: 2,
 		Samples:  bufferSize,
 		Callback: sdl.AudioCallback(C.AudioData),
@@ -116,6 +81,7 @@ func OpenAudio() error {
 		return err
 	}
 
+	gb = g
 	sdl.PauseAudioDevice(audioDeviceID, false)
 
 	return nil
@@ -126,22 +92,11 @@ var (
 )
 
 const (
-	bufferSize = 512
+	bufferSize = 1634
 	sampleRate = 96000
 )
 
-func PlaySDL(b []uint8) {
-	if !paused {
-		buffer.write(b)
-	}
-}
-
-func Pause() {
-	paused = true
-	sdl.PauseAudioDevice(audioDeviceID, true)
-}
-
-func Play() {
-	paused = false
-	sdl.PauseAudioDevice(audioDeviceID, false)
-}
+const (
+	frameSize    = 144 * 160 * 3
+	maxArraySize = 144 * 160 * 4
+)
