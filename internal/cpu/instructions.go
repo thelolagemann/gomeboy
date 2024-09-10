@@ -24,7 +24,7 @@ var InstructionSet = [256]Instruction{
 	0x00: {"NOP", func(c *CPU) {}},
 	0x01: {"LD BC,d16", func(c *CPU) { *c.BC[1] = c.readOperand(); *c.BC[0] = c.readOperand() }},
 	0x02: {"LD (BC), A", func(c *CPU) { c.b.ClockedWrite(c.BC.Uint16(), c.A) }},
-	0x03: {"INC BC", func(c *CPU) { c.handleOAMCorruption(c.BC.Uint16()); c.BC.SetUint16(c.BC.Uint16() + 1); c.s.Tick(4) }},
+	0x03: {"INC BC", func(c *CPU) { c.BC.SetUint16(c.BC.Uint16() + 1); c.s.Tick(4) }},
 	0x04: {"INC B", func(c *CPU) { h := c.B&0xf == 0xf; c.B++; c.setFlags(c.B == 0, false, h, c.isFlagSet(flagCarry)) }},
 	0x05: {"DEC B", func(c *CPU) { h := c.B&0xf == 0; c.B--; c.setFlags(c.B == 0, true, h, c.isFlagSet(flagCarry)) }},
 	0x06: {"LD B, d8", func(c *CPU) { c.B = c.readOperand() }},
@@ -44,7 +44,7 @@ var InstructionSet = [256]Instruction{
 		c.s.Tick(4)
 	}},
 	0x0A: {"LD A, (BC)", func(c *CPU) { c.A = c.b.ClockedRead(c.BC.Uint16()) }},
-	0x0B: {"DEC BC", func(c *CPU) { c.handleOAMCorruption(c.BC.Uint16()); c.BC.SetUint16(c.BC.Uint16() - 1); c.s.Tick(4) }},
+	0x0B: {"DEC BC", func(c *CPU) { c.BC.SetUint16(c.BC.Uint16() - 1); c.s.Tick(4) }},
 	0x0C: {"INC C", func(c *CPU) { h := c.C&0xf == 0xf; c.C++; c.setFlags(c.C == 0, false, h, c.isFlagSet(flagCarry)) }},
 	0x0D: {"DEC C", func(c *CPU) { h := c.C&0xf == 0; c.C--; c.setFlags(c.C == 0, true, h, c.isFlagSet(flagCarry)) }},
 	0x0E: {"LD C, d8", func(c *CPU) { c.C = c.readOperand() }},
@@ -76,7 +76,7 @@ var InstructionSet = [256]Instruction{
 	}},
 	0x11: {"LD DE, d16", func(c *CPU) { *c.DE[1] = c.readOperand(); *c.DE[0] = c.readOperand() }},
 	0x12: {"LD (DE), A", func(c *CPU) { c.b.ClockedWrite(c.DE.Uint16(), c.A) }},
-	0x13: {"INC DE", func(c *CPU) { c.handleOAMCorruption(c.DE.Uint16()); c.DE.SetUint16(c.DE.Uint16() + 1); c.s.Tick(4) }},
+	0x13: {"INC DE", func(c *CPU) { c.DE.SetUint16(c.DE.Uint16() + 1); c.s.Tick(4) }},
 	0x14: {"INC D", func(c *CPU) { h := c.D&0xf == 0xf; c.D++; c.setFlags(c.D == 0, false, h, c.isFlagSet(flagCarry)) }},
 	0x15: {"DEC D", func(c *CPU) { h := c.D&0xf == 0; c.D--; c.setFlags(c.D == 0, true, h, c.isFlagSet(flagCarry)) }},
 	0x16: {"LD D, d8", func(c *CPU) { c.D = c.readOperand() }},
@@ -89,7 +89,7 @@ var InstructionSet = [256]Instruction{
 		c.s.Tick(4)
 	}},
 	0x1A: {"LD A, (DE)", func(c *CPU) { c.A = c.b.ClockedRead(c.DE.Uint16()) }},
-	0x1B: {"DEC DE", func(c *CPU) { c.handleOAMCorruption(c.DE.Uint16()); c.DE.SetUint16(c.DE.Uint16() - 1); c.s.Tick(4) }},
+	0x1B: {"DEC DE", func(c *CPU) { c.DE.SetUint16(c.DE.Uint16() - 1); c.s.Tick(4) }},
 	0x1C: {"INC E", func(c *CPU) { h := c.E&0xf == 0xf; c.E++; c.setFlags(c.E == 0, false, h, c.isFlagSet(flagCarry)) }},
 	0x1D: {"DEC E", func(c *CPU) { h := c.E&0xf == 0; c.E--; c.setFlags(c.E == 0, true, h, c.isFlagSet(flagCarry)) }},
 	0x1E: {"LD E, d8", func(c *CPU) { c.E = c.readOperand() }},
@@ -105,7 +105,7 @@ var InstructionSet = [256]Instruction{
 	}},
 	0x21: {"LD HL, d16", func(c *CPU) { *c.HL[1] = c.readOperand(); *c.HL[0] = c.readOperand() }},
 	0x22: {"LD (HL+), A", func(c *CPU) { c.b.ClockedWrite(c.HL.Uint16(), c.A); c.HL.SetUint16(c.HL.Uint16() + 1) }},
-	0x23: {"INC HL", func(c *CPU) { c.handleOAMCorruption(c.HL.Uint16()); c.HL.SetUint16(c.HL.Uint16() + 1); c.s.Tick(4) }},
+	0x23: {"INC HL", func(c *CPU) { c.HL.SetUint16(c.HL.Uint16() + 1); c.s.Tick(4) }},
 	0x24: {"INC H", func(c *CPU) { h := c.H&0xf == 0xf; c.H++; c.setFlags(c.H == 0, false, h, c.isFlagSet(flagCarry)) }},
 	0x25: {"DEC H", func(c *CPU) { h := c.H&0xf == 0; c.H--; c.setFlags(c.H == 0, true, h, c.isFlagSet(flagCarry)) }},
 	0x26: {"LD H, d8", func(c *CPU) { c.H = c.readOperand() }},
@@ -153,11 +153,10 @@ var InstructionSet = [256]Instruction{
 		c.s.Tick(4)
 	}},
 	0x2A: {"LD A, (HL+)", func(c *CPU) {
-		c.handleOAMCorruption(c.HL.Uint16())
 		c.A = c.b.ClockedRead(c.HL.Uint16())
 		c.HL.SetUint16(c.HL.Uint16() + 1)
 	}},
-	0x2B: {"DEC HL", func(c *CPU) { c.handleOAMCorruption(c.HL.Uint16()); c.HL.SetUint16(c.HL.Uint16() - 1); c.s.Tick(4) }},
+	0x2B: {"DEC HL", func(c *CPU) { c.HL.SetUint16(c.HL.Uint16() - 1); c.s.Tick(4) }},
 	0x2C: {"INC L", func(c *CPU) { h := c.L&0xf == 0xf; c.L++; c.setFlags(c.L == 0, false, h, c.isFlagSet(flagCarry)) }},
 	0x2D: {"DEC L", func(c *CPU) { h := c.L&0xf == 0; c.L--; c.setFlags(c.L == 0, true, h, c.isFlagSet(flagCarry)) }},
 	0x2E: {"LD L, d8", func(c *CPU) { c.L = c.readOperand() }},
@@ -173,7 +172,7 @@ var InstructionSet = [256]Instruction{
 	}},
 	0x31: {"LD SP, d16", func(c *CPU) { c.SP = uint16(c.readOperand()) | uint16(c.readOperand())<<8 }},
 	0x32: {"LD (HL-), A", func(c *CPU) { c.b.ClockedWrite(c.HL.Uint16(), c.A); c.HL.SetUint16(c.HL.Uint16() - 1) }},
-	0x33: {"INC SP", func(c *CPU) { c.handleOAMCorruption(c.SP); c.SP++; c.s.Tick(4) }},
+	0x33: {"INC SP", func(c *CPU) { c.SP++; c.s.Tick(4) }},
 	0x34: {"INC (HL)", func(c *CPU) {
 		v := c.b.ClockedRead(c.HL.Uint16())
 		r := v + 1
@@ -204,7 +203,6 @@ var InstructionSet = [256]Instruction{
 		c.s.Tick(4)
 	}},
 	0x3A: {"LD A, (HL-)", func(c *CPU) {
-		c.handleOAMCorruption(c.HL.Uint16())
 		c.A = c.b.ClockedRead(c.HL.Uint16())
 		c.HL.SetUint16(c.HL.Uint16() - 1)
 	}},
@@ -508,7 +506,6 @@ var InstructionSet = [256]Instruction{
 	0xC1: {"POP BC", func(c *CPU) {
 		*c.BC[1] = c.b.ClockedRead(c.SP)
 		c.SP++
-		c.handleOAMCorruption(c.SP)
 		*c.BC[0] = c.b.ClockedRead(c.SP)
 		c.SP++
 	}},
@@ -540,7 +537,6 @@ var InstructionSet = [256]Instruction{
 	0xD1: {"POP DE", func(c *CPU) {
 		*c.DE[1] = c.b.ClockedRead(c.SP)
 		c.SP++
-		c.handleOAMCorruption(c.SP)
 		*c.DE[0] = c.b.ClockedRead(c.SP)
 		c.SP++
 	}},
@@ -572,7 +568,6 @@ var InstructionSet = [256]Instruction{
 	0xE1: {"POP HL", func(c *CPU) {
 		*c.HL[1] = c.b.ClockedRead(c.SP)
 		c.SP++
-		c.handleOAMCorruption(c.SP)
 		*c.HL[0] = c.b.ClockedRead(c.SP)
 		c.SP++
 	}},
@@ -594,7 +589,6 @@ var InstructionSet = [256]Instruction{
 	0xF1: {"POP AF", func(c *CPU) {
 		*c.AF[1] = c.b.ClockedRead(c.SP)
 		c.SP++
-		c.handleOAMCorruption(c.SP)
 		*c.AF[0] = c.b.ClockedRead(c.SP)
 		c.SP++
 		c.F &= 0xF0

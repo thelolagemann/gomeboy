@@ -60,7 +60,6 @@ func (c *CPU) ret(condition bool) {
 
 // push a 16-bit value onto the stack.
 func (c *CPU) push(high, low uint8) {
-	c.handleOAMCorruption(c.SP)
 	c.SP--
 	c.b.ClockedWrite(c.SP, high)
 	c.SP--
