@@ -18,12 +18,10 @@ type Scheduler struct {
 	divTimer uint64 // the cycle at which the DIV register was last reset
 	root     *Event
 
-	sampler     func()
 	events      [eventTypes]*Event // only one event of each type can be scheduled at a time
 	nextEventAt uint64             // the cycle at which the next event should be executed
 
-	doubleSpeed bool // whether the scheduler is running at double speed (TODO: implement)
-
+	doubleSpeed bool // whether the scheduler is running at double speed
 }
 
 func (s *Scheduler) OverrideDiv(div uint16) {
@@ -66,10 +64,6 @@ func (s *Scheduler) Cycle() uint64 {
 func (s *Scheduler) RegisterEvent(eventType EventType, fn func()) {
 	s.events[eventType].handler = fn
 	s.events[eventType].eventType = eventType
-
-	if eventType == APUSample {
-		s.sampler = fn
-	}
 }
 
 // Tick advances the scheduler by the given number of cycles. This will

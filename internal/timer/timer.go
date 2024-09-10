@@ -70,6 +70,8 @@ func NewController(b *io.Bus, s *scheduler.Scheduler, a *apu.APU) *Controller {
 		// reschedule APU frame sequencer
 		s.DescheduleEvent(scheduler.APUFrameSequencer)
 		s.ScheduleEvent(scheduler.APUFrameSequencer, 8192)
+		s.DescheduleEvent(scheduler.APUFrameSequencer2)
+		s.ScheduleEvent(scheduler.APUFrameSequencer2, 4096)
 
 		// the internal timer uses the same clock as the DIV register
 		// so a write to DIV will also reset the internal timer, which

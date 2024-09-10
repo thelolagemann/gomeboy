@@ -81,12 +81,6 @@ func main() {
 	opts = append(opts, gameboy.WithLogger(logger))
 	gb := gameboy.NewGameBoy(rom, opts...)
 
-	if err := audio.OpenAudio(); err != nil {
-		logger.Errorf("unable to open audio device %s", err)
-	} else {
-		gb.AttachAudioListener(audio.PlaySDL)
-	}
-
 	driver := display.GetDriver(*displayDriver)
 
 	// check to make sure the driver is valid
@@ -105,9 +99,21 @@ func main() {
 	pressed := make(chan io.Button, 10)
 	released := make(chan io.Button, 10)
 
-	// start gameboy in a goroutine
-	go gb.Start(fb, events, pressed, released)
+	if err := audio.OpenAudio(gb, fb, events); err != nil {
+		logger.Errorf("unable to open audio device %s", err)
+	}
 
+	// handle input
+	go func() {
+		for {
+			select {
+			case b := <-pressed:
+				gb.Bus.Press(b)
+			case b := <-released:
+				gb.Bus.Release(b)
+			}
+		}
+	}()
 	if err := driver.Start(fb, events, pressed, released); err != nil {
 		logger.Fatal(err.Error())
 	}

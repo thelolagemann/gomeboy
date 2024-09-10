@@ -1,6 +1,6 @@
 module github.com/thelolagemann/gomeboy
 
-go 1.22.0
+go 1.23.0
 
 require (
 	fyne.io/fyne/v2 v2.4.0
@@ -11,7 +11,7 @@ require (
 	github.com/google/brotli/go/cbrotli v0.0.0-20230919092154-53947c15f577
 	github.com/gorilla/websocket v1.5.0
 	github.com/sqweek/dialog v0.0.0-20220809060634-e981b270ebbf
-	github.com/veandco/go-sdl2 v0.4.35
+	github.com/veandco/go-sdl2 v0.4.40
 	golang.design/x/clipboard v0.7.0
 	golang.org/x/sys v0.13.0
 	gonum.org/v1/plot v0.14.0
