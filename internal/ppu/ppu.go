@@ -4,14 +4,15 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"fmt"
-	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/scheduler"
-	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
 	"image/color"
 	"strconv"
 	"strings"
 	"unsafe"
+
+	"github.com/thelolagemann/gomeboy/internal/io"
+	"github.com/thelolagemann/gomeboy/internal/scheduler"
+	"github.com/thelolagemann/gomeboy/internal/types"
 )
 
 const (
@@ -594,54 +595,6 @@ func (p *PPU) endOAM() {
 	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(168+scroll(p.b.Get(types.SCX))))
 }
 
-func (p *PPU) WriteCorruptionOAM() {
-	/*fmt.Println("corrupting ModeOAM")
-	return
-	// determine which row of the OAM we are on
-	// by getting the cycles we have until the end of OAM search
-	cyclesUntilEndOAM := 80 - p.s.Until(scheduler.PPUEndOAMSearch)
-
-	// each row is 4 ticks long and made up of 8 bytes (4 words)
-	row := cyclesUntilEndOAM / 4
-
-	if row < 2 { // the first 2 rows are not affected by the corruption
-		return
-	}
-
-	// we need to get the 3 words that make up the corruption
-	// the first word is the first word of the current row
-	// the second word is the first word in the preceding row
-	// the third word is the 3rd word in the preceding row
-	// these 3 words then get corrupted by the bitwise glitch
-	// and overwrite the first word of the current row
-	// the last three words of the current row are then overwritten
-	// with the preceding row's last three words
-	a := uint16(p.ModeOAM.data[row*4]) | uint16(p.ModeOAM.data[row*4+1])<<8
-	b := uint16(p.ModeOAM.data[row*4-8]) | uint16(p.ModeOAM.data[row*4-7])<<8
-	c := uint16(p.ModeOAM.data[row*4-6]) | uint16(p.ModeOAM.data[row*4-5])<<8
-
-	// perform the bitwise glitch
-	newValue := bitwiseGlitch(a, b, c)
-
-	// replace the first word of the current row with the new value
-	p.ModeOAM.data[row*4] = byte(newValue)
-	p.ModeOAM.data[row*4+1] = byte(newValue >> 8)
-
-	// replace the last 3 words of the row from the preceding row
-	p.ModeOAM.data[row*4-6] = p.ModeOAM.data[row*4-2]
-	p.ModeOAM.data[row*4-5] = p.ModeOAM.data[row*4-1]
-	p.ModeOAM.data[row*4-4] = p.ModeOAM.data[row*4]
-	p.ModeOAM.data[row*4-3] = p.ModeOAM.data[row*4+1]
-	p.ModeOAM.data[row*4-2] = p.ModeOAM.data[row*4+2]
-	p.ModeOAM.data[row*4-1] = p.ModeOAM.data[row*4+3]
-
-	//panic(fmt.Sprintf("OAM corruption: row %d %d cycles until end of OAM search %s", row, cyclesUntilEndOAM, p.s.String()))*/
-}
-
-func bitwiseGlitch(a, b, c uint16) uint16 {
-	return ((a ^ c) & (b ^ c)) ^ c
-}
-
 // startVBlank is performed on the first cycle of each line 144 to 152, and
 // performs the ModeVBlank period for the current line. The ModeVBlank period lasts
 // until for 456 * 10 cycles, when the PPU enters Mode 2 (OAM search) on
@@ -750,16 +703,16 @@ func (p *PPU) writeOAM(b [160]byte) {
 	yMask := int(p.objSize & 0x10)
 	for i, value := range b {
 		// get the current sprite and x, y pos
+
 		s := &p.Sprites[i>>2]
 		oldX, oldY := s.x, s.y
 
 		switch i & 3 {
 		case 0:
 			s.y = value
-
 			// is the sprite visible now?
 			newYPos := s.y
-			if newYPos > ScreenHeight || oldX > ScreenHeight {
+			if newYPos > ScreenHeight+16 || oldX > ScreenHeight+8 {
 				continue // sprite is not visible
 			}
 
@@ -769,21 +722,23 @@ func (p *PPU) writeOAM(b [160]byte) {
 					continue
 				}
 				p.spriteScanlines[i] = true
+				p.backgroundLineRendered[i] = false
 			}
 		case 1:
 			s.x = value
 			// is the sprite visible now?
 			newXPos := s.x
-			if newXPos > ScreenWidth || oldY > ScreenHeight {
+			if newXPos > ScreenWidth+8 || oldY > ScreenHeight+16 {
 				continue // sprite is not visible
 			}
 
 			// we need to add the positions that the sprite is now visible on
-			for i := int(oldY) - 16; i < int(oldY)+16 && i < ScreenHeight; i++ {
+			for i := int(oldY) - 16; i < int(oldY) && i < ScreenHeight; i++ {
 				if i < 0 {
 					continue
 				}
 				p.spriteScanlines[i] = true
+				p.backgroundLineRendered[i] = false
 			}
 		case 2:
 			s.id = value
@@ -886,12 +841,11 @@ func (p *PPU) statUpdate() {
 }
 
 func (p *PPU) renderScanline() {
-
 	currentScanline := p.b.Get(types.LY)
 	if p.b.VRAMChanged() {
 		p.b.VRAMCatchup(p.writeVRAM)
 	}
-	if (!p.backgroundLineRendered[currentScanline] || !p.backgroundLineShallowRender[currentScanline]) && (p.bgEnabled || p.b.IsGBCCart()) {
+	if (!p.backgroundLineRendered[currentScanline]) && p.bgEnabled || p.b.IsGBCCart() {
 		p.renderBackgroundScanline()
 	}
 
@@ -989,23 +943,25 @@ func (p *PPU) renderBackgroundScanline() {
 	var scanline [ScreenWidth][3]uint8
 	colourLUT >>= xPixelPos << 1
 
-	for i := uint8(0); i < ScreenWidth; i++ {
-		// get color number of pixel
-		colorNum := colourLUT & 3
-		colourLUT >>= 2
-		// set scanline using unsafe to copy 4 bytes at a time
-		*(*uint32)(unsafe.Pointer(&scanline[i])) = *(*uint32)(unsafe.Pointer(&pal[colorNum]))
+	for i := uint8(0); i < ScreenWidth; {
+		for x := xPixelPos; x < 8 && i < ScreenWidth; x++ {
+			// get color number of pixel
+			colorNum := colourLUT & 3
+			colourLUT >>= 2
+			// set scanline using unsafe to copy 4 bytes at a time
+			scanline[i] = pal[colorNum]
 
-		p.scanlineInfo[i] = uint8(colorNum)
-		if tileEntry.priority {
-			p.scanlineInfo[i] |= 0b100
+			p.scanlineInfo[i] = uint8(colorNum)
+			if tileEntry.priority {
+				p.scanlineInfo[i] |= 0b100
+			}
+
+			xPixelPos++
+			xPos++
+			i++
 		}
 
-		xPixelPos++
-		xPos++
-
-		// did we just finish a tile?
-		if xPixelPos == 8 {
+		if i < ScreenWidth {
 			tileEntry, b1, b2, pal = p.getTile(xPos, yPos, p.bgTileMap)
 			colourLUT = colourNumberLUT[b1][b2]
 			if tileEntry.xFlip {
@@ -1027,6 +983,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 	spriteXPerScreen := [ScreenWidth]uint8{}
 	spriteCount := 0 // number of sprites on the current scanline (max 10)
 
+	objSize := p.objSize
 	for _, sprite := range p.Sprites {
 		adjustedScanline := scanline + 16
 		if sprite.y > adjustedScanline || sprite.y+p.objSize <= adjustedScanline {
@@ -1039,7 +996,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 		}
 		yPixelPos &= 7
 		tileID := sprite.id
-		if p.objSize == 16 {
+		if objSize == 16 {
 			if (adjustedScanline-sprite.y < 8 && sprite.yFlip) || (adjustedScanline-sprite.y >= 8 && !sprite.yFlip) {
 				tileID |= 0x01
 			} else {
@@ -1052,9 +1009,14 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 		b2 := p.TileData[sprite.vRAMBank][tileID][yPixelPos+8]
 
 		pal := p.ColourSpritePalette[sprite.paletteNumber]
+		colourLUT := colourNumberLUT[b1][b2]
+		if sprite.xFlip {
+			colourLUT = colourNumberLUTReversed[b1][b2]
+		}
 
 		for x := uint8(0); x < 8 && (sprite.x)+x < ScreenWidth+8; x++ {
-			colourNumber := colorNumber(b1, b2, x, sprite.xFlip)
+			colourNumber := colourLUT & 3
+			colourLUT >>= 2
 			pixelPos := (sprite.x - 8) + x
 			if pixelPos >= ScreenWidth {
 				continue

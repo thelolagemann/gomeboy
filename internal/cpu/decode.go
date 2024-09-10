@@ -42,7 +42,6 @@ func (c *CPU) decode(instr byte) {
 	case 0x31: // LD SP, d16
 		c.SP = uint16(c.readOperand()) | uint16(c.readOperand())<<8
 	case 0x33: // INC SP
-		c.handleOAMCorruption(c.SP)
 		c.SP++
 		c.s.Tick(4)
 	case 0x3B: // DEC SP
@@ -141,7 +140,6 @@ func (c *CPU) decode(instr byte) {
 				if instr>>3&1 == 1 { // LD A, (nn)
 					c.A = c.b.ClockedRead(c.getRegisterPairValue(instr))
 					if instr == 0x2A || instr == 0x3A { // LD A, (HL+/-)
-						c.handleOAMCorruption(c.HL.Uint16())
 						c.HL.SetUint16(c.HL.Uint16() + incDecBit[instr>>4&1])
 					}
 				} else { // LD (nn), A
@@ -152,7 +150,6 @@ func (c *CPU) decode(instr byte) {
 				}
 			case 3: // INC/DEC nn
 				p := c.getRegisterPair(instr)
-				c.handleOAMCorruption(p.Uint16())
 				p.SetUint16(p.Uint16() + incDecBit[instr>>3&1])
 				c.s.Tick(4)
 			case 4, 5: // INC/DEC n
@@ -244,7 +241,6 @@ func (c *CPU) decode(instr byte) {
 				p := c.getRegisterPair(instr)
 				*p[1] = c.b.ClockedRead(c.SP)
 				c.SP++
-				c.handleOAMCorruption(c.SP)
 				*p[0] = c.b.ClockedRead(c.SP)
 				c.SP++
 
