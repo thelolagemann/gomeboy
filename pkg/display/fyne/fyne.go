@@ -296,9 +296,6 @@ func (f *fyneDriver) toggleMainMenu() {
 		audioMenu := fyne.NewMenu("Audio",
 			audioMute,
 			audioChannels,
-			fyne.NewMenuItem("Visualizer", func() {
-				f.openWindowIfNotOpen(&views2.Visualizer{})
-			}),
 		)
 
 		videoFrameSize := fyne.NewMenuItem("Frame Size", func() {

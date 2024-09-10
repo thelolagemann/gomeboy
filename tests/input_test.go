@@ -30,7 +30,7 @@ func (iT *inputTest) Run(t *testing.T) {
 		}
 
 		// create a new gameboy
-		gb := gameboy.NewGameBoy(b, gameboy.AsModel(iT.model), gameboy.Speed(0), gameboy.NoAudio(), gameboy.WithLogger(log.NewNullLogger()))
+		gb := gameboy.NewGameBoy(b, gameboy.AsModel(iT.model), gameboy.Speed(0), gameboy.WithLogger(log.NewNullLogger()))
 
 		// setup frame, event and input channels
 		frames := make(chan []byte, 144)

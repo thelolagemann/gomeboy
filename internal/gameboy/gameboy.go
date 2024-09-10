@@ -285,9 +285,6 @@ emuLoop:
 					if len(avgRenderTimes) > 60 {
 						avgRenderTimes = avgRenderTimes[1:]
 					}
-
-					// send sample data
-					events <- event.Event{Type: event.Sample, Data: g.APU.Samples}
 				}
 
 				// send frame
@@ -374,6 +371,7 @@ func NewGameBoy(rom []byte, opts ...Opt) *GameBoy {
 
 		// schedule the frame sequencer event for the next 8192 ticks
 		g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer, uint64(8192-g.Scheduler.SysClock()&0x0fff))
+		g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer2, uint64(8192-g.Scheduler.SysClock()&0x0fff)+4096)
 	}
 
 	g.Bus.Cartridge().RumbleCallback = func(b bool) {

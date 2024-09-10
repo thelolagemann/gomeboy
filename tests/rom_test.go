@@ -507,7 +507,6 @@ const (
 func runGameboy(romPath string, timeout int, strat breakpointStrategy, opts ...gameboy.Opt) (*gameboy.GameBoy, error) {
 	// setup default options
 	defaultOpts := []gameboy.Opt{
-		gameboy.NoAudio(),
 		gameboy.WithLogger(log.NewNullLogger()),
 		gameboy.Speed(0),
 	}

@@ -369,7 +369,7 @@ func (a *APU) sample() {
 	left *= volumes[a.volumeLeft]
 	right *= volumes[a.volumeRight]
 
-	enabled := a.channels[0].dacEnabled || a.channels[1].dacEnabled || a.channels[2].dacEnabled || a.channels[3].dacEnabled
+	enabled := !(left == 0 && right == 0) || a.channels[0].dacEnabled || a.channels[1].dacEnabled || a.channels[2].dacEnabled || a.channels[3].dacEnabled
 
 	fLeft := highPass(0, left, enabled)
 	fRight := highPass(1, right, enabled)
