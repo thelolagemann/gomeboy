@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.dev/71/?scale=100&title=passing%20179,%20failing%2073&width=500)
+![progress](https://progress-bar.xyz/90/?scale=100&title=passing%20227,%20failing%2025&width=500)
 
-#### This document was automatically generated from commit ba91f07f
+#### This document was automatically generated from commit 87ba4022
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -38,7 +38,7 @@ is compared against a reference image from a known good emulator.
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
 | mooneye | 98% | 112 | 2 | 114 |
-| samesuite | 14% | 11 | 67 | 78 |
+| samesuite | 75% | 59 | 19 | 78 |
 | scribbltests | 100% | 5 | 0 | 5 |
 | strikethrough | 0% | 0 | 2 | 2 |
 
@@ -95,7 +95,7 @@ Explore the individual tests for each suite using the table of contents below.
   * [strikethrough](#strikethrough)
 
 # acid2
-![progress](https://progress-bar.dev/75/?scale=100&title=passing%203,%20failing%201&width=500)
+![progress](https://progress-bar.xyz/75/?scale=100&title=passing%203,%20failing%201&width=500)
 ## dmg-acid2
 | Test | Passing |
 | ---- | ------- |
@@ -107,14 +107,14 @@ Explore the individual tests for each suite using the table of contents below.
 | cgb-acid2 | ✅ |
 | cgb-acid-hell | ❌ |
 # bully
-![progress](https://progress-bar.dev/50/?scale=100&title=passing%201,%20failing%201&width=500)
+![progress](https://progress-bar.xyz/50/?scale=100&title=passing%201,%20failing%201&width=500)
 
 | Test | Passing |
 | ---- | ------- |
 | bully (DMG) | ✅ |
 | bully (CGB) | ❌ |
 # blarrg
-![progress](https://progress-bar.dev/100/?scale=100&title=passing%2043,%20failing%200&width=500)
+![progress](https://progress-bar.xyz/100/?scale=100&title=passing%2043,%20failing%200&width=500)
 ## cpu_instrs
 | Test | Passing |
 | ---- | ------- |
@@ -180,7 +180,7 @@ Explore the individual tests for each suite using the table of contents below.
 | 02-write_timing | ✅ |
 | 03-modify_timing | ✅ |
 # little-things-gb
-![progress](https://progress-bar.dev/100/?scale=100&title=passing%204,%20failing%200&width=500)
+![progress](https://progress-bar.xyz/100/?scale=100&title=passing%204,%20failing%200&width=500)
 ## firstwhite
 | Test | Passing |
 | ---- | ------- |
@@ -192,7 +192,7 @@ Explore the individual tests for each suite using the table of contents below.
 | tellinglys (DMG) | ✅ |
 | tellinglys (CGB) | ✅ |
 # mooneye
-![progress](https://progress-bar.dev/98/?scale=100&title=passing%20112,%20failing%202&width=500)
+![progress](https://progress-bar.xyz/98/?scale=100&title=passing%20112,%20failing%202&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -359,92 +359,92 @@ Explore the individual tests for each suite using the table of contents below.
 | sprite_priority (DMG) | ✅ |
 | sprite_priority (CGB) | ✅ |
 # samesuite
-![progress](https://progress-bar.dev/14/?scale=100&title=passing%2011,%20failing%2067&width=500)
+![progress](https://progress-bar.xyz/75/?scale=100&title=passing%2059,%20failing%2019&width=500)
 ## apu
 | Test | Passing |
 | ---- | ------- |
-| div_trigger_volume_10 | ❌ |
+| div_trigger_volume_10 | ✅ |
 | div_write_trigger | ✅ |
 | div_write_trigger_10 | ✅ |
-| div_write_trigger_volume | ❌ |
-| div_write_trigger_volume_10 | ❌ |
+| div_write_trigger_volume | ✅ |
+| div_write_trigger_volume_10 | ✅ |
 ## apu/channel_1
 | Test | Passing |
 | ---- | ------- |
-| channel_1_align | ❌ |
-| channel_1_align_cpu | ❌ |
-| channel_1_delay | ❌ |
-| channel_1_duty | ❌ |
-| channel_1_duty_delay | ❌ |
+| channel_1_align | ✅ |
+| channel_1_align_cpu | ✅ |
+| channel_1_delay | ✅ |
+| channel_1_duty | ✅ |
+| channel_1_duty_delay | ✅ |
 | channel_1_extra_length_clocking-cgb0B | ❌ |
-| channel_1_freq_change | ❌ |
+| channel_1_freq_change | ✅ |
 | channel_1_freq_change_timing-A | ❌ |
 | channel_1_freq_change_timing-cgb0BC | ❌ |
 | channel_1_freq_change_timing-cgbDE | ❌ |
-| channel_1_nrx2_glitch | ❌ |
-| channel_1_nrx2_speed_change | ❌ |
-| channel_1_restart | ❌ |
-| channel_1_restart_nrx2_glitch | ❌ |
-| channel_1_stop_div | ❌ |
-| channel_1_stop_restart | ❌ |
+| channel_1_nrx2_glitch | ✅ |
+| channel_1_nrx2_speed_change | ✅ |
+| channel_1_restart | ✅ |
+| channel_1_restart_nrx2_glitch | ✅ |
+| channel_1_stop_div | ✅ |
+| channel_1_stop_restart | ✅ |
 | channel_1_sweep | ❌ |
 | channel_1_sweep_restart | ❌ |
 | channel_1_sweep_restart_2 | ❌ |
-| channel_1_volume | ❌ |
-| channel_1_volume_div | ❌ |
+| channel_1_volume | ✅ |
+| channel_1_volume_div | ✅ |
 ## apu/channel_2
 | Test | Passing |
 | ---- | ------- |
-| channel_2_align | ❌ |
-| channel_2_align_cpu | ❌ |
-| channel_2_delay | ❌ |
-| channel_2_duty | ❌ |
-| channel_2_duty_delay | ❌ |
+| channel_2_align | ✅ |
+| channel_2_align_cpu | ✅ |
+| channel_2_delay | ✅ |
+| channel_2_duty | ✅ |
+| channel_2_duty_delay | ✅ |
 | channel_2_extra_length_clocking-cgb0B | ❌ |
-| channel_2_freq_change | ❌ |
-| channel_2_nrx2_glitch | ❌ |
-| channel_2_nrx2_speed_change | ❌ |
-| channel_2_restart | ❌ |
-| channel_2_restart_nrx2_glitch | ❌ |
-| channel_2_stop_div | ❌ |
-| channel_2_stop_restart | ❌ |
-| channel_2_volume | ❌ |
-| channel_2_volume_div | ❌ |
+| channel_2_freq_change | ✅ |
+| channel_2_nrx2_glitch | ✅ |
+| channel_2_nrx2_speed_change | ✅ |
+| channel_2_restart | ✅ |
+| channel_2_restart_nrx2_glitch | ✅ |
+| channel_2_stop_div | ✅ |
+| channel_2_stop_restart | ✅ |
+| channel_2_volume | ✅ |
+| channel_2_volume_div | ✅ |
 ## apu/channel_3
 | Test | Passing |
 | ---- | ------- |
-| channel_3_and_glitch | ❌ |
-| channel_3_delay | ❌ |
+| channel_3_and_glitch | ✅ |
+| channel_3_delay | ✅ |
 | channel_3_extra_length_clocking-cgb0 | ❌ |
 | channel_3_extra_length_clocking-cgbB | ❌ |
-| channel_3_first_sample | ❌ |
+| channel_3_first_sample | ✅ |
 | channel_3_freq_change_delay | ❌ |
 | channel_3_restart_delay | ❌ |
-| channel_3_restart_during_delay | ❌ |
-| channel_3_restart_stop_delay | ❌ |
-| channel_3_shift_delay | ❌ |
-| channel_3_shift_skip_delay | ❌ |
+| channel_3_restart_during_delay | ✅ |
+| channel_3_restart_stop_delay | ✅ |
+| channel_3_shift_delay | ✅ |
+| channel_3_shift_skip_delay | ✅ |
 | channel_3_stop_delay | ✅ |
-| channel_3_stop_div | ❌ |
+| channel_3_stop_div | ✅ |
 | channel_3_wave_ram_dac_on_rw | ✅ |
 | channel_3_wave_ram_locked_write | ✅ |
-| channel_3_wave_ram_sync | ❌ |
+| channel_3_wave_ram_sync | ✅ |
 ## apu/channel_4
 | Test | Passing |
 | ---- | ------- |
-| channel_4_align | ❌ |
+| channel_4_align | ✅ |
 | channel_4_delay | ❌ |
 | channel_4_equivalent_frequencies | ❌ |
 | channel_4_extra_length_clocking-cgb0B | ❌ |
 | channel_4_freq_change | ❌ |
 | channel_4_frequency_alignment | ❌ |
-| channel_4_lfsr | ❌ |
-| channel_4_lfsr15 | ❌ |
-| channel_4_lfsr_15_7 | ❌ |
-| channel_4_lfsr_7_15 | ❌ |
-| channel_4_lfsr_restart | ❌ |
-| channel_4_lfsr_restart_fast | ❌ |
-| channel_4_volume_div | ❌ |
+| channel_4_lfsr | ✅ |
+| channel_4_lfsr15 | ✅ |
+| channel_4_lfsr_15_7 | ✅ |
+| channel_4_lfsr_7_15 | ✅ |
+| channel_4_lfsr_restart | ✅ |
+| channel_4_lfsr_restart_fast | ✅ |
+| channel_4_volume_div | ✅ |
 ## dma
 | Test | Passing |
 | ---- | ------- |
@@ -466,7 +466,7 @@ Explore the individual tests for each suite using the table of contents below.
 | command_mlt_req | ❌ |
 | command_mlt_req_1_incrementing | ❌ |
 # scribbltests
-![progress](https://progress-bar.dev/100/?scale=100&title=passing%205,%20failing%200&width=500)
+![progress](https://progress-bar.xyz/100/?scale=100&title=passing%205,%20failing%200&width=500)
 
 | Test | Passing |
 | ---- | ------- |
@@ -476,7 +476,7 @@ Explore the individual tests for each suite using the table of contents below.
 | scxly | ✅ |
 | statcount-auto | ✅ |
 # strikethrough
-![progress](https://progress-bar.dev/0/?scale=100&title=passing%200,%20failing%202&width=500)
+![progress](https://progress-bar.xyz/0/?scale=100&title=passing%200,%20failing%202&width=500)
 
 | Test | Passing |
 | ---- | ------- |
