@@ -313,6 +313,31 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 			c.b.CopyTo(0x0000, 0x8000, c.ROM[int(value&7)*0x8000:])
 			c.m161Latched = true
 		}
+	case MBC2, MBC2BATT:
+		switch {
+		case address < 0x4000:
+			// writes with bit 8 set are ROM bank, otherwise RAM toggle
+			if address&0x100 == 0x100 {
+				value &= 0x0f // 4-bit
+
+				// like MBC1, values of 0 can't be written
+				if value == 0 {
+					value = 1
+				}
+				c.updateROMBank(uint16(value))
+			} else {
+				c.ramEnabled = value&0x0f == 0x0a
+			}
+		case address >= 0xA000 && address < 0xC000:
+			if c.ramEnabled {
+				c.RAM[address&0x01ff] = value | 0xf0
+
+				// account for wrap-around (could mask it in read but then that's another conditional on the read path)
+				for i := uint16(0); i < 16; i++ {
+					c.b.data[0xa000+(i*0x200)+(address&0x01ff)] = value | 0xf0
+				}
+			}
+		}
 	case MBC7:
 		switch {
 		case address < 0x2000: // RAM enable 1
@@ -452,13 +477,11 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.rtc.enabled = value&0x0f == 0x0a && c.Features.RTC
 				return
 			}
-
-			fallthrough
 		case address < 0x3000: // MBC5 being unique
 			switch {
 			case c.CartridgeType >= MBC5 && c.CartridgeType <= MBC5RUMBLERAMBATT:
 				romBank := uint16(c.romOffset / 0x4000)
-				romBank = romBank&0xff00 + uint16(value) // lower 8 bits
+				romBank = romBank&0x0100 + uint16(value) // lower 8 bits
 				c.updateROMBank(romBank)
 
 				return
@@ -482,19 +505,6 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.mbc1.bank1 = value
 
 				c.updateROMBank(uint16(c.mbc1.bank2<<c.mbc1.bankShift | value))
-			case MBC2, MBC2BATT:
-				// writes with bit 8 set are ROM bank, otherwise RAM toggle
-				if address&0x100 == 0x100 {
-					value &= 0x0f // 4-bit
-
-					// like MBC1, values of 0 can't be written
-					if value == 0 {
-						value = 1
-					}
-					c.updateROMBank(uint16(value))
-				} else {
-					c.ramEnabled = value&0x0f == 0x0a
-				}
 			case MBC3, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT:
 				if value == 0 {
 					value = 1
@@ -564,16 +574,6 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 			}
 		case address >= 0xA000 && address < 0xC000:
 			switch c.CartridgeType {
-			// MBC2 features a unique 512 x 4 bit RAM array :)
-			case MBC2, MBC2BATT:
-				if c.ramEnabled {
-					c.RAM[address&0x01ff] = value | 0xf0
-
-					// account for wrap-around (could mask it in read but then that's another conditional on the read path)
-					for i := uint16(0); i < 16; i++ {
-						c.b.data[0xa000+(i*0x200)+(address&0x01ff)] = value | 0xf0
-					}
-				}
 			case MBC3TIMERBATT, MBC3TIMERRAMBATT:
 				if c.rtc.enabled && c.rtc.register != 0 {
 					switch c.rtc.register {

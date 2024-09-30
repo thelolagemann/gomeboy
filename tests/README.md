@@ -1,7 +1,7 @@
 # Automated test results
 ![progress](https://progress-bar.xyz/90/?scale=100&title=passing%20227,%20failing%2025&width=500)
 
-#### This document was automatically generated from commit 334025ab
+#### This document was automatically generated from commit b6360337
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
