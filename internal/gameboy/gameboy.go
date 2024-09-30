@@ -13,7 +13,6 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
-	"math/rand/v2"
 	"path/filepath"
 	"strings"
 )
@@ -181,10 +180,10 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	g.CPU.Frame()
 
 	if g.rumbling {
-		utils.ShakeFrame(&g.PPU.PreparedFrame, rand.N(100))
+		// utils.ShakeFrame(&g.PPU.PreparedFrame, rand.N(100))
 	}
 	if g.Bus.Cartridge().Features.Accelerometer {
-		utils.Rotate2DFrame(&g.PPU.PreparedFrame, -float64(g.Bus.Cartridge().AccelerometerX), float64(g.Bus.Cartridge().AccelerometerY)) // TODO make configurable
+		// utils.Rotate2DFrame(&g.PPU.PreparedFrame, -float64(g.Bus.Cartridge().AccelerometerX), float64(g.Bus.Cartridge().AccelerometerY)) // TODO make configurable
 	}
 
 	return g.PPU.PreparedFrame
