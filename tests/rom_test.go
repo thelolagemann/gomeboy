@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"io"
 	"net/http"
@@ -460,7 +459,6 @@ func CreateMarkdownTableFromTests(tests []ROMTest) string {
 
 func testROMs(t *testing.T, roms ...ROMTest) {
 	for _, rom := range roms {
-		t.Parallel()
 		rom.Run(t)
 	}
 }
@@ -505,21 +503,11 @@ const (
 // by the breakpointStrategy. It returns the gameboy instance after
 // the breakpoint is hit.
 func runGameboy(romPath string, timeout int, strat breakpointStrategy, opts ...gameboy.Opt) (*gameboy.GameBoy, error) {
-	// setup default options
-	defaultOpts := []gameboy.Opt{
-		gameboy.WithLogger(log.NewNullLogger()),
-		gameboy.Speed(0),
-	}
-	opts = append(defaultOpts, opts...)
-
-	// load the rom
-	b, err := os.ReadFile(romPath)
-	if err != nil {
-		return nil, fmt.Errorf("unable to open rom %s", romPath)
-	}
-
 	// create the gameboy instance
-	g := gameboy.NewGameBoy(b, opts...)
+	g := gameboy.NewGameBoy(opts...)
+	if err := g.LoadROM(romPath); err != nil {
+		return nil, err
+	}
 
 	// create timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)

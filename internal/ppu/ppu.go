@@ -4,8 +4,8 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"fmt"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image"
-	"image/color"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -36,7 +36,7 @@ type Sprite struct {
 }
 
 func (s Sprite) String() string {
-	return fmt.Sprintf("X: %d Y: %d\n ID: %d VRAM: %d Palette: %d\n", s.x, s.y, s.id, s.vRAMBank, s.paletteNumber)
+	return fmt.Sprintf("X: %d Y: %d\nID: %d VRAM: %d Palette: %d\nXFlip: %s YFlip: %s", s.x, s.y, s.id, s.vRAMBank, s.paletteNumber, utils.BoolToString(s.xFlip), utils.BoolToString(s.yFlip))
 }
 
 // A Tile has a size of 8x8 pixels, using a 2bpp format.
@@ -1047,35 +1047,7 @@ func (p *PPU) renderSpritesScanline(scanline uint8) {
 	}
 }
 
-func (p *PPU) DumpRender(img *image.RGBA) {
-	for y := 0; y < ScreenHeight; y++ {
-		for x := 0; x < ScreenWidth; x++ {
-			// draw the frame
-			col := p.PreparedFrame[y][x]
-			img.Set(x, y, color.RGBA{col[0], col[1], col[2], 255})
-
-			if !p.backgroundLineRendered[y] {
-				// mix RED with frame
-				img.Set(x, y, combine(img.At(x, y), color.RGBA{255, 0, 0, 128}))
-			}
-		}
-	}
-}
-
 func (p *PPU) DrawSprite(img *image.RGBA, spr Sprite) {
 	// get the tile that sprite is using and call tile.Draw
 	p.TileData[spr.vRAMBank][spr.id].Draw(img, 0, 0, p.ColourSpritePalette[spr.paletteNumber])
-
-}
-
-func combine(c1, c2 color.Color) color.Color {
-	r, g, b, a := c1.RGBA()
-	r2, g2, b2, a2 := c2.RGBA()
-
-	return color.RGBA{
-		uint8((r + r2) >> 9), // div by 2 followed by ">> 8"  is ">> 9"
-		uint8((g + g2) >> 9),
-		uint8((b + b2) >> 9),
-		uint8((a + a2) >> 9),
-	}
 }

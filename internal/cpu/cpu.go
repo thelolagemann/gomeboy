@@ -2,7 +2,6 @@ package cpu
 
 import (
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 )
@@ -18,16 +17,14 @@ type CPU struct {
 
 	registerPointers [8]*uint8
 
-	b   *io.Bus
-	s   *scheduler.Scheduler
-	ppu *ppu.PPU
+	b *io.Bus
+	s *scheduler.Scheduler
 }
 
-func NewCPU(b *io.Bus, sched *scheduler.Scheduler, ppu *ppu.PPU) *CPU {
+func NewCPU(b *io.Bus, sched *scheduler.Scheduler) *CPU {
 	c := &CPU{
-		b:   b,
-		s:   sched,
-		ppu: ppu,
+		b: b,
+		s: sched,
 	}
 
 	c.BC = RegisterPair{&c.B, &c.C}

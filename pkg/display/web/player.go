@@ -9,7 +9,6 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/pkg/display"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"sync"
 )
 
@@ -67,7 +66,7 @@ type Player struct {
 	clientConnect chan *Client
 	clientSync    chan *Client
 
-	gb                     display.Emulator
+	gb                     *gameboy.GameBoy
 	pressed, release       chan<- io.Button
 	patchCache, frameCache *cache
 	currentFrame           []byte
@@ -77,23 +76,14 @@ type Player struct {
 	mu sync.Mutex
 }
 
-func (p *Player) Initialize(emu display.Emulator) {}
-
 func (p *Player) Attach(gb *gameboy.GameBoy) {
 	p.gb = gb
 }
 
-func (p *Player) Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- io.Button) error {
+func (p *Player) Start(fb <-chan []byte, pressed, released chan<- io.Button) error {
 	// setup keys
 	p.pressed = pressed
 	p.release = released
-
-	// handle events
-	go func() {
-		for {
-			<-events // TODO handle events
-		}
-	}()
 
 	// determine which player byte to use
 	var playerByte byte = 0
@@ -245,10 +235,10 @@ func (p *Player) ReadPump(from <-chan []byte) {
 			// handle special case of pause/play
 			if len(message) == 1 {
 				if message[0] == 0 {
-					p.gb.SendCommand(display.Pause)
+					p.gb.Pause()
 					p.hub.sendAllButClient(p.c, p.createMessage(PlayerInfo, []byte{PausePlay, 0}))
 				} else {
-					p.gb.SendCommand(display.Resume)
+					p.gb.Resume()
 					p.hub.sendAllButClient(p.c, p.createMessage(PlayerInfo, []byte{PausePlay, 1}))
 				}
 
@@ -257,17 +247,16 @@ func (p *Player) ReadPump(from <-chan []byte) {
 
 			switch message[0] {
 			case 9: // PPU related control
-				// assert gb (todo find better solution)
-				gb := p.gb.(*gameboy.GameBoy)
+
 				switch message[1] {
 				case 0: // background
-					gb.PPU.Debug.BackgroundDisabled = message[2] == 0
+					p.gb.PPU.Debug.BackgroundDisabled = message[2] == 0
 					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, BackgroundDisabled, message[2]})
 				case 1: // window
-					gb.PPU.Debug.WindowDisabled = message[2] == 0
+					p.gb.PPU.Debug.WindowDisabled = message[2] == 0
 					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, WindowDisabled, message[2]})
 				case 2: // sprites
-					gb.PPU.Debug.SpritesDisabled = message[2] == 0
+					p.gb.PPU.Debug.SpritesDisabled = message[2] == 0
 					p.hub.sendAllButClient(p.c, []byte{PlayerInfo, SpritesDisabled, message[2]})
 				}
 

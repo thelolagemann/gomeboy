@@ -29,7 +29,7 @@ func NewSave(title string, ramSize uint) (*Save, error) {
 	}
 
 	// create the file
-	f, err := os.Create(title)
+	f, err := os.Create(title + ".sav")
 	if err != nil {
 		return nil, err
 	}

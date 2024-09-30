@@ -1,49 +1,44 @@
 package views
 
 import (
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image"
-)
-
-var (
-	_ fyne.Layout = &sprite{}
+	"strconv"
 )
 
 type OAM struct {
-	PPU *ppu.PPU
+	widget.BaseWidget
+	PPU                            *ppu.PPU
+	spriteImgs                     []*tappableImage
+	selectedSprite                 int
+	selectedSpriteImage            *image.RGBA
+	selectedSpriteRaster           *canvas.Raster
+	selectedSpriteGrid             *widget.TextGrid
+	scaleFactor, scaleFactorActive int
 }
 
-func (o *OAM) Title() string {
-	return "OAM"
+func NewOAM(p *ppu.PPU) *OAM {
+	o := &OAM{PPU: p}
+	o.ExtendBaseWidget(o)
+	return o
 }
 
-type sprite struct {
-}
+func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
+	// create settings
+	settings := container.NewVBox()
+	// var scaleFactor = 1
+	scaleDropdown := widget.NewSelect([]string{"1x", "2x", "4x", "8x"}, func(s string) {
+		o.scaleFactor, _ = strconv.Atoi(s[:1])
+		o.Refresh()
+	})
+	scaleDropdown.Selected = "4x"
 
-func (s sprite) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	for _, o := range objects {
-		o.Resize(fyne.NewSize(8, 8))
-		o.Move(fyne.NewPos(0, 0))
-	}
-}
-
-func (s sprite) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(8*4, 8*4)
-}
-
-func (o *OAM) Run(window fyne.Window, events <-chan event.Event) error {
 	// create the grid (40 sprites, 10 sprites per row)
 	grid := container.NewGridWithRows(4)
-
-	// set the content of the window
-	window.SetContent(grid)
-
-	var spriteImgs []*tappableImage
 
 	// create the sprites
 	for i := 0; i < 40; i++ {
@@ -51,32 +46,50 @@ func (o *OAM) Run(window fyne.Window, events <-chan event.Event) error {
 		img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 		t := canvas.NewRasterFromImage(img)
 		t.ScaleMode = canvas.ImageScalePixels
-		t.SetMinSize(fyne.NewSize(float32(8), float32(8)))
+		t.SetMinSize(fyne.NewSize(32, 32))
 
 		o.PPU.DrawSprite(img, o.PPU.Sprites[i])
 
-		newI := i
-		tapImage := newTappableImage(img, t, func(_ *fyne.PointEvent) {
-			fmt.Println("you clicked a sprite")
-			fmt.Println(o.PPU.Sprites[newI])
-		})
-		spriteImgs = append(spriteImgs, tapImage)
+		tapImage := newTappableImage(img, t, func(_ *fyne.PointEvent) { o.selectedSprite = i; o.Refresh() })
+		o.spriteImgs = append(o.spriteImgs, tapImage)
 
 		grid.Add(tapImage)
 	}
 
-	// handle event
-	go func() {
-		for {
-			select {
-			case <-events:
-				for i, img := range spriteImgs {
-					o.PPU.DrawSprite(img.img, o.PPU.Sprites[i])
-					img.c.Refresh()
-				}
-			}
-		}
-	}()
+	main := container.NewHBox()
 
-	return nil
+	settings.Add(container.NewGridWithColumns(2, widget.NewLabelWithStyle("Scale: ", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), scaleDropdown))
+
+	main.Add(settings)
+	main.Add(container.NewVBox(grid))
+
+	// create selected sprite
+	o.selectedSpriteImage = image.NewRGBA(image.Rect(0, 0, 8, 8))
+	o.selectedSpriteRaster = canvas.NewRasterFromImage(o.selectedSpriteImage)
+	o.selectedSpriteRaster.ScaleMode = canvas.ImageScalePixels
+	o.selectedSpriteRaster.SetMinSize(fyne.NewSize(256, 256))
+	settings.Add(
+		container.NewVBox(
+			widget.NewLabelWithStyle("Selected Sprite", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			container.NewHBox(o.selectedSpriteRaster),
+		),
+	)
+	o.selectedSpriteGrid = widget.NewTextGrid()
+	settings.Add(container.NewVBox(widget.NewLabelWithStyle("Selected Sprite Info", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), o.selectedSpriteGrid))
+
+	return widget.NewSimpleRenderer(main)
+}
+
+func (o *OAM) Refresh() {
+	for i, img := range o.spriteImgs {
+		o.PPU.DrawSprite(img.img, o.PPU.Sprites[i])
+		if o.scaleFactorActive != o.scaleFactor {
+			img.c.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
+		}
+		img.Refresh()
+	}
+	o.PPU.DrawSprite(o.selectedSpriteImage, o.PPU.Sprites[o.selectedSprite])
+	o.selectedSpriteRaster.Refresh()
+	o.selectedSpriteGrid.SetText(o.PPU.Sprites[o.selectedSprite].String())
+	o.scaleFactorActive = o.scaleFactor
 }

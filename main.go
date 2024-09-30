@@ -2,21 +2,17 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/audio"
 	"github.com/thelolagemann/gomeboy/pkg/display"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/fyne"
 	_ "github.com/thelolagemann/gomeboy/pkg/display/glfw"
-	_ "github.com/thelolagemann/gomeboy/pkg/display/web"
-	"github.com/thelolagemann/gomeboy/pkg/emulator"
+	//_ "github.com/thelolagemann/gomeboy/pkg/display/web"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
-	"time"
-
 	"net/http"
 	_ "net/http/pprof"
 )
@@ -27,13 +23,19 @@ func main() {
 
 	// start pprof
 	go func() {
-		err := http.ListenAndServe("localhost:6060", nil)
+		err := http.ListenAndServe(":6060", nil)
 		if err != nil {
 			return
 		}
 	}()
 
 	var logger = log.New()
+	// create framebuffer
+	fb := make(chan []byte, 120)
+
+	// create various channels
+	pressed := make(chan io.Button, 1)
+	released := make(chan io.Button, 1)
 
 	romFile := flag.String("rom", "", "The rom file to load")
 	bootROM := flag.String("boot", "", "The boot rom file to load")
@@ -41,21 +43,12 @@ func main() {
 	asModel := flag.String("model", "auto", "The model to emulate. Can be auto, dmg or cgb")
 	printer := flag.Bool("printer", false, "enable printer")
 	displayDriver := flag.String("driver", "auto", "The display driver to use. Can be auto, glfw, fyne or web")
-	speed := flag.Float64("speed", 1, "The speed to run the emulator at")
 
 	flag.Parse()
 
-	var rom []byte
-	var err error
-	if *romFile != "" {
-		// open the rom file
-		rom, err = utils.LoadFile(*romFile)
-		if err != nil {
-			panic(err)
-		}
-	}
-
+	var gb *gameboy.GameBoy
 	var opts []gameboy.Opt
+
 	if *bootROM != "" {
 		boot, err := utils.LoadFile(*bootROM)
 		if err != nil {
@@ -66,8 +59,7 @@ func main() {
 	}
 
 	if *printer {
-		printer := accessories.NewPrinter()
-		opts = append(opts, gameboy.WithPrinter(printer))
+		opts = append(opts, gameboy.WithPrinter())
 	}
 
 	// has model been set?
@@ -76,10 +68,19 @@ func main() {
 	}
 
 	// opts = append(opts, gameboy.SaveEvery(time.Second*10))
-	opts = append(opts, gameboy.Speed(*speed))
+	opts = append(opts)
 	// create a new gameboy
-	opts = append(opts, gameboy.WithLogger(logger))
-	gb := gameboy.NewGameBoy(rom, opts...)
+	gb = gameboy.NewGameBoy(opts...)
+
+	if *romFile != "" {
+		if err := gb.LoadROM(*romFile); err != nil {
+			logger.Errorf("unable to load ROM %s: %s", *romFile, err)
+		}
+	}
+
+	if err := audio.OpenAudio(gb, fb); err != nil {
+		logger.Errorf("unable to open audio device %s", err)
+	}
 
 	driver := display.GetDriver(*displayDriver)
 
@@ -88,19 +89,9 @@ func main() {
 		logger.Fatal("invalid display driver")
 	}
 
-	// attach gameboy to driver
-	driver.Initialize(gb)
-
-	// create framebuffer
-	fb := make(chan []byte, 60)
-
-	// create various channels
-	events := make(chan event.Event, 60)
-	pressed := make(chan io.Button, 10)
-	released := make(chan io.Button, 10)
-
-	if err := audio.OpenAudio(gb, fb, events); err != nil {
-		logger.Errorf("unable to open audio device %s", err)
+	// is the driver capable of debugging?
+	if debugger, ok := driver.(display.DriverDebugger); ok {
+		debugger.AttachGameboy(gb)
 	}
 
 	// handle input
@@ -114,16 +105,15 @@ func main() {
 			}
 		}
 	}()
-	if err := driver.Start(fb, events, pressed, released); err != nil {
+
+	// start the display driver (blocking)
+	if err := driver.Start(gb, fb, pressed, released); err != nil {
 		logger.Fatal(err.Error())
 	}
 
-	gb.SendCommand(display.Close)
-	// wait until gb is no longer running
-	for {
-		if gb.State() == emulator.Stopped {
-			break
-		}
-		time.Sleep(time.Millisecond * 10)
+	// save after the driver has stopped TODO important stop audio from driving gameboy somehow
+	if err := gb.Save(); err != nil {
+		logger.Fatal(fmt.Sprintf("unable to save: %v", err))
 	}
+
 }

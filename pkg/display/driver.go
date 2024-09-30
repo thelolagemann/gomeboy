@@ -3,8 +3,8 @@ package display
 import (
 	"flag"
 	"fmt"
+	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"strconv"
@@ -25,33 +25,15 @@ func Init() {
 // Driver is the interface that wraps the basic methods for a
 // display driver.
 type Driver interface {
-	// Initialize initializes the display driver by attaching it to
-	// the emulator that is using it.
-	Initialize(emu Emulator)
 	// Start the display driver.
-	Start(fb <-chan []byte, events <-chan event.Event, pressed, released chan<- io.Button) error
+	Start(c emulator.Controller, fb <-chan []byte, pressed, released chan<- io.Button) error
 	// Stop the display driver.
 	Stop() error
 }
 
-// Emulator is the interface that wraps the basic methods for an
-// emulator to implement in order for the driver to be able to
-// interact with it. This is used to allow the driver to
-// control the emulator. The emulator is passed to the driver
-// during initialization.
-type Emulator interface {
-	// SendCommand sends a command packet to the emulator.
-	SendCommand(command emulator.CommandPacket) emulator.ResponsePacket
-	// State returns the state of the emulator.
-	State() emulator.State
+type DriverDebugger interface {
+	AttachGameboy(*gameboy.GameBoy) // find a better way to do this
 }
-
-var (
-	Pause  = emulator.CommandPacket{Command: emulator.CommandPause}
-	Resume = emulator.CommandPacket{Command: emulator.CommandResume}
-	Reset  = emulator.CommandPacket{Command: emulator.CommandReset}
-	Close  = emulator.CommandPacket{Command: emulator.CommandClose}
-)
 
 // DriverOption is a display driver option. This is used to
 // configure a display driver.
@@ -81,7 +63,7 @@ var InstalledDrivers []*InstalledDriver
 // no driver with that name is installed.
 func GetDriver(name string) Driver {
 	if name == "auto" {
-		return InstalledDrivers[0]
+		return InstalledDrivers[0].Driver
 	}
 	for _, driver := range InstalledDrivers {
 		if driver.Name == name {

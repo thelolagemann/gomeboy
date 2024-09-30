@@ -6,19 +6,25 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image"
 )
 
 type Tilemaps struct {
+	widget.BaseWidget
 	PPU *ppu.PPU
+
+	tilemap0ImageCanvas, tilemap1ImageCanvas *canvas.Raster
+	tilemap0Image, tilemap1Image             *image.RGBA
+	segmentTiles                             int
 }
 
-func (t *Tilemaps) Title() string {
-	return "Tilemaps"
+func NewTilemaps(p *ppu.PPU) *Tilemaps {
+	t := &Tilemaps{PPU: p}
+	t.ExtendBaseWidget(t)
+	return t
 }
 
-func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
+func (t *Tilemaps) CreateRenderer() fyne.WidgetRenderer {
 	// create main container
 	main := container.NewHBox()
 
@@ -36,7 +42,7 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 		scaleDropdown,
 	))
 
-	var segmentTiles = 0
+	t.segmentTiles = 0
 	// create segment tiles checkbox
 	segmentTilesCheckbox := widget.NewCheck("", nil)
 
@@ -57,11 +63,11 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 	tilemap0Content := container.NewHBox()
 
 	// tilemap image
-	tilemap0Image := image.NewRGBA(image.Rect(0, 0, 256, 256))
-	tilemap0ImageCanvas := canvas.NewRasterFromImage(tilemap0Image)
-	tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
-	tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
-	tilemap0Tap := newTappableImage(tilemap0Image, tilemap0ImageCanvas, func(e *fyne.PointEvent) {
+	t.tilemap0Image = image.NewRGBA(image.Rect(0, 0, 256, 256))
+	t.tilemap0ImageCanvas = canvas.NewRasterFromImage(t.tilemap0Image)
+	t.tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
+	t.tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
+	tilemap0Tap := newTappableImage(t.tilemap0Image, t.tilemap0ImageCanvas, func(e *fyne.PointEvent) {
 		// using the position, we need to calculate which tile was clicked
 		// 1. get the position of the click
 		// 2. divide the position by the scale factor
@@ -93,19 +99,17 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 	tilemap1Content := container.NewHBox()
 
 	// tilemap image
-	tilemap1Image := image.NewRGBA(image.Rect(0, 0, 256, 256))
-	tilemap1ImageCanvas := canvas.NewRasterFromImage(tilemap1Image)
-	tilemap1ImageCanvas.ScaleMode = canvas.ImageScalePixels
-	tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
-	tilemap1Content.Add(tilemap1ImageCanvas)
+	t.tilemap1Image = image.NewRGBA(image.Rect(0, 0, 256, 256))
+	t.tilemap1ImageCanvas = canvas.NewRasterFromImage(t.tilemap1Image)
+	t.tilemap1ImageCanvas.ScaleMode = canvas.ImageScalePixels
+	t.tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
+	tilemap1Content.Add(t.tilemap1ImageCanvas)
 
 	tilemap1.Add(tilemap1Content)
 
 	// add tilemaps to map container
 	mapGrid.Add(tilemap0)
 	mapGrid.Add(tilemap1)
-
-	window.SetContent(main)
 
 	// event handlers
 	scaleDropdown.OnChanged = func(s string) {
@@ -120,11 +124,11 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 		case "4x":
 			scaleFactor = 4
 		}
-		tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
-		tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
+		t.tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
+		t.tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
 
-		tilemap0ImageCanvas.Refresh()
-		tilemap1ImageCanvas.Refresh()
+		t.tilemap0ImageCanvas.Refresh()
+		t.tilemap1ImageCanvas.Refresh()
 	}
 
 	segmentTilesCheckbox.OnChanged = func(b bool) {
@@ -132,64 +136,53 @@ func (t *Tilemaps) Run(window fyne.Window, events <-chan event.Event) error {
 		// if segmentTiles is true, we need to segment the tiles
 		// by first recreating the tilemap images to accomodate
 		// the gaps in between the tiles
-		if segmentTiles == 0 && b {
+		if t.segmentTiles == 0 && b {
 			// remove the tilemap images from the map container
 			tilemap0Content.RemoveAll()
 			tilemap1Content.RemoveAll()
 
-			tilemap0Image = image.NewRGBA(image.Rect(0, 0, 384, 384))
-			tilemap0ImageCanvas = canvas.NewRasterFromImage(tilemap0Image)
-			tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
-			tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(384*scaleFactor), float32(384*scaleFactor)))
+			t.tilemap0Image = image.NewRGBA(image.Rect(0, 0, 384, 384))
+			t.tilemap0ImageCanvas = canvas.NewRasterFromImage(t.tilemap0Image)
+			t.tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
+			t.tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(384*scaleFactor), float32(384*scaleFactor)))
 
-			tilemap1Image = image.NewRGBA(image.Rect(0, 0, 384, 384))
-			tilemap1ImageCanvas = canvas.NewRasterFromImage(tilemap1Image)
-			tilemap1ImageCanvas.ScaleMode = canvas.ImageScalePixels
-			tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(384*scaleFactor), float32(384*scaleFactor)))
+			t.tilemap1Image = image.NewRGBA(image.Rect(0, 0, 384, 384))
+			t.tilemap1ImageCanvas = canvas.NewRasterFromImage(t.tilemap1Image)
+			t.tilemap1ImageCanvas.ScaleMode = canvas.ImageScalePixels
+			t.tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(384*scaleFactor), float32(384*scaleFactor)))
 
-			tilemap0Content.Add(tilemap0ImageCanvas)
-			tilemap1Content.Add(tilemap1ImageCanvas)
+			tilemap0Content.Add(t.tilemap0ImageCanvas)
+			tilemap1Content.Add(t.tilemap1ImageCanvas)
 
-			segmentTiles = 4
-		} else if segmentTiles != 0 && !b {
+			t.segmentTiles = 4
+		} else if t.segmentTiles != 0 && !b {
 			// remove the tilemap images from the map container
 			tilemap0Content.RemoveAll()
 			tilemap1Content.RemoveAll()
 
-			tilemap0Image = image.NewRGBA(image.Rect(0, 0, 256, 256))
-			tilemap0ImageCanvas = canvas.NewRasterFromImage(tilemap0Image)
-			tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
-			tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
+			t.tilemap0Image = image.NewRGBA(image.Rect(0, 0, 256, 256))
+			t.tilemap0ImageCanvas = canvas.NewRasterFromImage(t.tilemap0Image)
+			t.tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
+			t.tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
 
-			tilemap1Image = image.NewRGBA(image.Rect(0, 0, 256, 256))
-			tilemap1ImageCanvas = canvas.NewRasterFromImage(tilemap1Image)
-			tilemap1ImageCanvas.ScaleMode = canvas.ImageScalePixels
-			tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
+			t.tilemap1Image = image.NewRGBA(image.Rect(0, 0, 256, 256))
+			t.tilemap1ImageCanvas = canvas.NewRasterFromImage(t.tilemap1Image)
+			t.tilemap1ImageCanvas.ScaleMode = canvas.ImageScalePixels
+			t.tilemap1ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
 
-			tilemap0Content.Add(tilemap0ImageCanvas)
-			tilemap1Content.Add(tilemap1ImageCanvas)
+			tilemap0Content.Add(t.tilemap0ImageCanvas)
+			tilemap1Content.Add(t.tilemap1ImageCanvas)
 
-			segmentTiles = 0
+			t.segmentTiles = 0
 		}
 
 	}
 
-	go func() {
-		for {
-			select {
-			case e := <-events:
-				switch e.Type {
-				case event.Quit:
-					return
-				case event.FrameTime:
-					// update tilemap 0
-					t.PPU.DumpTileMaps(tilemap0Image, tilemap1Image, segmentTiles)
-					tilemap0ImageCanvas.Refresh()
-					tilemap1ImageCanvas.Refresh()
-				}
-			}
-		}
-	}()
+	return widget.NewSimpleRenderer(main)
+}
 
-	return nil
+func (t *Tilemaps) Refresh() {
+	t.PPU.DumpTileMaps(t.tilemap0Image, t.tilemap1Image, t.segmentTiles)
+	t.tilemap0ImageCanvas.Refresh()
+	t.tilemap1ImageCanvas.Refresh()
 }

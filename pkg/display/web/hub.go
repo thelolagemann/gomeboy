@@ -171,19 +171,19 @@ func (w *hub) run() error {
 func (w *hub) info() byte {
 	info := uint8(0)
 	if w.player1.gb != nil {
-		if w.player1.gb.State().IsRunning() {
+		if !w.player1.gb.Paused() {
 			info |= types.Bit0
 		}
-		if w.player1.gb.State().IsPaused() {
+		if w.player1.gb.Paused() {
 			info |= types.Bit5
 		}
 	}
 
 	if w.player2.gb != nil {
-		if w.player2.gb.State().IsRunning() {
+		if !w.player2.gb.Paused() {
 			info |= types.Bit1
 		}
-		if w.player2.gb.State().IsPaused() {
+		if w.player2.gb.Paused() {
 			info |= types.Bit6
 		}
 	}
