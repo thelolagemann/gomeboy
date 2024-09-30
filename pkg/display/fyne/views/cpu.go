@@ -1,164 +1,80 @@
 package views
 
 import (
+	"fmt"
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
-	"image/color"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 )
 
 type CPU struct {
 	*cpu.CPU
 
-	flags []binding.BoolList
+	widget.BaseWidget
+
+	regA *widget.Label
+	regB *widget.Label
+	regC *widget.Label
+	regD *widget.Label
+	regE *widget.Label
+	regH *widget.Label
+	regL *widget.Label
+	regF *widget.Label
+	pc   *widget.Label
+	sp   *widget.Label
 }
 
-func (c *CPU) Title() string {
-	return "CPU"
+func NewCPU(cp *cpu.CPU) *CPU {
+	c := &CPU{
+		CPU:  cp,
+		regA: widget.NewLabel("0x00"),
+		regB: widget.NewLabel("0x00"),
+		regC: widget.NewLabel("0x00"),
+		regD: widget.NewLabel("0x00"),
+		regE: widget.NewLabel("0x00"),
+		regH: widget.NewLabel("0x00"),
+		regL: widget.NewLabel("0x00"),
+		regF: widget.NewLabel("Z0 N0 H0 C0"),
+		pc:   widget.NewLabel("0x0000"),
+		sp:   widget.NewLabel("0x0000"),
+	}
+	c.ExtendBaseWidget(c)
+	return c
 }
 
-func (c *CPU) Run(window fyne.Window, events <-chan event.Event) error {
-	grid := container.NewVBox()
-	// set the content of the window
-	window.SetContent(grid)
-
-	// create the labels
-	af := canvas.NewText("", color.White)
-	af.TextStyle = fyne.TextStyle{Monospace: true}
-	bc := canvas.NewText("", color.White)
-	bc.TextStyle = fyne.TextStyle{Monospace: true}
-	de := canvas.NewText("", color.White)
-	de.TextStyle = fyne.TextStyle{Monospace: true}
-	hl := canvas.NewText("", color.White)
-	hl.TextStyle = fyne.TextStyle{Monospace: true}
-	sp := canvas.NewText("", color.White)
-	sp.TextStyle = fyne.TextStyle{Monospace: true}
-	pc := canvas.NewText("", color.White)
-	pc.TextStyle = fyne.TextStyle{Monospace: true}
-
-	// create a grid for the registers
-	registerGrid := container.NewGridWithRows(7)
-	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("AF"), af))
-	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("BC"), bc))
-	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("DE"), de))
-	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("HL"), hl))
-	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("SP"), sp))
-	registerGrid.Add(container.NewGridWithColumns(2, widget.NewLabel("PC"), pc))
-
-	// add the grid to the window
-	grid.Add(registerGrid)
-
-	// handle event
-	go func() {
-		for {
-			select {
-			case e := <-events:
-				switch e.Type {
-				case event.Quit:
-					return
-				}
-			}
+func (c *CPU) CreateRenderer() fyne.WidgetRenderer {
+	grid := container.NewGridWithColumns(2,
+		widget.NewLabel("A:"), c.regA,
+		widget.NewLabel("B:"), c.regB,
+		widget.NewLabel("C:"), c.regC,
+		widget.NewLabel("D:"), c.regD,
+		widget.NewLabel("E:"), c.regE,
+		widget.NewLabel("H:"), c.regH,
+		widget.NewLabel("L:"), c.regL,
+		widget.NewLabel("PC:"), c.pc,
+		widget.NewLabel("SP:"), c.sp,
+		widget.NewLabel("Flags:"), c.regF,
+	)
+	for _, l := range grid.Objects {
+		if label, ok := l.(*widget.Label); ok {
+			label.TextStyle.Monospace = true
 		}
-	}()
-
-	return nil
+	}
+	return widget.NewSimpleRenderer(grid)
 }
 
-func (c *CPU) Setup(w fyne.Window) error {
-
-	// create a grid for register F flags (checkboxes for each flag of the 4 flags)
-	fGrid := container.NewVBox(widget.NewLabel("F Flags:"))
-
-	// create bool bindings for each flag
-	zBool := binding.NewBool()
-	nBool := binding.NewBool()
-	hBool := binding.NewBool()
-	cyBool := binding.NewBool()
-
-	// create a checkbox for each flag
-	z := widget.NewCheck("Z", func(b bool) {
-		// do nothing
-	})
-	n := widget.NewCheck("N", func(b bool) {
-		// do nothing
-	})
-	h := widget.NewCheck("H", func(b bool) {
-		// do nothing
-	})
-	cy := widget.NewCheck("CY", func(b bool) {
-		// do nothing
-	})
-
-	// bind the checkboxes to the bool bindings
-	z.Bind(zBool)
-	n.Bind(nBool)
-	h.Bind(hBool)
-	cy.Bind(cyBool)
-
-	// disable the checkboxes
-	z.Disable()
-	n.Disable()
-	h.Disable()
-	cy.Disable()
-
-	// add the checkboxes to the grid
-	fGrid.Add(z)
-	fGrid.Add(n)
-	fGrid.Add(h)
-	fGrid.Add(cy)
-
-	// Interrupts
-
-	// create divider
-
-	// create a grid for the interrupts
-	interruptsGrid := container.NewVBox(widget.NewLabel("Interrupts:"))
-
-	// create bool bindings for each interrupt
-	vBlankBool := binding.NewBool()
-	lcdStatBool := binding.NewBool()
-	timerBool := binding.NewBool()
-	serialBool := binding.NewBool()
-	joypadBool := binding.NewBool()
-
-	// create a checkbox for each interrupt
-	vBlank := widget.NewCheck("VBlank", func(b bool) {
-		// do nothing
-	})
-	lcdStat := widget.NewCheck("LCDStat", func(b bool) {
-		// do nothing
-	})
-	timer := widget.NewCheck("Timer", func(b bool) {
-		// do nothing
-	})
-	serial := widget.NewCheck("Serial", func(b bool) {
-		// do nothing
-	})
-	joypad := widget.NewCheck("Joypad", func(b bool) {
-		// do nothing
-	})
-
-	// bind the checkboxes to the bool bindings
-	vBlank.Bind(vBlankBool)
-	lcdStat.Bind(lcdStatBool)
-	timer.Bind(timerBool)
-	serial.Bind(serialBool)
-	joypad.Bind(joypadBool)
-
-	// add the checkboxes to the grid
-	interruptsGrid.Add(vBlank)
-	interruptsGrid.Add(lcdStat)
-	interruptsGrid.Add(timer)
-	interruptsGrid.Add(serial)
-	interruptsGrid.Add(joypad)
-
-	return nil
-}
-
-func NewCPU(c *cpu.CPU) *CPU {
-	return &CPU{CPU: c}
+// Refresh updates the values of the CPU registers in the widget
+func (c *CPU) Refresh() {
+	c.regA.SetText(fmt.Sprintf("0x%02X", c.A))
+	c.regB.SetText(fmt.Sprintf("0x%02X", c.B))
+	c.regC.SetText(fmt.Sprintf("0x%02X", c.C))
+	c.regD.SetText(fmt.Sprintf("0x%02X", c.D))
+	c.regE.SetText(fmt.Sprintf("0x%02X", c.E))
+	c.regH.SetText(fmt.Sprintf("0x%02X", c.H))
+	c.regL.SetText(fmt.Sprintf("0x%02X", c.L))
+	c.pc.SetText(fmt.Sprintf("0x%04X", c.PC))
+	c.sp.SetText(fmt.Sprintf("0x%04X", c.SP))
+	c.regF.SetText(fmt.Sprintf("Z%s N%s H%s C%s", utils.BoolToString(c.F&0x80 > 0), utils.BoolToString(c.F&0x40 > 0), utils.BoolToString(c.F&0x20 > 0), utils.BoolToString(c.F&0x10 > 0)))
 }

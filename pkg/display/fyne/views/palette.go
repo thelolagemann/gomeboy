@@ -5,25 +5,24 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"image/color"
 )
 
 type Palette struct {
-	PPU *ppu.PPU
+	widget.BaseWidget
+	PPU               *ppu.PPU
+	bgRects, objRects [8][4]*canvas.Rectangle
 }
 
-func (p Palette) Title() string {
-	return "Palette"
+func NewPalette(p *ppu.PPU) *Palette {
+	pa := &Palette{PPU: p}
+	pa.ExtendBaseWidget(pa)
+	return pa
 }
 
-func (p Palette) Run(window fyne.Window, events <-chan event.Event) error {
-	// set non-resizable
-	window.SetFixedSize(true)
-
+func (p *Palette) CreateRenderer() fyne.WidgetRenderer {
 	// create the main container
 	mainContainer := container.NewVBox()
 
@@ -36,84 +35,57 @@ func (p Palette) Run(window fyne.Window, events <-chan event.Event) error {
 	cgbBGPaletteBox.Add(widget.NewLabelWithStyle("Background", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 	cgbOBJPaletteBox.Add(widget.NewLabelWithStyle("Objects", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 
-	// create a box for the selected paletteView
-	selectedPaletteBox := container.New(selectedPaletteLayout{})
-
 	// create a rectangle for the selected paletteView (larger than the others)
 	selectedPalette := canvas.NewRectangle(color.White)
-	selectedPaletteBox.Add(selectedPalette)
+	selectedPalette.SetMinSize(fyne.NewSize(48, 48))
+	selectedPalette.CornerRadius = 5
 
 	selectedPaletteColour := color.RGBA{0, 0, 0, 255}
 
 	// create RGB values for the selected paletteView
-	selectedPaletteInfoBox := container.New(selectedPaletteInfoLayout{})
-	selectedPaletteRedLabel := widget.NewLabelWithStyle("0", fyne.TextAlignLeading, fyne.TextStyle{Monospace: true})
-	selectedPaletteGreenLabel := widget.NewLabelWithStyle("0", fyne.TextAlignLeading, fyne.TextStyle{Monospace: true})
-	selectedPaletteBlueLabel := widget.NewLabelWithStyle("0", fyne.TextAlignLeading, fyne.TextStyle{Monospace: true})
+	selectedPaletteInfoBox := container.NewVBox()
+	selectedPaletteInfo := widget.NewTextGrid()
 
-	// add the RGB values to the info box
-	selectedPaletteInfoBox.Add(container.NewHBox(widget.NewLabelWithStyle("R:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), selectedPaletteRedLabel))
-	selectedPaletteInfoBox.Add(container.NewHBox(widget.NewLabelWithStyle("G:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), selectedPaletteGreenLabel))
-	selectedPaletteInfoBox.Add(container.NewHBox(widget.NewLabelWithStyle("B:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), selectedPaletteBlueLabel))
+	selectedPaletteInfoBox.Add(selectedPaletteInfo)
 
-	// create action box
-	selectedPaletteActionBox := container.NewVBox()
-	selectedPaletteActionBox.Add(widget.NewButton("Copy", func() {
-
-	}))
-	selectedPaletteActionBox.Add(widget.NewButton("Save", func() {
-
-	}))
-
-	// add the selected paletteView to the paletteView box
-	selectedPaletteBox.Add(selectedPaletteInfoBox)
-	selectedPaletteBox.Add(selectedPaletteActionBox)
+	selectedPaletteBox := container.NewHBox(selectedPalette, selectedPaletteInfoBox)
 
 	// TODO determine DMG or CGB (CGB has 16 palettes, DMG has 3)
 	for i := 0; i < 8; i++ {
-		// create a container for the paletteView
-		bgPaletteContainer := container.New(&paletteView{})
-
-		// add the paletteView to the paletteView box
-		cgbBGPaletteBox.Add(bgPaletteContainer)
-
-		// create a container for the paletteView
-		objPaletteContainer := container.New(&paletteView{})
-
-		// add the paletteView to the paletteView box
-		cgbOBJPaletteBox.Add(objPaletteContainer)
+		cgbBGPaletteBox.Add(container.NewHBox())
+		cgbOBJPaletteBox.Add(container.NewHBox())
 	}
 
 	// create colored rectangles for the palettes
 	for i := 0; i < 8; i++ {
-		// copy i to a new variable to prevent it from being overwritten
-		newI := i
 		for j := 0; j < 4; j++ {
-			// copy j to a new variable to prevent it from being overwritten
-			newJ := j
 			// create a rectangle for obj and bg paletteView
-			bgRect := newTappableRectangle(func() {
+			r := canvas.NewRectangle(color.White)
+			r.SetMinSize(fyne.NewSize(24, 24))
+			bgRect := newWrappedTappable(func() {
 				// set the color of the selected paletteView
-				selectedPalette.FillColor = toRGB(p.PPU.ColourPalette[newI][newJ])
+				selectedPalette.FillColor = toRGB(p.PPU.ColourPalette[i][j])
 				selectedPalette.Refresh()
 				// set the color of the selected paletteView info
-				selectedPaletteColour = toRGB(p.PPU.ColourPalette[newI][newJ])
-				selectedPaletteRedLabel.SetText(fmt.Sprintf("0x%02X", selectedPaletteColour.R))
-				selectedPaletteGreenLabel.SetText(fmt.Sprintf("0x%02X", selectedPaletteColour.G))
-				selectedPaletteBlueLabel.SetText(fmt.Sprintf("0x%02X", selectedPaletteColour.B))
-			})
-			bgRect.rec.SetMinSize(fyne.NewSize(24, 24))
-			objRect := newTappableRectangle(func() {
-
-			})
-			objRect.rec.SetMinSize(fyne.NewSize(24, 24))
+				selectedPaletteColour = toRGB(p.PPU.ColourPalette[i][j])
+				selectedPaletteInfo.SetText(fmt.Sprintf("BG\t%d:%d\n#%02x%02x%02x", i, j, selectedPaletteColour.R, selectedPaletteColour.G, selectedPaletteColour.B))
+			}, r)
+			r2 := canvas.NewRectangle(color.White)
+			r2.SetMinSize(fyne.NewSize(24, 24))
+			objRect := newWrappedTappable(func() {
+				selectedPalette.FillColor = toRGB(p.PPU.ColourSpritePalette[i][j])
+				selectedPalette.Refresh()
+				// set the color of the selected paletteView info
+				selectedPaletteColour = toRGB(p.PPU.ColourSpritePalette[i][j])
+				selectedPaletteInfo.SetText(fmt.Sprintf("OBJ\t%d:%d\n#%02x%02x%02x", i, j, selectedPaletteColour.R, selectedPaletteColour.G, selectedPaletteColour.B))
+			}, r2)
 
 			// add the rectangle to the paletteView
 			cgbBGPaletteBox.Objects[i+1].(*fyne.Container).Add(bgRect)
 			cgbOBJPaletteBox.Objects[i+1].(*fyne.Container).Add(objRect)
 
-			// create tap handlers
-
+			p.bgRects[i][j] = r
+			p.objRects[i][j] = r2
 		}
 	}
 
@@ -128,112 +100,35 @@ func (p Palette) Run(window fyne.Window, events <-chan event.Event) error {
 	// add the selected paletteView box to the main container
 	mainContainer.Add(selectedPaletteBox)
 
-	// set the main container as the content of the window
-	window.SetContent(mainContainer)
+	return widget.NewSimpleRenderer(mainContainer)
+}
 
-	// empty event loop
-	go func() {
-		for {
-			select {
-			case e := <-events:
-				switch e.Type {
-				case event.Quit:
-					return
-				case event.FrameTime:
-					for i := uint8(0); i < 8; i++ {
-						for j := uint8(0); j < 4; j++ {
-							// get the color from the paletteView
-							bgColor := toRGB(p.PPU.ColourPalette[i][j])
-							objColor := toRGB(p.PPU.ColourSpritePalette[i][j])
+func (p *Palette) Refresh() {
+	for i := uint8(0); i < 8; i++ {
+		for j := uint8(0); j < 4; j++ {
+			// get the color from the paletteView
+			bgColor := toRGB(p.PPU.ColourPalette[i][j])
+			objColor := toRGB(p.PPU.ColourSpritePalette[i][j])
 
-							// get the rectangle
-							bgRect := cgbBGPaletteBox.Objects[i+1].(*fyne.Container).Objects[j].(*tappableRectangle).rec
-							objRect := cgbOBJPaletteBox.Objects[i+1].(*fyne.Container).Objects[j].(*tappableRectangle).rec
+			// get the rectangle
+			bgRect := p.bgRects[i][j]
+			objRect := p.objRects[i][j]
 
-							// if the color is not the same as the rectangle, update the rectangle
-							if bgColor != bgRect.FillColor {
-								bgRect.FillColor = bgColor
-								bgRect.Refresh()
-							}
-							if objColor != objRect.FillColor {
-								objRect.FillColor = objColor
-								objRect.Refresh()
-							}
-						}
-					}
-				}
+			// if the color is not the same as the rectangle, update the rectangle
+			if bgColor != bgRect.FillColor {
+				bgRect.FillColor = bgColor
+				bgRect.Refresh()
+			}
+			if objColor != objRect.FillColor {
+				objRect.FillColor = objColor
+				objRect.Refresh()
 			}
 		}
-	}()
-
-	return nil
-}
-
-type tappableRectangle struct {
-	rec *canvas.Rectangle
-	widget.BaseWidget
-	tapHandler func()
-}
-
-func (t *tappableRectangle) CreateRenderer() fyne.WidgetRenderer {
-	return widget.NewSimpleRenderer(t.rec)
-}
-
-func (t *tappableRectangle) Cursor() desktop.Cursor {
-	return desktop.PointerCursor
-}
-
-func (t *tappableRectangle) Tapped(*fyne.PointEvent) {
-	if t.tapHandler != nil {
-		t.tapHandler()
 	}
 }
 
-func (t *tappableRectangle) TappedSecondary(*fyne.PointEvent) {
-	// do nothing
-}
-
-func newTappableRectangle(onTap func()) *tappableRectangle {
-	t := &tappableRectangle{rec: canvas.NewRectangle(color.White), tapHandler: onTap}
-	t.ExtendBaseWidget(t)
-	return t
-}
-
-type selectedPaletteLayout struct { // TODO account for right padding
-}
-
-func (s selectedPaletteLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) != 3 {
-		return
-	}
-	objects[0].(*canvas.Rectangle).Resize(fyne.NewSize(78, 78))
-	objects[0].(*canvas.Rectangle).Move(fyne.NewPos(8, 0))
-	objects[1].Resize(fyne.NewSize(48, 78))
-	objects[1].Move(fyne.NewPos(88, 4))
-	objects[2].Resize(fyne.NewSize(48, 48))
-	objects[2].Move(fyne.NewPos(222, 0))
-}
-
-func (s selectedPaletteLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(96, 88)
-}
-
-type selectedPaletteInfoLayout struct {
-}
-
-func (s selectedPaletteInfoLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) != 3 {
-		return
-	}
-
-	objects[0].Resize(fyne.NewSize(48, 16))
-	objects[0].Move(fyne.NewPos(0, -8))
-	objects[1].Resize(fyne.NewSize(48, 16))
-	objects[1].Move(fyne.NewPos(0, 16))
-	objects[2].Resize(fyne.NewSize(48, 16))
-	objects[2].Move(fyne.NewPos(0, 40))
-}
-
-func (s selectedPaletteInfoLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(96, 80)
+// toRGB converts a 3 element uint8 array to a color.RGBA
+// with an alpha value of 255 (opaque)
+func toRGB(rgb [3]uint8) color.RGBA {
+	return color.RGBA{rgb[0], rgb[1], rgb[2], 255}
 }

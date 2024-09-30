@@ -3,24 +3,20 @@ package gameboy
 import (
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/thelolagemann/gomeboy/pkg/log"
 	"strings"
 )
 
-// Opt is a function that modifies a GameBoy
-// instance.
+// Opt is a function that modifies the emulator.
 type Opt func(gb *GameBoy)
 
-// Debug
-func Debug() Opt {
-	return func(gb *GameBoy) {
-		gb.CPU.Debug = true
-	}
-}
+// Debug enables debug breakpoints. This causes the emulator to halt
+// execution under certain conditions, such as running the ld b, b instruction.
+func Debug() Opt { return func(gb *GameBoy) { gb.CPU.Debug = true } }
 
+// SerialDebugger overrides the default types.SB handler to intercept ASCII
+// characters being written to the serial port.
 func SerialDebugger(output *string) Opt {
 	return func(gb *GameBoy) {
-		// used to intercept serial output and store it in a string
 		gb.Bus.ReserveAddress(types.SB, func(v byte) byte {
 			*output += string(v)
 			if strings.Contains(*output, "Passed") || strings.Contains(*output, "Failed") {
@@ -32,26 +28,8 @@ func SerialDebugger(output *string) Opt {
 	}
 }
 
-func AsModel(m types.Model) func(gb *GameBoy) {
-	return func(gb *GameBoy) {
-		gb.SetModel(m)
-	}
-}
-
-func SerialConnection(gbFrom *GameBoy) Opt {
-	return func(gbTo *GameBoy) {
-		gbTo.Serial.Attach(gbFrom.Serial)
-		gbFrom.Serial.Attach(gbTo.Serial)
-
-		gbFrom.attachedGameBoy = gbTo
-	}
-}
-
-func WithLogger(log log.Logger) Opt {
-	return func(gb *GameBoy) {
-		gb.Logger = log
-	}
-}
+// AsModel overrides the model inferred from the cartridge with the provided model.
+func AsModel(m types.Model) Opt { return func(gb *GameBoy) { gb.model = m } }
 
 // WithBootROM sets the boot ROM for the emulator.
 func WithBootROM(rom []byte) Opt {
@@ -73,15 +51,5 @@ func WithBootROM(rom []byte) Opt {
 	}
 }
 
-func WithPrinter(printer *accessories.Printer) Opt {
-	return func(gb *GameBoy) {
-		gb.Printer = printer
-		gb.Serial.Attach(printer)
-	}
-}
-
-func Speed(speed float64) Opt {
-	return func(gb *GameBoy) {
-		gb.speed = speed
-	}
-}
+// WithPrinter creates a new accessories.Printer and attaches it to the emulator.
+func WithPrinter() Opt { return func(gb *GameBoy) { gb.Serial.Attach(accessories.NewPrinter()) } }

@@ -9,24 +9,6 @@ import (
 	"path/filepath"
 )
 
-func IsSize(filename string, size int64) bool {
-	// open the file
-	f, err := os.Open(filename)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	// get the file size
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-
-	// does the file size match?
-	return fi.Size() == size
-}
-
 // LoadFile loads the given file and performs decompression if necessary.
 func LoadFile(filename string) ([]byte, error) {
 	// open the file
@@ -40,6 +22,11 @@ func LoadFile(filename string) ([]byte, error) {
 	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
+	}
+
+	// does the file have an extension?
+	if filepath.Ext(filename) == "" {
+		return data, nil
 	}
 
 	// is the file compressed?

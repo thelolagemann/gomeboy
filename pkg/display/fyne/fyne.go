@@ -2,30 +2,33 @@
 
 package fyne
 
-import "C"
 import (
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
-	dialog2 "github.com/sqweek/dialog"
+	"fyne.io/fyne/v2/storage"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
+	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/pkg/display"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
-	views2 "github.com/thelolagemann/gomeboy/pkg/display/fyne/views"
+	"github.com/thelolagemann/gomeboy/pkg/display/fyne/views"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
+	"sync"
 	"time"
 )
 
 func init() {
-	driver := &fyneDriver{}
+	driver := &fyneDriver{
+		windows: make(map[string]fyne.Window),
+	}
 	display.Install("fyne", driver, []display.DriverOption{
 		{
 			Name:        "fullscreen",
@@ -45,35 +48,28 @@ func init() {
 }
 
 type fyneDriver struct {
-	app        fyne.App
-	mainMenu   *fyne.MainMenu
-	mainWindow fyne.Window
-	//gb         *gameboy.GameBoy
-	gb display.Emulator
+	app            fyne.App
+	mainMenu       *fyne.MainMenu
+	mainMenuOpened bool
+	mainWindow     fyne.Window
+	gb             *gameboy.GameBoy
 
-	windows []*fyneWindow
-
+	windows    map[string]fyne.Window
 	fullscreen bool
 	scale      float64
 }
 
-func (f *fyneDriver) Initialize(gb display.Emulator) {
-	f.gb = gb
-}
-
-func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed chan<- io.Button, released chan<- io.Button) error {
+func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan<- io.Button, released chan<- io.Button) error {
+	f.createMainMenu()
 	// create new fyne application
-	fyneApp := app.NewWithID("gomeboy.thelolagemann.com")
-
-	// set default theme
-	fyneApp.Settings().SetTheme(&defaultTheme{})
-	f.app = fyneApp
+	f.app = app.NewWithID("gomeboy.thelolagemann.com")
 
 	// create main window
-	mainWindow := fyneApp.NewWindow("GomeBoy")
+	mainWindow := f.app.NewWindow("GomeBoy")
 	mainWindow.SetMaster()
-	mainWindow.Resize(fyne.NewSize(ppu.ScreenWidth*4, ppu.ScreenHeight*4))
+	mainWindow.Resize(fyne.NewSize(float32(ppu.ScreenWidth*f.scale), float32(ppu.ScreenHeight*f.scale)))
 	mainWindow.SetPadded(false)
+
 	f.mainWindow = mainWindow
 
 	// create image
@@ -84,57 +80,72 @@ func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed ch
 	raster.ScaleMode = canvas.ImageScalePixels
 	raster.SetMinSize(fyne.NewSize(ppu.ScreenWidth, ppu.ScreenHeight))
 
-	// set the content of the window
+	if !f.gb.Initialised() {
+		f.toggleMainMenu()
+	}
 	mainWindow.SetContent(raster)
+
+	mainWindow.SetOnDropped(func(_ fyne.Position, uris []fyne.URI) {
+		if len(uris) != 1 {
+			return // only support loading 1 ROM
+		}
+		f.error(f.openROM(uris[0].Path()))
+	})
+	// set the content of the window
 	mainWindow.Show()
 
 	// setup menu
 	mainWindow.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
-		if event.Name == fyne.KeyEscape {
+		if c.Initialised() && event.Name == fyne.KeyEscape {
 			f.toggleMainMenu()
 		}
 	})
+
+	ticker := time.NewTicker(16675004)
+	defer ticker.Stop()
+	var latestFrames [][]byte
+	var frameMutex sync.Mutex
+	go func() {
+		for {
+			select {
+			case b := <-fb:
+				frameMutex.Lock()
+				latestFrames = append(latestFrames, b)
+
+				frameMutex.Unlock()
+			}
+		}
+	}()
 
 	// setup goroutine to copy from the framebuffer to the image
 	go func() {
 		for {
 			select {
-			case b := <-fb:
-				for i := 0; i < ppu.ScreenWidth*ppu.ScreenHeight; i++ {
-					img.Pix[i*4] = b[i*3]
-					img.Pix[i*4+1] = b[i*3+1]
-					img.Pix[i*4+2] = b[i*3+2]
-					img.Pix[i*4+3] = 255
+			case <-ticker.C:
+				if f.gb.Paused() {
+					continue
 				}
+				frameMutex.Lock()
 
-				// refresh canvas
-				raster.Refresh()
+				if len(latestFrames) > 0 {
+					latestFrame := latestFrames[0]
+					latestFrames = latestFrames[1:]
+
+					for i := 0; i < ppu.ScreenWidth*ppu.ScreenHeight; i++ {
+						img.Pix[i*4] = latestFrame[i*3]
+						img.Pix[i*4+1] = latestFrame[i*3+1]
+						img.Pix[i*4+2] = latestFrame[i*3+2]
+						img.Pix[i*4+3] = 255
+					}
+					// refresh canvas
+					raster.Refresh()
+				}
 
 				// send frame event to windows
 				for _, w := range f.windows {
-					w.events <- event.Event{Type: event.FrameTime}
+					w.Content().Refresh()
 				}
-			}
-		}
-	}()
-
-	// setup goroutine to handle evts
-	go func() {
-		for {
-			select {
-			case e := <-evts:
-				switch e.Type {
-				case event.Title:
-					// only the main window cares about the title event
-					mainWindow.SetTitle(e.Data.(string))
-				case event.Quit:
-					// TODO handle quit event
-				default:
-					// TODO send to rest of the windows
-					for _, w := range f.windows {
-						w.events <- e
-					}
-				}
+				frameMutex.Unlock()
 			}
 		}
 	}()
@@ -142,12 +153,9 @@ func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed ch
 	// handle input
 	if desk, ok := mainWindow.Canvas().(desktop.Canvas); ok {
 		desk.SetOnKeyDown(func(e *fyne.KeyEvent) {
-			// check if this is a Game Boy key or event handler
+			// check if this is a Game Boy key
 			if k, isMapped := keyMap[e.Name]; isMapped {
 				pressed <- k
-			} else if h, isHandled := keyHandlers[e.Name]; isHandled {
-				// TODO handle key handlers
-				h(f.gb.(*gameboy.GameBoy))
 			}
 		})
 		desk.SetOnKeyUp(func(e *fyne.KeyEvent) {
@@ -165,312 +173,204 @@ func (f *fyneDriver) Start(fb <-chan []byte, evts <-chan event.Event, pressed ch
 
 func (f *fyneDriver) Stop() error {
 	f.app.Quit()
-
 	return nil
 }
 
+func (f *fyneDriver) AttachGameboy(b *gameboy.GameBoy) { f.gb = b }
+
+func (f *fyneDriver) error(err error) {
+	if err != nil {
+		d := dialog.NewError(err, f.mainWindow)
+		d.Show()
+	}
+}
+
+func (f *fyneDriver) openROM(path string) error {
+	recreate := false
+	if !f.gb.Initialised() {
+		recreate = true
+	}
+	// close all children windows
+	for _, w := range f.windows {
+		w.Close()
+	}
+	if err := f.gb.LoadROM(path); err != nil {
+		return err
+	}
+	if f.mainMenuOpened {
+		f.toggleMainMenu()
+	}
+	if recreate {
+		f.createMainMenu()
+	}
+	return nil
+}
+
+func (f *fyneDriver) createMainMenu() {
+	// create main menu
+	f.mainMenu = fyne.NewMainMenu()
+
+	// create submenus
+	menuItemOpenROM := fyne.NewMenuItem("Open ROM", func() {
+		d := dialog.NewFileOpen(func(closer fyne.URIReadCloser, err error) {
+			if err != nil {
+				f.error(err)
+				return
+			}
+			f.error(f.openROM(closer.URI().Path()))
+		}, f.mainWindow)
+		d.SetFilter(storage.NewExtensionFileFilter([]string{".gb", ".gbc"}))
+		d.Show()
+	})
+
+	// add menu items to submenus
+	fileMenu := fyne.NewMenu("File", menuItemOpenROM)
+
+	emuMenu := fyne.NewMenu("Emulation",
+		views.NewCustomizedMenuItem("Reset", func() {
+			// close all children windows
+			for _, w := range f.windows {
+				w.Close()
+			}
+			f.gb.Init() // TODO implement resettable
+			f.toggleMainMenu()
+		}, views.Gated(!f.gb.Initialised())),
+		fyne.NewMenuItemSeparator(),
+		views.NewCustomizedMenuItem("Printer", func() {
+			// create and attach printer if gameboy doesn't have one attached
+			if _, ok := f.gb.Serial.AttachedDevice.(*accessories.Printer); !ok {
+				printer := accessories.NewPrinter()
+				f.gb.Serial.Attach(printer)
+			}
+			f.openWindowIfNotOpen("Printer", views.NewPrinter(f.gb.Serial.AttachedDevice.(*accessories.Printer)))
+		}, views.Gated(!f.gb.Initialised())),
+	)
+
+	audioChannels := views.NewCustomizedMenuItem("Audio Channels", func() {}, views.Gated(!f.gb.Initialised()))
+	audioChannels.ChildMenu = fyne.NewMenu("",
+		views.NewCustomizedMenuItem("1 (Square)", func() { f.gb.APU.Debug.Square1 = !f.gb.APU.Debug.Square1 }, views.Checked(true, f.mainMenu.Refresh)),
+		views.NewCustomizedMenuItem("2 (Square)", func() { f.gb.APU.Debug.Square2 = !f.gb.APU.Debug.Square2 }, views.Checked(true, f.mainMenu.Refresh)),
+		views.NewCustomizedMenuItem("3 (Wave)", func() { f.gb.APU.Debug.Wave = !f.gb.APU.Debug.Wave }, views.Checked(true, f.mainMenu.Refresh)),
+		views.NewCustomizedMenuItem("4 (Noise)", func() { f.gb.APU.Debug.Noise = !f.gb.APU.Debug.Noise }, views.Checked(true, f.mainMenu.Refresh)),
+	)
+	audioMenu := fyne.NewMenu("Audio",
+		views.NewCustomizedMenuItem("Mute", func() { f.gb.APU.ToggleMute() }, views.Checked(false, f.mainMenu.Refresh), views.Gated(!f.gb.Initialised())),
+		audioChannels,
+		views.NewCustomizedMenuItem("Visualiser", func() { f.openWindowIfNotOpen("Visualiser", views.NewVisualiser(f.gb.APU)) }, views.Gated(!f.gb.Initialised())),
+	)
+
+	videoLayers := views.NewCustomizedMenuItem("Layers", func() {}, views.Gated(!f.gb.Initialised()))
+	videoTakeScreenshot := fyne.NewMenuItem("Take Screenshot", func() {
+		// create the file name
+		now := time.Now()
+		fileName := fmt.Sprintf("screenshot-%d-%d-%d-%d-%d-%d.png", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second())
+
+		// create the file
+		file, err := os.Create(fileName)
+		if err != nil {
+			f.error(err)
+			return
+		}
+
+		// dump current frame
+		img := image.NewNRGBA(image.Rect(0, 0, 160, 144))
+		for y := 0; y < 144; y++ {
+			for x := 0; x < 160; x++ {
+				img.Set(x, y, color.NRGBA{R: f.gb.PPU.PreparedFrame[y][x][0], G: f.gb.PPU.PreparedFrame[y][x][1], B: f.gb.PPU.PreparedFrame[y][x][2], A: 255})
+			}
+		}
+
+		// encode the image
+		err = png.Encode(file, img)
+		if err != nil {
+			f.error(err)
+			return
+		}
+
+		// close the file
+		f.error(file.Close())
+	})
+
+	videoMenu := fyne.NewMenu("Video",
+		videoLayers,
+		fyne.NewMenuItemSeparator(),
+		videoTakeScreenshot,
+	)
+	videoLayers.ChildMenu = fyne.NewMenu("",
+		views.NewCustomizedMenuItem("Background", func() { f.gb.PPU.Debug.BackgroundDisabled = !f.gb.PPU.Debug.BackgroundDisabled }, views.Checked(true, videoMenu.Refresh)),
+		views.NewCustomizedMenuItem("Window", func() { f.gb.PPU.Debug.WindowDisabled = !f.gb.PPU.Debug.WindowDisabled }, views.Checked(true, videoMenu.Refresh)),
+		views.NewCustomizedMenuItem("Sprites", func() { f.gb.PPU.Debug.SpritesDisabled = !f.gb.PPU.Debug.SpritesDisabled }, views.Checked(true, videoMenu.Refresh)),
+	)
+
+	// create debug menu
+	debugViews := views.NewCustomizedMenuItem("Views", func() {}, views.Gated(!f.gb.Initialised()))
+	debugViews.ChildMenu = fyne.NewMenu("")
+
+	type debugContentView struct {
+		name string
+		fn   func() fyne.CanvasObject
+	}
+	debugContent := []debugContentView{
+		{"CPU", func() fyne.CanvasObject { return views.NewCPU(f.gb.CPU) }},
+		{"Palette Viewer", func() fyne.CanvasObject { return views.NewPalette(f.gb.PPU) }},
+		{"Tile Viewer", func() fyne.CanvasObject { return views.NewTiles(f.gb.PPU) }},
+		{"Tilemap Viewer", func() fyne.CanvasObject { return views.NewTilemaps(f.gb.PPU) }},
+		{"OAM", func() fyne.CanvasObject { return views.NewOAM(f.gb.PPU) }},
+		{"Cartridge Info", func() fyne.CanvasObject { return views.NewCartridge(f.gb.Bus.Cartridge()) }},
+	}
+
+	// add views to debug menu
+	debugViews.ChildMenu.Items = make([]*fyne.MenuItem, len(debugContent))
+	for i, view := range debugContent {
+		debugViews.ChildMenu.Items[i] = fyne.NewMenuItem(view.name, func() { f.openWindowIfNotOpen(view.name, view.fn()) })
+	}
+	debugMenu := fyne.NewMenu("Debug", debugViews)
+
+	f.mainMenu.Items = []*fyne.Menu{fileMenu, emuMenu, audioMenu, videoMenu, debugMenu}
+}
+
 func (f *fyneDriver) toggleMainMenu() {
-	if f.mainMenu != nil {
+	if f.mainMenuOpened {
 		// if the main menu is already open, close it
-		f.mainMenu = nil
+		f.mainMenuOpened = false
 		f.mainWindow.SetMainMenu(nil)
 
 		// workaround to reset the window size to current size + menu bar height
 		w, h := f.mainWindow.Content().Size().Width, f.mainWindow.Content().Size().Height
 		f.mainWindow.Resize(fyne.NewSize(w, h+26))
-		f.mainWindow.Resize(fyne.NewSize(w, h+25)) // TODO why is this needed?
+		f.mainWindow.Resize(fyne.NewSize(w, h+25))
+		f.mainWindow.Content().Refresh()
 
-		f.gb.SendCommand(display.Resume)
+		f.gb.Resume()
 	} else {
-		// get reference to underlying gb (for now, this should be handled by display.Emulator in the future)
-		gb := f.gb.(*gameboy.GameBoy)
-
-		// create main menu
-		// create submenus
-		menuItemOpenROM := fyne.NewMenuItem("Open ROM", func() {
-			// open a file dialog to select a ROM
-			rom, err := askForROM()
-			if err != nil {
-				// TODO handle error
-				return
-			}
-			// close the current gamebo
-			//y if it's running
-			if f.gb.State().IsRunning() {
-				// close the current gameboy
-				f.gb.SendCommand(display.Close)
-			}
-			if res := f.gb.SendCommand(emulator.CommandPacket{Command: emulator.CommandLoadROM, Data: rom}); res.Error != nil {
-				// TODO handle error
-				return
-			}
-
-			// TODO recreate gameboy
-			// hide the main menu
-			f.toggleMainMenu()
-		})
-		menuItemSaveState := fyne.NewMenuItem("Save State", func() {
-			// TODO
-		})
-		menuItemLoadState := fyne.NewMenuItem("Load State", func() {
-			// TODO
-		})
-		menuItemSettings := fyne.NewMenuItem("Settings", func() {
-			// open the settings window
-			f.openWindowIfNotOpen(&views2.Settings{
-				Preferences: f.app.Preferences(),
-			})
-		})
-
-		// add menu items to submenus
-		fileMenu := fyne.NewMenu("File", menuItemOpenROM, menuItemSaveState, menuItemLoadState, fyne.NewMenuItemSeparator(), menuItemSettings)
-
-		// create emulation menu
-		emuReset := fyne.NewMenuItem("Reset", func() {
-
-		})
-		emuSpeed := fyne.NewMenuItem("Speed", func() {
-			// TODO
-		})
-		emuSpeed.ChildMenu = fyne.NewMenu("",
-			fyne.NewMenuItem("0.25x", func() {
-				// TODO
-			}),
-			fyne.NewMenuItem("0.5x", func() {
-				// TODO
-			}),
-			fyne.NewMenuItem("1x", func() {
-				// TODO
-			}))
-		// add 1x - through 4x
-		for i := 2; i <= 4; i++ {
-			emuSpeed.ChildMenu.Items = append(emuSpeed.ChildMenu.Items, fyne.NewMenuItem(fmt.Sprintf("%dx", i), func() {
-				// TODO
-			}))
-		}
-
-		emuMultiplayer := fyne.NewMenuItem("Multiplayer", func() {
-			// TODO
-		})
-		emuPrinter := fyne.NewMenuItem("Printer", func() {
-			f.openWindowIfNotOpen(&views2.Printer{})
-		})
-
-		emuCheats := fyne.NewMenuItem("Cheats", func() {
-			//f.openWindowIfNotOpen(views2.NewCheatManager(views2.WithGameShark(gb.MMU.GameShark), views2.WithGameGenie(gb.MMU.GameGenie))) // TODO determine which cheats are enabled
-		})
-
-		emuMenu := fyne.NewMenu("Emulation",
-			emuReset,
-			emuSpeed,
-			fyne.NewMenuItemSeparator(),
-			emuMultiplayer,
-			emuPrinter,
-			fyne.NewMenuItemSeparator(),
-			emuCheats,
-		)
-
-		audioMute := fyne.NewMenuItem("Mute", func() {
-
-		})
-		audioMute.Checked = true
-		audioChannels := fyne.NewMenuItem("Audio Channels", func() {
-			// TODO
-		})
-		audioChannels.ChildMenu = fyne.NewMenu("",
-			fyne.NewMenuItem("1 (Square)", func() {
-				// TODO
-			}),
-			fyne.NewMenuItem("2 (Square)", func() {
-				// TODO
-			}),
-			fyne.NewMenuItem("3 (Wave)", func() {
-				// TODO
-			}),
-			fyne.NewMenuItem("4 (Noise)", func() {
-				// TODO
-			}),
-		)
-
-		// create audio menu
-		audioMenu := fyne.NewMenu("Audio",
-			audioMute,
-			audioChannels,
-		)
-
-		videoFrameSize := fyne.NewMenuItem("Frame Size", func() {
-
-		})
-
-		videoLayers := fyne.NewMenuItem("Layers", func() {
-
-		})
-		videoLayers.ChildMenu = fyne.NewMenu("",
-			fyne.NewMenuItem("Background", func() {
-				gb.PPU.Debug.BackgroundDisabled = !gb.PPU.Debug.BackgroundDisabled
-				videoLayers.ChildMenu.Items[0].Checked = !gb.PPU.Debug.BackgroundDisabled
-			}),
-			fyne.NewMenuItem("Window", func() {
-				gb.PPU.Debug.WindowDisabled = !gb.PPU.Debug.WindowDisabled
-				videoLayers.ChildMenu.Items[1].Checked = !gb.PPU.Debug.WindowDisabled
-			}),
-			fyne.NewMenuItem("Sprites", func() {
-				gb.PPU.Debug.SpritesDisabled = !gb.PPU.Debug.SpritesDisabled
-				videoLayers.ChildMenu.Items[2].Checked = !gb.PPU.Debug.SpritesDisabled
-			}),
-		)
-
-		// mark layers that are currently enabled
-		videoLayers.ChildMenu.Items[0].Checked = !gb.PPU.Debug.BackgroundDisabled
-		videoLayers.ChildMenu.Items[1].Checked = !gb.PPU.Debug.WindowDisabled
-		videoLayers.ChildMenu.Items[2].Checked = !gb.PPU.Debug.SpritesDisabled
-
-		videoTakeScreenshot := fyne.NewMenuItem("Take Screenshot", func() {
-			// get the current time
-			now := time.Now()
-
-			// create the file name
-			fileName := fmt.Sprintf("screenshot-%d-%d-%d-%d-%d-%d.png", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second())
-
-			// create the file
-			file, err := os.Create(fileName)
-			if err != nil {
-				// TODO
-			}
-
-			// create the encoder
-			encoder := png.Encoder{
-				CompressionLevel: png.BestCompression,
-			}
-
-			// dump current frame
-			img := image.NewRGBA(image.Rect(0, 0, 160, 144))
-			for y := 0; y < 144; y++ {
-				for x := 0; x < 160; x++ {
-					img.Set(x, y, color.RGBA{R: gb.PPU.PreparedFrame[y][x][0], G: gb.PPU.PreparedFrame[y][x][1], B: gb.PPU.PreparedFrame[y][x][2], A: 255})
-				}
-			}
-
-			// encode the image
-			err = encoder.Encode(file, img)
-			if err != nil {
-				// TODO
-			}
-
-			// close the file
-			err = file.Close()
-
-			// TODO
-		})
-		videoRecord := fyne.NewMenuItem("Record", func() {
-
-		})
-
-		videoMenu := fyne.NewMenu("Video",
-			videoFrameSize,
-			videoLayers,
-			fyne.NewMenuItemSeparator(),
-			videoTakeScreenshot,
-			videoRecord,
-		)
-
-		// create debug menu
-		debugViews := fyne.NewMenuItem("Views", func() {
-
-		})
-		debugViews.ChildMenu = fyne.NewMenu("")
-
-		// add views to debug menu
-		for _, view := range []string{"Palette Viewer", "Frame Renderer", "Tile Viewer", "Tilemap Viewer", "OAM", "", "Cartridge Info"} {
-			// copy the view name to a new variable
-			newView := view
-			if view == "" {
-				debugViews.ChildMenu.Items = append(debugViews.ChildMenu.Items, fyne.NewMenuItemSeparator())
-				continue
-			}
-			debugViews.ChildMenu.Items = append(debugViews.ChildMenu.Items, fyne.NewMenuItem(view, func() {
-				switch newView {
-				case "Palette Viewer":
-					f.openWindowIfNotOpen(views2.Palette{PPU: gb.PPU})
-				case "Frame Renderer":
-					f.openWindowIfNotOpen(&views2.Render{Video: gb.PPU})
-				case "Tile Viewer":
-					f.openWindowIfNotOpen(&views2.Tiles{PPU: gb.PPU})
-				case "OAM":
-					f.openWindowIfNotOpen(&views2.OAM{PPU: gb.PPU})
-				case "Tilemap Viewer":
-					f.openWindowIfNotOpen(&views2.Tilemaps{PPU: gb.PPU})
-				case "Cartridge Info":
-					//f.openWindowIfNotOpen(&views2.Cartridge{C: gb.MMU.Cart})
-				}
-			}))
-		}
-
-		debugMenu := fyne.NewMenu("Debug",
-			debugViews,
-			fyne.NewMenuItem("Performance", func() {
-				f.openWindowIfNotOpen(&views2.Performance{})
-			}),
-		)
-
-		// create help menu
-		helpMenu := fyne.NewMenu("Help")
-
-		// create main menu
-		mainMenu := fyne.NewMainMenu(
-			fileMenu,
-			emuMenu,
-			audioMenu,
-			videoMenu,
-			debugMenu,
-			helpMenu,
-		)
-		mainMenu.Refresh()
-		f.mainWindow.SetMainMenu(mainMenu)
-		f.mainMenu = mainMenu
+		f.mainMenuOpened = true
+		f.mainWindow.SetMainMenu(f.mainMenu)
 
 		// pause the gameboy
-		f.gb.SendCommand(display.Pause)
+		f.gb.Pause()
 	}
 }
 
 // openWindowIfNotOpen opens a window if it is not already open.
-func (f *fyneDriver) openWindowIfNotOpen(view View) {
-	// iterate over all windows to see if the window is already open
-	for _, w := range f.windows {
-		if w.view.Title() == view.Title() {
-			// window is already open so we can return
-			return
-		}
+func (f *fyneDriver) openWindowIfNotOpen(name string, view fyne.CanvasObject) {
+	// is the window already open
+	if _, ok := f.windows[name]; ok {
+		return
 	}
 
 	// create new window
-	win := f.newWindow(view.Title(), view).(fyneWindow)
+	win := f.app.NewWindow(name)
+	win.SetOnClosed(func() { delete(f.windows, name) })
+
+	// does the view want a window attached?
+	if w, ok := view.(views.Windowed); ok {
+		w.AttachWindow(win)
+	}
+
+	win.SetContent(view)
+	view.Refresh()
 	win.Show()
-	if err := view.Run(win, win.events); err != nil {
-		panic(err)
-	}
-}
-
-// newWindow creates a new window with the given name and view.
-func (f *fyneDriver) newWindow(name string, view View) fyne.Window {
-	w := f.app.NewWindow(name)
-	b := fyneWindow{
-		Window: w,
-		view:   view,
-		events: make(chan event.Event, 144),
-	}
-	f.windows = append(f.windows, &b)
-	w.SetOnClosed(func() {
-		close(b.events)
-		for i, win := range f.windows {
-			if win == &b {
-				f.windows = append(f.windows[:i], f.windows[i+1:]...)
-			}
-		}
-	})
-
-	return b
+	f.windows[name] = win
 }
 
 var keyMap = map[fyne.KeyName]io.Button{
@@ -483,64 +383,3 @@ var keyMap = map[fyne.KeyName]io.Button{
 	fyne.KeyReturn:    io.ButtonStart,
 	fyne.KeyBackspace: io.ButtonSelect,
 }
-
-var keyHandlers = map[fyne.KeyName]func(*gameboy.GameBoy){
-	fyne.Key1: func(gb *gameboy.GameBoy) {
-		gb.PPU.Debug.BackgroundDisabled = !gb.PPU.Debug.BackgroundDisabled
-	},
-	fyne.Key2: func(gb *gameboy.GameBoy) {
-		gb.PPU.Debug.WindowDisabled = !gb.PPU.Debug.WindowDisabled
-	},
-	fyne.Key3: func(gb *gameboy.GameBoy) {
-		gb.PPU.Debug.SpritesDisabled = !gb.PPU.Debug.SpritesDisabled
-	},
-	fyne.KeyP: func(gb *gameboy.GameBoy) {
-		gb.TogglePause()
-	},
-	fyne.KeyY: func(boy *gameboy.GameBoy) {
-		// dump current frame
-		img := image.NewRGBA(image.Rect(0, 0, 160, 144))
-		for y := 0; y < 144; y++ {
-			for x := 0; x < 160; x++ {
-				img.Set(x, y, color.RGBA{R: boy.PPU.PreparedFrame[y][x][0], G: boy.PPU.PreparedFrame[y][x][1], B: boy.PPU.PreparedFrame[y][x][2], A: 255})
-			}
-		}
-
-		f, err := os.Create("frame.png")
-		if err != nil {
-			panic(err)
-		}
-
-		if err := png.Encode(f, img); err != nil {
-			panic(err)
-		}
-
-		f.Close()
-	},
-}
-
-type fyneWindow struct {
-	fyne.Window
-	view   View
-	events chan event.Event
-}
-
-func askForROM() ([]byte, error) {
-	// open a file dialog to select a ROM
-	fileName, err := dialog2.File().Filter("GameBoy ROMs (*.gb, *.gbc)", "gb", "gbc").Load()
-	if err != nil {
-		return nil, err
-	}
-
-	// read the ROM file
-	rom, err := os.ReadFile(fileName)
-	if err != nil {
-		return nil, err
-	}
-
-	return rom, nil
-}
-
-// TODO
-// - add a way to close windows
-// - implement Resettable interface for remaining components (apu, cpu, interrupts, joypad, mmu, ppu, timer, types)

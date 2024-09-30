@@ -1,78 +1,67 @@
 package views
 
 import (
+	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
 	"strconv"
 )
 
 type Cartridge struct {
-	C *io.Cartridge
+	widget.BaseWidget
+	*io.Cartridge
 }
 
-func (c *Cartridge) Title() string {
-	return "Cartridge"
+func NewCartridge(cart *io.Cartridge) *Cartridge {
+	c := &Cartridge{Cartridge: cart}
+	c.ExtendBaseWidget(c)
+	return c
 }
 
-func (c *Cartridge) Run(window fyne.Window, events <-chan event.Event) error {
-	// create main container
-	main := container.NewVBox()
-
+func (c *Cartridge) CreateRenderer() fyne.WidgetRenderer {
 	// create cartridge info container
-	cartridgeInfo := container.NewVBox()
-
-	// add cartridge info container to main container
-	main.Add(cartridgeInfo)
+	cartridgeInfo := container.NewVBox(widget.NewLabelWithStyle("Cartridge Information", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 
 	// create textgrid for cartridge info
 	cartridgeInfoGrid := widget.NewTextGrid()
-	cartridgeInfoGrid.SetText(`Title			` + c.C.Title + `
-Manufacturer	` + c.C.ManufacturerCode + `
-CGB Support		` + strconv.FormatBool(c.C.IsCGBCartridge()) + `
-SGB Support		` + strconv.FormatBool(c.C.SGBFlag) + `
-Cartridge Type	` + c.C.CartridgeType.String() + `
-ROM Size		` + humanReadable(uint(c.C.ROMSize)) + `
-RAM Size		` + humanReadable(uint(c.C.RAMSize)) + `
-Destination		` + c.C.Destination() + `
-Licensee		` + c.C.Licensee() + `
-ROM Version		` + strconv.Itoa(int(c.C.MaskROMVersion)) + `
-Header Checksum	` + strconv.Itoa(int(c.C.HeaderChecksum)) + `
-Global Checksum	` + strconv.Itoa(int(c.C.GlobalChecksum)))
-
-	// add cartridge info textgrid to cartridge info container
+	cartridgeInfoGrid.SetText(`Title				` + c.Cartridge.Title + `
+Manufacturer		` + c.ManufacturerCode + `
+CGB Support			` + strconv.FormatBool(c.IsCGBCartridge()) + `
+SGB Support			` + strconv.FormatBool(c.SGBFlag) + `
+Cartridge Type		` + c.CartridgeType.String() + `
+ROM Size			` + humanReadable(uint(c.ROMSize)) + `
+RAM Size			` + humanReadable(uint(c.RAMSize)) + `
+Destination			` + c.Destination() + `
+Licensee			` + c.Licensee() + `
+ROM Version			` + strconv.Itoa(int(c.MaskROMVersion)) + `
+Header Checksum		` + fmt.Sprintf("0x%02X", c.HeaderChecksum) + `
+Global Checksum		` + fmt.Sprintf("0x%04X", c.GlobalChecksum))
 	cartridgeInfo.Add(cartridgeInfoGrid)
 
-	// create cartridge rom container
-	cartridgeROM := container.NewVBox()
+	// create features checklist
+	type feature struct {
+		name  string
+		value bool
+	}
+	features := []feature{{"Accelerometer", c.Features.Accelerometer}, {"Battery", c.Features.Battery}, {"RAM", c.Features.RAM}, {"RTC", c.Features.RTC}, {"Rumble", c.Features.Rumble}}
+	checkList := container.NewVBox(widget.NewLabelWithStyle("Features", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+	for _, k := range features {
+		checkList.Add(newStaticCheckbox(k.name, k.value))
+	}
+	cartridgeInfo.Add(checkList)
 
-	// add cartridge rom container to main container
-	main.Add(cartridgeROM)
-
-	// create textgrid for cartridge rom
-
-	window.SetContent(main)
-
-	runUntilQuit(events, func() {
-
-	})
-
-	return nil
+	return widget.NewSimpleRenderer(cartridgeInfo)
 }
 
-func runUntilQuit(evts <-chan event.Event, onQuit func()) {
-	go func() {
-		for {
-			select {
-			case e := <-evts:
-				switch e.Type {
-				case event.Quit:
-					onQuit()
-					return
-				}
-			}
-		}
-	}()
+// humanReadable returns a human-readable string in bytes for the given size
+func humanReadable(s uint) string {
+	if s < 1024 {
+		return strconv.Itoa(int(s)) + " B"
+	}
+	if s < 1024*1024 {
+		return strconv.Itoa(int(s)/1024) + " KiB"
+	}
+	return strconv.Itoa(int(s)/(1024*1024)) + " MiB"
 }

@@ -5,6 +5,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"sync"
 )
 
 var (
@@ -86,6 +87,16 @@ type APU struct {
 		frequencyTimer uint64
 	}
 
+	waveformData [4][]float32
+	analogData   [4][]float32
+
+	visualising bool
+	sync.RWMutex
+
+	Debug struct {
+		Square1, Square2, Wave, Noise bool
+	}
+
 	enabled                 bool
 	frameSequencerStep      uint8
 	waveRAM                 [16]uint8
@@ -100,6 +111,7 @@ type APU struct {
 	b                       *io.Bus
 	s                       *scheduler.Scheduler
 	lastCatchup             uint64
+	mute                    bool
 }
 
 func New(b *io.Bus, s *scheduler.Scheduler) *APU {
@@ -250,6 +262,10 @@ func New(b *io.Bus, s *scheduler.Scheduler) *APU {
 	return a
 }
 
+func (a *APU) Visualise(v bool) {
+	a.visualising = v
+}
+
 func (a *APU) StepFrameSequencer() {
 	if !a.enabled { // frame sequencer does nothing if the APU is disabled
 		return
@@ -336,26 +352,48 @@ func highPass(ch int, in float32, dacEnabled bool) float32 {
 	return out
 }
 
-func digitalAnalog(v uint8, enabled bool) float32 {
-	if !enabled {
-		return 0
-	}
-	return ((float32(v))/15.0*(1.0 - -1.0) + -1.0) * 0.25
-}
-
+var digitalAnalog = []float32{
+	0.25,
+	0.21666667,
+	0.18333334,
+	0.15,
+	0.116666675,
+	0.08333334,
+	0.050000012,
+	0.01666668,
+	-0.016666666,
+	-0.049999997,
+	-0.08333333,
+	-0.11666666,
+	-0.15,
+	-0.18333334,
+	-0.21666667,
+	-0.25}
 var volumes = []float32{.125, .250, .375, .500, .625, .750, .875, 1}
 
 func (a *APU) sample() {
 	channels := a.channels
 	leftEnable, rightEnable := a.leftEnable, a.rightEnable
 
+	// read samples from channel DACs
 	samples := [4]float32{}
-	samples[0] = digitalAnalog((duties[a.channel1.duty]>>a.channel1.waveDutyPosition)&1*(channels[0].currentVolume), channels[0].isEnabled())
-	samples[1] = digitalAnalog((duties[a.channel2.duty]>>a.channel2.waveDutyPosition)&1*(channels[1].currentVolume), channels[1].isEnabled())
-	samples[2] = digitalAnalog(((a.channel3.waveRAMSampleBuffer>>((a.channel3.waveRAMPosition&1)<<2))&0x0f)>>a.channel3.volumeCode, channels[2].isEnabled())
-	a.catchupLFSR()
-	samples[3] = digitalAnalog(uint8(a.channel4.lfsr&1)*channels[3].currentVolume, channels[3].isEnabled())
+	if channels[0].isEnabled() && !a.Debug.Square1 {
+		output := (duties[a.channel1.duty] >> a.channel1.waveDutyPosition) & 1
+		samples[0] = digitalAnalog[output*(channels[0].currentVolume)]
+	}
+	if channels[1].isEnabled() && !a.Debug.Square2 {
+		output := (duties[a.channel2.duty] >> a.channel2.waveDutyPosition) & 1
+		samples[1] = digitalAnalog[output*(channels[1].currentVolume)]
+	}
+	if channels[2].isEnabled() && !a.Debug.Wave {
+		samples[2] = digitalAnalog[((a.channel3.waveRAMSampleBuffer>>((a.channel3.waveRAMPosition&1)<<2))&0x0f)>>a.channel3.volumeCode]
+	}
+	if channels[3].isEnabled() && !a.Debug.Noise {
+		a.catchupLFSR()
+		samples[3] = digitalAnalog[uint8(a.channel4.lfsr&1)*channels[3].currentVolume]
+	}
 
+	// apply mixer from nr51
 	left := float32(0)
 	right := float32(0)
 	for i := 0; i < 4; i++ {
@@ -366,15 +404,35 @@ func (a *APU) sample() {
 			right += samples[i]
 		}
 	}
+
+	// apply volume from nr52
 	left *= volumes[a.volumeLeft]
 	right *= volumes[a.volumeRight]
 
-	enabled := !(left == 0 && right == 0) || a.channels[0].dacEnabled || a.channels[1].dacEnabled || a.channels[2].dacEnabled || a.channels[3].dacEnabled
+	enabled := a.channels[0].dacEnabled || a.channels[1].dacEnabled || a.channels[2].dacEnabled || a.channels[3].dacEnabled
 
 	fLeft := highPass(0, left, enabled)
 	fRight := highPass(1, right, enabled)
-
+	if a.visualising {
+		a.Lock()
+		for i := 0; i < 4; i++ {
+			if leftEnable[i] || rightEnable[i] {
+				a.waveformData[i] = append(a.waveformData[i], samples[i]*4)
+			} else {
+				a.waveformData[i] = append(a.waveformData[i], 0)
+			}
+		}
+		a.analogData[0] = append(a.analogData[0], left)
+		a.analogData[1] = append(a.analogData[1], right)
+		a.analogData[2] = append(a.analogData[2], fLeft)
+		a.analogData[3] = append(a.analogData[3], fRight)
+		a.Unlock()
+	}
 	// Write to the buffer
+	if a.mute {
+		fLeft = 0
+		fRight = 0
+	}
 	if a.bufferPos < bufferSize {
 		a.buffer[a.bufferPos] = fLeft
 		a.buffer[a.bufferPos+1] = fRight
@@ -386,7 +444,22 @@ func (a *APU) sample() {
 	a.s.ScheduleEvent(scheduler.APUSample, samplePeriod)
 }
 
-// TODO apu or masks
+func (a *APU) WavData() [4][]float32 {
+	a.Lock()
+	defer a.Unlock()
+	s := a.waveformData
+	a.waveformData = [4][]float32{}
+	return s
+}
+
+func (a *APU) AnalogOutput() [4][]float32 {
+	a.Lock()
+	defer a.Unlock()
+	s := a.analogData
+	a.analogData = [4][]float32{}
+	return s
+}
+
 func (a *APU) Write(address uint16, v uint8) uint8 {
 	switch address {
 	case types.NR10:
@@ -415,10 +488,11 @@ func (a *APU) Write(address uint16, v uint8) uint8 {
 			return 0
 		}
 		ch := ((address & 0x00ff) - 18) / 5
+
+		// disable DAC
 		if v&0xf8 == 0 {
-			// disable DAC
 			a.channels[ch].dacEnabled = false
-		} else if a.channels[ch].isEnabled() {
+		} else if a.channels[ch].enabled {
 			a.glitchNRx2(ch, v, a.b.Get(address))
 			a.channels[ch].enableTimeIncurred = 12 // TODO this is just a hack to pass restart_nrx2_glitch
 		}
@@ -794,6 +868,10 @@ func (a *APU) readWaveRAM(address uint16) uint8 {
 }
 
 func (a *APU) catchupLFSR() {
+	if a.lastCatchup > a.s.Cycle() {
+		panic(fmt.Sprintf("%d %d %s", a.lastCatchup, a.s.Cycle(), a.s))
+	}
+	//fmt.Println("catching up", a.s.Cycle(), a.lastCatchup, a.s)
 	currentCycle := a.s.Cycle()
 	cyclesPassed := currentCycle - (a.lastCatchup)
 	if a.s.DoubleSpeed() {
@@ -864,4 +942,8 @@ func (a *APU) writeNRx1(ch int, v uint8) {
 	default:
 		a.channels[ch].lengthCounter = uint16(0x40 - (v & 0x3f))
 	}
+}
+
+func (a *APU) ToggleMute() {
+	a.mute = !a.mute
 }

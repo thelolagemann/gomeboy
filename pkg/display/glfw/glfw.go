@@ -1,12 +1,13 @@
+//go:build !android
+
 package glfw
 
 import (
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
-	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/pkg/display"
-	"github.com/thelolagemann/gomeboy/pkg/display/event"
+	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/veandco/go-sdl2/sdl"
 	"runtime"
@@ -96,21 +97,16 @@ type glfwDriver struct {
 	scale               float64
 	maintainAspectRatio bool
 
-	emu display.Emulator
-
-	windowSettings struct {
+	accelerometerX, accelerometerY float32
+	windowSettings                 struct {
 		width      int
 		height     int
 		xPos, yPos int
 	}
 }
 
-func (g *glfwDriver) Initialize(e display.Emulator) {
-	g.emu = e
-}
-
 // Start starts the display driver.
-func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, pressed, released chan<- io.Button) error {
+func (g *glfwDriver) Start(c emulator.Controller, frames <-chan []byte, pressed, released chan<- io.Button) error {
 	// create window
 	window, err := glfw.CreateWindow(int(160*g.scale), int(144*g.scale), "GomeBoy", nil, nil)
 	if err != nil {
@@ -172,10 +168,10 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 
 				g.fullscreen = !g.fullscreen
 			case glfw.KeyEscape, glfw.KeyPause:
-				if g.emu.State().IsRunning() {
-					g.emu.SendCommand(display.Pause)
-				} else if g.emu.State().IsPaused() {
-					g.emu.SendCommand(display.Resume)
+				if c.Paused() {
+					c.Resume()
+				} else {
+					c.Pause()
 				}
 			}
 		}
@@ -209,14 +205,6 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 		offsetY = (int32(h) - targetHeight) / 2
 	})
 
-	g.emu.(*gameboy.GameBoy).Bus.Cartridge().RumbleCallback = func(b bool) {
-		if b {
-			joystick.Rumble(0xf100, 0x3100, 100)
-		} else {
-			joystick.Rumble(0, 0, 0)
-		}
-	}
-
 	pollTicker := time.NewTicker(time.Millisecond * 20) // to handle when paused
 	var sdlEvent sdl.Event
 	// draw loop
@@ -235,11 +223,6 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 			gl.BlitFramebuffer(0, 0, 160, 144, offsetX, offsetY+targetHeight, offsetX+targetWidth, offsetY, gl.COLOR_BUFFER_BIT, gl.NEAREST)
 
 			window.SwapBuffers()
-		case e := <-evts:
-			switch e.Type {
-			case event.Title:
-				window.SetTitle(e.Data.(string))
-			}
 		case <-pollTicker.C:
 
 			for sdlEvent = sdl.PollEvent(); sdlEvent != nil; sdlEvent = sdl.PollEvent() {
@@ -247,9 +230,9 @@ func (g *glfwDriver) Start(frames <-chan []byte, evts <-chan event.Event, presse
 				case *sdl.JoyAxisEvent:
 					switch t.Axis {
 					case 3: // x-axis
-						g.emu.(*gameboy.GameBoy).Bus.Cartridge().AccelerometerX = -(float32(t.Value) / 32768.0)
+						g.accelerometerX = -(float32(t.Value) / 32768.0)
 					case 4: // y-axis
-						g.emu.(*gameboy.GameBoy).Bus.Cartridge().AccelerometerY = -(float32(t.Value) / 32768.0)
+						g.accelerometerY = -(float32(t.Value) / 32768.0)
 					}
 				}
 			}
@@ -267,6 +250,18 @@ func (g *glfwDriver) Stop() error {
 	return nil
 }
 
+func (g *glfwDriver) X() float32 {
+	return g.accelerometerX
+}
+
+func (g *glfwDriver) Y() float32 {
+	return g.accelerometerY
+}
+
+func (g *glfwDriver) Rumble(lowFreq, highFreq uint16, duration uint32) {
+	joystick.Rumble(lowFreq, highFreq, duration)
+}
+
 // getBestMode returns the best video mode for the current monitor
 // by choosing the highest resolution that is the closest match to
 // the native aspect ratio of the monitor. This should provide a
@@ -276,10 +271,11 @@ func getBestMode() *glfw.VidMode {
 	monAspectRatio := float32(sizeX) / float32(sizeY)
 	closestMatch := float32(0)
 
-	var best *glfw.VidMode
-	for _, vm := range mon.GetVideoModes() {
-		// skip modes that aren't 60FPS
-		if vm.RefreshRate != 60 {
+	modes := mon.GetVideoModes()
+	var best = modes[len(modes)-1]
+	for _, vm := range modes {
+		// skip modes that aren't at least 60FPS
+		if vm.RefreshRate < 60 {
 			continue
 		}
 
