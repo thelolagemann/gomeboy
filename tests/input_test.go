@@ -13,22 +13,19 @@ import (
 
 type inputTest struct {
 	expectedImagePath string
-
 	*basicTest
 }
 
 // Retry retries the provided function fn until it succeeds or the maximum retries is reached.
 // It returns a func(t *testing.T) that can be used in test cases.
-func Retry(fn func() error, retries int, delay time.Duration) func(t *testing.T) {
+func Retry(fn func() error, retries int) func(t *testing.T) {
 	return func(t *testing.T) {
 		for i := 0; i < retries; i++ {
 			err := fn()
 			if err == nil {
 				return // Test passed
 			}
-			if i < retries-1 {
-				time.Sleep(delay) // Wait before retrying
-			}
+
 		}
 		t.Fatalf("Test failed after %d attempts", retries)
 	}
@@ -94,7 +91,7 @@ func (iT *inputTest) Run(t *testing.T) {
 			return fmt.Errorf("images are different: %d", diff) // TODO percentage
 		}
 		return nil
-	}, 5, time.Millisecond))
+	}, 5))
 
 }
 
