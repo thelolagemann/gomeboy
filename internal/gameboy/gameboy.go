@@ -27,13 +27,13 @@ type GameBoy struct {
 	Scheduler *scheduler.Scheduler
 	Bus       *io.Bus
 
-	save        *emulator.Save
-	filename    string
-	model       types.Model
-	dontBoot    bool
-	rumbling    bool
-	paused      bool
-	initialised bool
+	save            *emulator.Save
+	filename        string
+	model           types.Model
+	dontBoot        bool
+	rumbling        bool
+	paused, running bool
+	initialised     bool
 
 	ROM     []byte
 	options []Opt
@@ -122,17 +122,6 @@ func (g *GameBoy) Init() {
 		g.rumbling = b
 	}
 
-	// create event handlers for input TODO remove
-	for i := io.ButtonA; i <= io.ButtonDown; i++ {
-		_i := i
-		g.Scheduler.RegisterEvent(scheduler.JoypadA+scheduler.EventType(_i), func() {
-			g.Bus.Press(_i)
-		})
-		g.Scheduler.RegisterEvent(scheduler.JoypadARelease+scheduler.EventType(_i), func() {
-			g.Bus.Release(_i)
-		})
-	}
-
 	// schedule the frame sequencer event for the next 8192 ticks
 	g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer, uint64(8192-g.Scheduler.SysClock()&0x0fff))
 	g.Scheduler.ScheduleEvent(scheduler.APUFrameSequencer2, uint64(8192-g.Scheduler.SysClock()&0x0fff)+4096)
@@ -177,6 +166,7 @@ func (g *GameBoy) Colourise() {
 
 // Frame generates the next frame of the Game Boy's display and applies any visual effects.
 func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
+	g.running = true
 	g.CPU.Frame()
 
 	if g.rumbling {
@@ -185,7 +175,7 @@ func (g *GameBoy) Frame() [ppu.ScreenHeight][ppu.ScreenWidth][3]uint8 {
 	if g.Bus.Cartridge().Features.Accelerometer {
 		// utils.Rotate2DFrame(&g.PPU.PreparedFrame, -float64(g.Bus.Cartridge().AccelerometerX), float64(g.Bus.Cartridge().AccelerometerY)) // TODO make configurable
 	}
-
+	g.running = false
 	return g.PPU.PreparedFrame
 }
 
@@ -208,3 +198,4 @@ func (g *GameBoy) Initialised() bool { return g.initialised } // has the Game Bo
 func (g *GameBoy) Paused() bool      { return g.paused }      // is the Game Boy paused?
 func (g *GameBoy) Pause()            { g.paused = true }      // pause execution of the Game Boy
 func (g *GameBoy) Resume()           { g.paused = false }     // resume execution of the Game Boy
+func (g *GameBoy) Running() bool     { return g.running }     // is the emulator currently running?

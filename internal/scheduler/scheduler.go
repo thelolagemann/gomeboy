@@ -18,8 +18,8 @@ type Scheduler struct {
 	divTimer uint64 // the cycle at which the DIV register was last reset
 	root     *Event
 
-	events      [eventTypes]*Event // only one event of each type can be scheduled at a time
-	nextEventAt uint64             // the cycle at which the next event should be executed
+	events      [len(_EventType_index) - 1]*Event // only one event of each type can be scheduled at a time
+	nextEventAt uint64                            // the cycle at which the next event should be executed
 
 	doubleSpeed bool // whether the scheduler is running at double speed
 }
@@ -31,7 +31,6 @@ func (s *Scheduler) OverrideDiv(div uint16) {
 func NewScheduler() *Scheduler {
 	s := &Scheduler{ // 0x = DMG magic value,
 		cycles:      0,
-		events:      [eventTypes]*Event{},
 		nextEventAt: math.MaxUint64,
 		root: &Event{
 			next:  nil,
@@ -45,7 +44,7 @@ func NewScheduler() *Scheduler {
 	// initialize the events with the number of event types
 	// to avoid the cost of allocating a new event for each
 	// scheduled event
-	for i := 0; i < eventTypes; i++ {
+	for i := 0; i < len(_EventType_index)-1; i++ {
 		s.events[i] = &Event{}
 	}
 
@@ -238,7 +237,7 @@ func (s *Scheduler) DoEvent() uint64 {
 // CPU is running at double speed.
 func (s *Scheduler) ChangeSpeed(speed bool) {
 	if !s.doubleSpeed && speed {
-		eventsProcessed := [eventTypes]bool{} // filthy hack to avoid processing the same event twice
+		eventsProcessed := [len(_EventType_index) - 1]bool{} // filthy hack to avoid processing the same event twice
 		// we are going from normal speed to double speed
 		// so we need to halve the event cycles for events
 		// affected by the speed change
