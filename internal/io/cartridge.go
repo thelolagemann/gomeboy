@@ -137,7 +137,7 @@ type Cartridge struct {
 
 // parseHeader parses the Cartridge header from Cartridge.ROM.
 func (c *Cartridge) parseHeader() {
-	c.CGBFlag = []CGBFlag{0x80: CGBEnhanced, 0xC0: CGBOnly}[c.ROM[0x143]]
+	c.CGBFlag = []CGBFlag{0x80: CGBEnhanced, 0xC0: CGBOnly, 0xFF: CGBUnset}[c.ROM[0x143]]
 
 	// CGB cartridge header reduced the title length to 15, and then some months later to 11
 	if c.CGBFlag == CGBUnset {
