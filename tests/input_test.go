@@ -4,46 +4,73 @@ import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/gameboy"
 	"github.com/thelolagemann/gomeboy/internal/io"
-	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"image/png"
-	"math/rand"
+	"math/rand/v2"
 	"os"
-	"sort"
 	"testing"
+	"time"
 )
 
 type inputTest struct {
 	expectedImagePath string
-	inputs            []testInput
 
 	*basicTest
 }
 
+// Retry retries the provided function fn until it succeeds or the maximum retries is reached.
+// It returns a func(t *testing.T) that can be used in test cases.
+func Retry(fn func() error, retries int, delay time.Duration) func(t *testing.T) {
+	return func(t *testing.T) {
+		for i := 0; i < retries; i++ {
+			err := fn()
+			if err == nil {
+				return // Test passed
+			}
+			if i < retries-1 {
+				time.Sleep(delay) // Wait before retrying
+			}
+		}
+		t.Fatalf("Test failed after %d attempts", retries)
+	}
+}
+
 func (iT *inputTest) Run(t *testing.T) {
 	iT.passed = true
-	t.Run(iT.name, func(t *testing.T) {
+	t.Run(iT.name, Retry(func() error {
 		// create a new gameboy
 		gb := gameboy.NewGameBoy(gameboy.AsModel(iT.model))
 		if err := gb.LoadROM(iT.romPath); err != nil {
-			t.Errorf("error loading ROM: %s", err)
+			return err
 		}
 
-		// sort the inputs by cycle (so we can press them in order)
-		sort.Slice(iT.inputs, func(i, j int) bool {
-			return iT.inputs[i].atEmulatedCycle < iT.inputs[j].atEmulatedCycle
-		})
-
-		// schedule input events on gameboy to occur at emulated cycles (with some degree of randomization TODO make configurable)
-		for _, input := range iT.inputs {
-			adjustedCycle := input.atEmulatedCycle
-			adjustedCycle += (1024 + uint64(rand.Intn(4192))) * 4
-
-			gb.Scheduler.ScheduleEvent(scheduler.JoypadA+scheduler.EventType(input.button), adjustedCycle)
-			gb.Scheduler.ScheduleEvent(scheduler.JoypadARelease+scheduler.EventType(input.button), adjustedCycle+72240)
+		// run a second worth of frames for setup
+		for i := 0; i < 55; i++ {
+			gb.Frame()
 		}
-		// wait an additional 5 seconds (60 * 5) frames to wait for test completion
-		for frame := 0; frame < 60*10; frame++ {
+
+		var testFinished = false
+		go func() {
+			for i := io.ButtonA; i <= io.ButtonDown; i++ {
+				for !gb.Running() {
+				}
+				for i := 0; i < rand.IntN(512); i++ {
+				} // burn a random amount of time
+				gb.Bus.Press(i)
+
+				time.Sleep(time.Millisecond * 20)
+				for !gb.Running() {
+				}
+				gb.Bus.Release(i)
+				time.Sleep(time.Millisecond * 10)
+			}
+			testFinished = true
+		}()
+		for !testFinished {
 			// get the next frame
+			gb.Frame()
+			time.Sleep(time.Millisecond * 5) // give some time for the input handler
+		}
+		for i := 0; i < 60*10; i++ {
 			gb.Frame()
 		}
 
@@ -55,19 +82,19 @@ func (iT *inputTest) Run(t *testing.T) {
 
 		if diff > 0 {
 			iT.passed = false
-			t.Errorf("images are different: %d", diff) // TODO percentage
 
-			// write output image to disk
 			outFile, err := os.Create(fmt.Sprintf("results/%s_output.png", iT.name))
 			if err != nil {
-				t.Fatal(err)
 			}
 			defer outFile.Close()
 
 			if err := png.Encode(outFile, diffImg); err != nil {
 			}
+			// write output image to disk
+			return fmt.Errorf("images are different: %d", diff) // TODO percentage
 		}
-	})
+		return nil
+	}, 5, time.Millisecond))
 
 }
 

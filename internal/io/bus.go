@@ -281,7 +281,7 @@ func (b *Bus) Boot() {
 	// setup starting events for scheduler
 	events := types.ModelEvents[b.model]
 	if len(events) > 0 {
-		for i := scheduler.APUChannel1; i <= scheduler.JoypadDownRelease; i++ {
+		for i := scheduler.APUChannel1; i <= scheduler.SerialBitInterrupt; i++ {
 			b.s.DescheduleEvent(i)
 		}
 		// set starting event for scheduler
