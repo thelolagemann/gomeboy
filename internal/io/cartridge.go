@@ -3,10 +3,13 @@ package io
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/vladimirvivien/go4vl/device"
 	"hash/crc32"
+	"image"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,6 +125,14 @@ type Cartridge struct {
 			bitsIn, bitsOut uint16
 			bitsLeft        uint8 // 5 bits
 		}
+	}
+
+	camera struct {
+		webcamImage     [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int
+		image           image.Image
+		sensorImage     [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int
+		registers       [0x36]uint8
+		registersMapped bool
 	}
 
 	rtc struct {
@@ -472,7 +483,7 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 		switch {
 		case address < 0x2000:
 			switch c.CartridgeType {
-			case MBC1RAM, MBC1RAMBATT, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT, MBC5RAM, MBC5RAMBATT, MBC5RUMBLERAM, MBC5RUMBLERAMBATT:
+			case MBC1RAM, MBC1RAMBATT, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT, MBC5RAM, MBC5RAMBATT, MBC5RUMBLERAM, MBC5RUMBLERAMBATT, POCKETCAMERA:
 				c.ramEnabled = value&0x0f == 0x0a && c.CartridgeType != MBC3TIMERBATT
 				c.rtc.enabled = value&0x0f == 0x0a && c.Features.RTC
 				return
@@ -514,6 +525,8 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				romBank := uint16(c.romOffset / 0x4000)
 				romBank = romBank&0x00ff + uint16(value&1)<<8
 				c.updateROMBank(romBank)
+			case POCKETCAMERA:
+				c.updateROMBank(uint16(value))
 			}
 		case address < 0x6000:
 			switch c.CartridgeType {
@@ -553,6 +566,9 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.RumbleCallback(value&types.Bit3 > 0)
 
 				c.updateRAMBank(value & 7)
+			case POCKETCAMERA:
+				c.camera.registersMapped = value&types.Bit4 > 0
+				c.updateRAMBank(value & 0x0f)
 			}
 		case address < 0x8000:
 			switch c.CartridgeType {
@@ -601,6 +617,8 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				}
 
 				fallthrough
+			case POCKETCAMERA:
+				c.writeCameraRAM(address, value)
 			default:
 				// if there is no RAM or RAM is disabled, do nothing
 				if len(c.RAM) == 0 || !c.ramEnabled {
@@ -662,6 +680,22 @@ func NewCartridge(rom []byte, b *Bus) *Cartridge {
 	c.mbc1.bank1 = 1
 	c.mbc1.bankShift = 5
 	c.parseHeader()
+	devices, err := device.GetAllDevicePaths()
+	if err != nil {
+		panic(err)
+	}
+	for _, d := range devices {
+		cam, err := device.Open(d, device.WithBufferSize(1))
+		if err != nil {
+			panic(err)
+		}
+		if err := cam.Start(context.TODO()); err != nil {
+			panic(err)
+		}
+		dev = cam
+		break
+
+	}
 
 	var ramSize = c.RAMSize
 	// override RAM sizes for oddball mbcs
