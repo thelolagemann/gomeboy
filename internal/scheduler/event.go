@@ -43,6 +43,8 @@ const (
 
 	SerialBitTransfer
 	SerialBitInterrupt
+
+	CameraShoot
 )
 
 type Event struct {

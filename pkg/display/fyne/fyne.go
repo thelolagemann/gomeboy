@@ -217,9 +217,12 @@ func (f *fyneDriver) createMainMenu() {
 				f.error(err)
 				return
 			}
+			if closer == nil {
+				return // user cancelled
+			}
 			f.error(f.openROM(closer.URI().Path()))
 		}, f.mainWindow)
-		d.SetFilter(storage.NewExtensionFileFilter([]string{".gb", ".gbc"}))
+		d.SetFilter(storage.NewExtensionFileFilter([]string{".gb", ".gbc", ".7z", ".zip", ".gz", ".xz"}))
 		d.Show()
 	})
 
@@ -236,6 +239,9 @@ func (f *fyneDriver) createMainMenu() {
 			f.toggleMainMenu()
 		}, views.Gated(!f.gb.Initialised())),
 		fyne.NewMenuItemSeparator(),
+		views.NewCustomizedMenuItem("Camera", func() {
+			f.openWindowIfNotOpen("Camera", views.NewCamera(f.gb.Bus.Cartridge().Camera, f.gb.PPU))
+		}, views.Gated(!(f.gb.Initialised() && f.gb.Bus.Cartridge().CartridgeType == io.POCKETCAMERA))),
 		views.NewCustomizedMenuItem("Printer", func() {
 			// create and attach printer if gameboy doesn't have one attached
 			if _, ok := f.gb.Serial.AttachedDevice.(*accessories.Printer); !ok {

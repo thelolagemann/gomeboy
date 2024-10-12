@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	fyne.io/fyne/v2 v2.5.1
 	github.com/argusdusty/gofft v1.2.1
+	github.com/blackjack/webcam v0.6.1
 	github.com/bodgit/sevenzip v1.5.2
 	github.com/cespare/xxhash v1.1.0
 	github.com/ebitengine/oto/v3 v3.2.0
@@ -15,7 +16,9 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/veandco/go-sdl2 v0.4.40
 	golang.design/x/clipboard v0.7.0
-	golang.org/x/sys v0.25.0
+	golang.org/x/exp v0.0.0-20241004190924-225e2abe05e6
+	golang.org/x/image v0.21.0
+	golang.org/x/sys v0.26.0
 )
 
 require (
@@ -25,14 +28,14 @@ require (
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/ebitengine/purego v0.7.1 // indirect
+	github.com/ebitengine/purego v0.8.0 // indirect
 	github.com/fredbi/uri v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/fyne-io/gl-js v0.0.0-20230506162202-1fdaa286a934 // indirect
 	github.com/fyne-io/glfw-js v0.0.0-20240101223322-6e1efdc71b7a // indirect
 	github.com/fyne-io/image v0.0.0-20240417123036-dc0ee9e7c964 // indirect
-	github.com/go-text/render v0.1.1 // indirect
-	github.com/go-text/typesetting v0.1.1 // indirect
+	github.com/go-text/render v0.1.1-0.20240418202334-dd62631dae9b // indirect
+	github.com/go-text/typesetting v0.1.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -52,10 +55,9 @@ require (
 	github.com/ulikunitz/xz v0.5.12 // indirect
 	github.com/yuin/goldmark v1.7.4 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/exp v0.0.0-20200224162631-6cc2880d07d6 // indirect
-	golang.org/x/image v0.20.0 // indirect
-	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a // indirect
-	golang.org/x/net v0.29.0 // indirect
-	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/exp/shiny v0.0.0-20230817173708-d852ddb80c63 // indirect
+	golang.org/x/mobile v0.0.0-20241004191011-08a83c5af9f8 // indirect
+	golang.org/x/net v0.30.0 // indirect
+	golang.org/x/text v0.19.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

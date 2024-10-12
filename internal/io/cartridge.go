@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"hash/crc32"
+	"image"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,7 +55,7 @@ const (
 )
 
 var batteryMappers = []CartridgeType{
-	MBC1RAMBATT, MMM01RAMBATT, MBC2BATT, MBC3RAMBATT, MBC3TIMERRAMBATT, MBC3TIMERBATT, MBC5RAMBATT, MBC5RUMBLERAMBATT, MBC7,
+	MBC1RAMBATT, MMM01RAMBATT, MBC2BATT, MBC3RAMBATT, MBC3TIMERRAMBATT, MBC3TIMERBATT, MBC5RAMBATT, MBC5RUMBLERAMBATT, MBC7, POCKETCAMERA,
 } // mappers that feature battery backed RAM
 
 type rtcRegister = int // represents one of the 5 rtc registers (latched is indexed +5)
@@ -123,6 +124,8 @@ type Cartridge struct {
 			bitsLeft        uint8 // 5 bits
 		}
 	}
+
+	Camera *Camera
 
 	rtc struct {
 		enabled, latched, latching bool
@@ -472,7 +475,7 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 		switch {
 		case address < 0x2000:
 			switch c.CartridgeType {
-			case MBC1RAM, MBC1RAMBATT, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT, MBC5RAM, MBC5RAMBATT, MBC5RUMBLERAM, MBC5RUMBLERAMBATT:
+			case MBC1RAM, MBC1RAMBATT, MBC3RAM, MBC3RAMBATT, MBC3TIMERBATT, MBC3TIMERRAMBATT, MBC5RAM, MBC5RAMBATT, MBC5RUMBLERAM, MBC5RUMBLERAMBATT, POCKETCAMERA:
 				c.ramEnabled = value&0x0f == 0x0a && c.CartridgeType != MBC3TIMERBATT
 				c.rtc.enabled = value&0x0f == 0x0a && c.Features.RTC
 				return
@@ -514,6 +517,8 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				romBank := uint16(c.romOffset / 0x4000)
 				romBank = romBank&0x00ff + uint16(value&1)<<8
 				c.updateROMBank(romBank)
+			case POCKETCAMERA:
+				c.updateROMBank(uint16(value))
 			}
 		case address < 0x6000:
 			switch c.CartridgeType {
@@ -553,6 +558,10 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.RumbleCallback(value&types.Bit3 > 0)
 
 				c.updateRAMBank(value & 7)
+			case POCKETCAMERA:
+				c.Camera.registersMapped = value&types.Bit4 > 0
+				c.ramOffset = (uint32(value&0x0f) * 0x2000) % uint32(c.RAMSize) // set new RAM offset
+
 			}
 		case address < 0x8000:
 			switch c.CartridgeType {
@@ -600,6 +609,30 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 					return
 				}
 
+				fallthrough
+			case POCKETCAMERA:
+				if c.Camera.registersMapped {
+					address &= 0x7f
+					if address == CameraShoot {
+						value &= 7
+
+						if value&1 > 0 && c.Camera.Registers[CameraShoot]&1 == 0 {
+							c.startShooting()
+						}
+
+						c.Camera.Registers[CameraShoot] = value
+					} else {
+						if address > CameraDitherContrastEnd {
+							return // invalid
+						}
+						c.Camera.Registers[address] = value
+					}
+
+					return
+				}
+				if c.Camera.Registers[CameraShoot]&1 == 1 {
+					return // can't write to camera ram whilst shooting
+				}
 				fallthrough
 			default:
 				// if there is no RAM or RAM is disabled, do nothing
@@ -674,6 +707,14 @@ func NewCartridge(rom []byte, b *Bus) *Cartridge {
 	case MBC7:
 		c.RAMSize = 256 // 256 byte EEPROM
 		ramSize = 256
+	case POCKETCAMERA:
+		c.Camera = &Camera{
+			CameraShooter:    NoiseShooter(CameraSensorW, CameraSensorH),
+			Filter1D:         true,
+			Filter1DAndHoriz: true,
+			Filter2D:         true,
+			sensorImage:      image.NewGray(image.Rect(0, 0, CameraSensorW, CameraSensorH)),
+		}
 	}
 
 	// create RAM

@@ -42,11 +42,12 @@ func _() {
 	_ = x[TimerTIMAIncrement-31]
 	_ = x[SerialBitTransfer-32]
 	_ = x[SerialBitInterrupt-33]
+	_ = x[CameraShoot-34]
 }
 
-const _EventType_name = "APUFrameSequencerAPUFrameSequencer2APUChannel1APUChannel2APUChannel3APUSampleEIPendingEIHaltDelayPPUStartHBlankPPUHBlankPPUHBlankInterruptPPUStartOAMSearchPPUEndFramePPUContinueOAMSearchPPUPrepareEndOAMSearchPPUEndOAMSearchPPULine153ContinuePPULine153EndPPUStartVBlankPPUContinueVBlankPPUVRAMTransferPPUStartGlitchedLine0PPUMiddleGlitchedLine0PPUContinueGlitchedLine0PPUEndGlitchedLine0PPUOAMInterruptDMAStartTransferDMAEndTransferDMATransferTimerTIMAReloadTimerTIMAFinishReloadTimerTIMAIncrementSerialBitTransferSerialBitInterrupt"
+const _EventType_name = "APUFrameSequencerAPUFrameSequencer2APUChannel1APUChannel2APUChannel3APUSampleEIPendingEIHaltDelayPPUStartHBlankPPUHBlankPPUHBlankInterruptPPUStartOAMSearchPPUEndFramePPUContinueOAMSearchPPUPrepareEndOAMSearchPPUEndOAMSearchPPULine153ContinuePPULine153EndPPUStartVBlankPPUContinueVBlankPPUVRAMTransferPPUStartGlitchedLine0PPUMiddleGlitchedLine0PPUContinueGlitchedLine0PPUEndGlitchedLine0PPUOAMInterruptDMAStartTransferDMAEndTransferDMATransferTimerTIMAReloadTimerTIMAFinishReloadTimerTIMAIncrementSerialBitTransferSerialBitInterruptCameraShoot"
 
-var _EventType_index = [...]uint16{0, 17, 35, 46, 57, 68, 77, 86, 97, 111, 120, 138, 155, 166, 186, 208, 223, 241, 254, 268, 285, 300, 321, 343, 367, 386, 401, 417, 431, 442, 457, 478, 496, 513, 531}
+var _EventType_index = [...]uint16{0, 17, 35, 46, 57, 68, 77, 86, 97, 111, 120, 138, 155, 166, 186, 208, 223, 241, 254, 268, 285, 300, 321, 343, 367, 386, 401, 417, 431, 442, 457, 478, 496, 513, 531, 542}
 
 func (i EventType) String() string {
 	if i >= EventType(len(_EventType_index)-1) {

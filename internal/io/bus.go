@@ -88,6 +88,7 @@ func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
 	s.RegisterEvent(scheduler.DMAStartTransfer, b.startDMATransfer)
 	s.RegisterEvent(scheduler.DMAEndTransfer, b.endDMATransfer)
+	s.RegisterEvent(scheduler.CameraShoot, func() { b.c.Camera.Registers[CameraShoot] &^= 1 })
 
 	return b
 }
@@ -480,6 +481,8 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 			}
 		case MBC7:
 			return b.c.readMBC7RAM(addr)
+		case POCKETCAMERA:
+			return b.c.readCameraRAM(addr)
 		default:
 			if !b.c.ramEnabled {
 				return 0xff
