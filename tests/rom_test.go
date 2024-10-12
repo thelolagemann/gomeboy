@@ -178,20 +178,7 @@ func Test_Regressions(t *testing.T) {
 	}
 
 	// run test with exec (cheeky hack to avoid exit status 1 on failure)
-	cmd := exec.Command("go", "test", "-tags", "test", "-v",
-		"acid2_test.go",
-		"age_test.go",
-		"blargg_test.go",
-		"bully_test.go",
-		"image_test.go",
-		"input_test.go",
-		"little_things_test.go",
-		"mooneye_test.go",
-		"rom_test.go",
-		"samesuite_test.go",
-		"scribbl_test.go",
-		"strikethrough_test.go",
-		"-run", "Test_All")
+	cmd := exec.Command("go", "test", "-v", "-run", "Test_All")
 	var exitError *exec.ExitError
 	var out strings.Builder
 	cmd.Stdout = &out
