@@ -27,7 +27,8 @@ jobs:
       - name: install dependencies
         run: go get .
       - name: tests
-        run: go test -tags test -v tests/*.go -run Test_Regressions
+        working-directory: ./tests
+        run: go test -run Test_Regressions
       - name: import gpg key
         if: github.event_name == 'pull_request'
         uses: crazy-max/ghaction-import-gpg@v5
