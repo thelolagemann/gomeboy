@@ -3,11 +3,9 @@ package io
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/vladimirvivien/go4vl/device"
 	"hash/crc32"
 	"image"
 	"slices"
@@ -57,7 +55,7 @@ const (
 )
 
 var batteryMappers = []CartridgeType{
-	MBC1RAMBATT, MMM01RAMBATT, MBC2BATT, MBC3RAMBATT, MBC3TIMERRAMBATT, MBC3TIMERBATT, MBC5RAMBATT, MBC5RUMBLERAMBATT, MBC7,
+	MBC1RAMBATT, MMM01RAMBATT, MBC2BATT, MBC3RAMBATT, MBC3TIMERRAMBATT, MBC3TIMERBATT, MBC5RAMBATT, MBC5RUMBLERAMBATT, MBC7, POCKETCAMERA,
 } // mappers that feature battery backed RAM
 
 type rtcRegister = int // represents one of the 5 rtc registers (latched is indexed +5)
@@ -127,13 +125,7 @@ type Cartridge struct {
 		}
 	}
 
-	camera struct {
-		webcamImage     [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int
-		image           image.Image
-		sensorImage     [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int
-		registers       [0x36]uint8
-		registersMapped bool
-	}
+	Camera *Camera
 
 	rtc struct {
 		enabled, latched, latching bool
@@ -567,8 +559,9 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 
 				c.updateRAMBank(value & 7)
 			case POCKETCAMERA:
-				c.camera.registersMapped = value&types.Bit4 > 0
-				c.updateRAMBank(value & 0x0f)
+				c.Camera.registersMapped = value&types.Bit4 > 0
+				c.ramOffset = (uint32(value&0x0f) * 0x2000) % uint32(c.RAMSize) // set new RAM offset
+
 			}
 		case address < 0x8000:
 			switch c.CartridgeType {
@@ -618,7 +611,29 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 
 				fallthrough
 			case POCKETCAMERA:
-				c.writeCameraRAM(address, value)
+				if c.Camera.registersMapped {
+					address &= 0x7f
+					if address == CameraShoot {
+						value &= 7
+
+						if value&1 > 0 && c.Camera.Registers[CameraShoot]&1 == 0 {
+							c.startShooting()
+						}
+
+						c.Camera.Registers[CameraShoot] = value
+					} else {
+						if address > CameraDitherContrastEnd {
+							return // invalid
+						}
+						c.Camera.Registers[address] = value
+					}
+
+					return
+				}
+				if c.Camera.Registers[CameraShoot]&1 == 1 {
+					return // can't write to camera ram whilst shooting
+				}
+				fallthrough
 			default:
 				// if there is no RAM or RAM is disabled, do nothing
 				if len(c.RAM) == 0 || !c.ramEnabled {
@@ -680,22 +695,6 @@ func NewCartridge(rom []byte, b *Bus) *Cartridge {
 	c.mbc1.bank1 = 1
 	c.mbc1.bankShift = 5
 	c.parseHeader()
-	devices, err := device.GetAllDevicePaths()
-	if err != nil {
-		panic(err)
-	}
-	for _, d := range devices {
-		cam, err := device.Open(d, device.WithBufferSize(1))
-		if err != nil {
-			panic(err)
-		}
-		if err := cam.Start(context.TODO()); err != nil {
-			panic(err)
-		}
-		dev = cam
-		break
-
-	}
 
 	var ramSize = c.RAMSize
 	// override RAM sizes for oddball mbcs
@@ -708,6 +707,14 @@ func NewCartridge(rom []byte, b *Bus) *Cartridge {
 	case MBC7:
 		c.RAMSize = 256 // 256 byte EEPROM
 		ramSize = 256
+	case POCKETCAMERA:
+		c.Camera = &Camera{
+			CameraShooter:    NoiseShooter(CameraSensorW, CameraSensorH),
+			Filter1D:         true,
+			Filter1DAndHoriz: true,
+			Filter2D:         true,
+			sensorImage:      image.NewGray(image.Rect(0, 0, CameraSensorW, CameraSensorH)),
+		}
 	}
 
 	// create RAM

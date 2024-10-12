@@ -5,7 +5,9 @@ package utils
 import (
 	"bytes"
 	"golang.design/x/clipboard"
+	"golang.org/x/image/draw"
 	"image"
+	"image/color"
 	"image/png"
 	"math"
 )
@@ -24,6 +26,16 @@ func CopyImage(img image.Image) error {
 
 	clipboard.Write(clipboard.FmtImage, b.Bytes())
 	return nil
+}
+
+// ForPixel iterates over every pixel coordinate in the range of width * height, calling f
+// for each coordinate.
+func ForPixel(width, height int, f func(x, y int)) {
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			f(x, y)
+		}
+	}
 }
 
 type point struct {
@@ -122,4 +134,42 @@ func ShakeFrame(frame *[144][160][3]uint8, offset int) {
 
 	// Copy the result back to the original frame
 	*frame = tempFrame
+}
+
+// ResizeWithAspectRatio resizes the input image to fit within the target width and height while maintaining aspect ratio,
+// filling the empty space with black if needed.
+func ResizeWithAspectRatio(img image.Image, targetWidth, targetHeight int) image.Image {
+	// Get original image dimensions
+	origWidth := img.Bounds().Dx()
+	origHeight := img.Bounds().Dy()
+
+	// Calculate the scale factor to maintain aspect ratio
+	widthRatio := float64(targetWidth) / float64(origWidth)
+	heightRatio := float64(targetHeight) / float64(origHeight)
+	scale := widthRatio
+	if heightRatio < widthRatio {
+		scale = heightRatio
+	}
+
+	// Calculate new dimensions based on the scale factor
+	newWidth := int(float64(origWidth) * scale)
+	newHeight := int(float64(origHeight) * scale)
+
+	// Create a black-filled canvas with the target size
+	output := image.NewRGBA(image.Rect(0, 0, targetWidth, targetHeight))
+	black := color.RGBA{0, 0, 0, 255}
+	draw.Draw(output, output.Bounds(), &image.Uniform{black}, image.Point{}, draw.Src)
+
+	// Resize the image while maintaining the aspect ratio
+	resizedImg := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	draw.BiLinear.Scale(resizedImg, resizedImg.Bounds(), img, img.Bounds(), draw.Over, nil)
+
+	// Calculate the offset to center the resized image on the canvas
+	offsetX := (targetWidth - newWidth) / 2
+	offsetY := (targetHeight - newHeight) / 2
+
+	// Draw the resized image onto the black canvas
+	draw.Draw(output, image.Rect(offsetX, offsetY, offsetX+newWidth, offsetY+newHeight), resizedImg, image.Point{}, draw.Over)
+
+	return output
 }

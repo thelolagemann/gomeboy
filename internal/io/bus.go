@@ -88,7 +88,7 @@ func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	s.RegisterEvent(scheduler.DMATransfer, b.doDMATransfer)
 	s.RegisterEvent(scheduler.DMAStartTransfer, b.startDMATransfer)
 	s.RegisterEvent(scheduler.DMAEndTransfer, b.endDMATransfer)
-	s.RegisterEvent(scheduler.CameraShoot, b.c.updateCamera)
+	s.RegisterEvent(scheduler.CameraShoot, func() { b.c.Camera.Registers[CameraShoot] &^= 1 })
 
 	return b
 }

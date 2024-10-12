@@ -1,115 +1,99 @@
 package io
 
 import (
-	"bytes"
-	"github.com/nfnt/resize"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
-	"github.com/vladimirvivien/go4vl/device"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image"
-	"image/color"
-	"image/jpeg"
+	"image/draw"
+	"math/rand/v2"
 	"unsafe"
 )
 
 const (
-	CAMERA_SHOOT = iota
-	CAMERA_NVH
-	CAMERA_C0
-	CAMERA_C1
-	CAMERA_EVI
+	CameraShoot               = iota
+	CameraNVH                 // output gain and edge operation mode
+	CameraC0                  // exposure MSB
+	CameraC1                  // exposure LSB
+	CameraEVI                 // output voltage reference, edge enhancement ratio & invert
+	CameraDitherContrastStart = 6
+	CameraDitherContrastEnd   = 0x35
 
-	CAMERA_SENSOR_W = 128
-	CAMERA_SENSOR_H = 120
-	CAMERA_W        = 128
-	CAMERA_H        = 112
+	CameraSensorW = 128
+	CameraSensorH = 120
+	CameraW       = 128
+	CameraH       = 112
 
-	CAMERA_TILE_SIZE = 14 * 16 * 16
+	CameraTileSize = 14 << 8
+
+	Filter1D         = 0
+	Filter1DAndHoriz = 2
+	Filter2D         = 14
 )
 
+// Camera implements the functionality of the [POCKETCAMERA] cartridge, allowing
+// for any [image.Image] to be used as the camera's source.
 type Camera struct {
 	CameraShooter
 
-	sensorImage     [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int
-	registers       [0x36]uint8
+	Filter1D, Filter1DAndHoriz, Filter2D bool // disable/enable filtering modes
+
+	ShotImage       image.Image                       // the image that comes in from CameraShooter
+	SensedImage     [CameraSensorW][CameraSensorH]int // the image that the sensor "sees"
+	Registers       [0x36]uint8
 	registersMapped bool
+	sensorImage     *image.Gray
 }
 
+// CameraShooter mimics a "camera" attached to the emulator, by simply returning
+// an [image.Image]. This allows for any image source to be used as a camera input.
 type CameraShooter func() image.Image
 
-func clamp(min, value, max int) int {
-	if value < min {
-		return min
+// NoiseShooter is a simple [CameraShooter] that returns random noise.
+func NoiseShooter(w, h int) func() image.Image {
+	f := image.NewGray(image.Rect(0, 0, w, h))
+	return func() image.Image {
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				f.Pix[y*w+x] = rand.N(uint8(255))
+			}
+		}
+		return f
 	}
-	if value > max {
-		return max
-	}
-	return value
 }
 
 func (c *Cartridge) readCameraRAM(addr uint16) uint8 {
-	if c.camera.registersMapped {
-		if addr&0x7f == CAMERA_SHOOT {
-			return c.camera.registers[CAMERA_SHOOT]
+	if c.Camera.registersMapped {
+		if addr&0x7f == CameraShoot {
+			return c.Camera.Registers[CameraShoot]
 		}
-		return 0
+		return 0 // only CameraShoot register is readable
 	}
 
-	if c.camera.registers[CAMERA_SHOOT]&1 == 1 {
-		return 0
+	if c.Camera.Registers[CameraShoot]&1 == 1 {
+		return 0 // ram is unreadable whilst the camera is shooting
 	}
 
 	return c.RAM[c.ramOffset+uint32(addr)&0x1fff]
-
 }
 
-func (c *Cartridge) writeCameraRAM(addr uint16, value uint8) {
-	if c.camera.registersMapped {
-		addr &= 0x7f
-		if addr == CAMERA_SHOOT {
-			value &= 7 // only 3 bits
-
-			if value&1 > 0 && c.camera.registers[CAMERA_SHOOT]&1 == 0 {
-				c.startShooting()
-			}
-
-			if value&1 == 0 && c.camera.registers[CAMERA_EVI]&1 == 1 {
-				value |= 1
-				panic("dont support cancelling")
-			}
-			c.camera.registers[CAMERA_SHOOT] = value
-		} else {
-			if addr >= 0x36 {
-				return // invalid
-			}
-			c.camera.registers[addr] = value
-		}
-
-		return
-	}
-
-	if c.ramEnabled {
-		c.RAM[c.ramOffset+uint32(addr)&0x1fff] = value
-	}
-}
-
-func (c *Cartridge) updateCamera() {
-	c.camera.registers[CAMERA_SHOOT] &^= 1
-}
-
+// startShooting is called when a value with [types.Bit0] set is written to [CameraShoot]. It
+// processes the image from the embedded [CameraShooter] and converts it into the gb tile format,
+// as well as calculating how many clocks the shoot would take on real hardware according to the
+// formula provided at https://gbdev.io/pandocs/Gameboy_Camera.html#sample-code-for-emulators
+//
+//	(32446 + (n*512) + (exposure*16)) * 4
 func (c *Cartridge) startShooting() {
-	f := <-dev.GetOutput()
-	img, err := jpeg.Decode(bytes.NewReader(f))
-	if err != nil {
-		panic(err)
-	}
-	c.camera.image = resize.Resize(CAMERA_SENSOR_W, CAMERA_SENSOR_H, convertToGray(img), resize.NearestNeighbor)
+	c.Camera.ShotImage = c.Camera.CameraShooter()
 
-	c.camera.sensorImage = [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int{}
+	tempImg := utils.ResizeWithAspectRatio(c.Camera.ShotImage, CameraSensorW, CameraSensorH)
+	draw.Draw(c.Camera.sensorImage, c.Camera.sensorImage.Bounds(), tempImg, tempImg.Bounds().Min, draw.Src)
+
+	c.Camera.SensedImage = [CameraSensorW][CameraSensorH]int{}
 	var p, m uint8
-	switch (c.camera.registers[CAMERA_SHOOT] >> 1) & 3 {
+	switch (c.Camera.Registers[CameraShoot] >> 1) & 3 {
 	case 0:
-		m = 0
+		m = 1
 	case 1:
 		p = 1
 	case 2, 3:
@@ -118,191 +102,152 @@ func (c *Cartridge) startShooting() {
 	}
 
 	// register 1
-	n := (c.camera.registers[CAMERA_NVH] & types.Bit7) >> 7
-	vh := c.camera.registers[CAMERA_NVH] & 0x60 >> 5
+	n := (c.Camera.Registers[CameraNVH] & types.Bit7) >> 7
+	vh := c.Camera.Registers[CameraNVH] & 0x60 >> 5
 
 	// register 2 & 3
-	exposure := uint16(c.camera.registers[CAMERA_C1]) | uint16(c.camera.registers[CAMERA_C0])<<8
+	exposure := uint16(c.Camera.Registers[CameraC1]) | uint16(c.Camera.Registers[CameraC0])<<8
 
 	// register 4
-	edge := []float64{0.50, 0.75, 1.00, 1.25, 2.00, 3.00, 4.00, 5.00}[(c.camera.registers[CAMERA_EVI]&0x70)>>4]
-	e3 := c.camera.registers[CAMERA_EVI] & types.Bit7 >> 7
-	i := c.camera.registers[CAMERA_EVI]&types.Bit3 > 0
+	edge := []float64{0.50, 0.75, 1.00, 1.25, 2.00, 3.00, 4.00, 5.00}[(c.Camera.Registers[CameraEVI]&0x70)>>4]
+	e3 := c.Camera.Registers[CameraEVI] >> 7
+	i := c.Camera.Registers[CameraEVI]&types.Bit3 > 0
 
 	// calculate how long the shoot should take
-	cameraClocks := uint64(4 * (32446 + uint64(n)*512 + uint64(exposure)*16))
-	c.b.s.ScheduleEvent(scheduler.CameraShoot, cameraClocks)
+	c.b.s.ScheduleEvent(scheduler.CameraShoot, 2<<(32446+uint64(n)<<9+uint64(exposure)<<4))
 
-	// copy webcam image to sensor buffer
-	for j := 0; j < CAMERA_SENSOR_W; j++ {
-		for k := 0; k < CAMERA_SENSOR_H; k++ {
-			value := int(c.camera.image.(*image.Gray).Pix[k*c.camera.image.(*image.Gray).Stride+j])
-			value = (value * int(exposure)) / 0x0300
+	utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) {
+		value := int(c.Camera.sensorImage.Pix[y*c.Camera.sensorImage.Stride+x])
+		value = (value * int(exposure)) / 0x0300
 
-			value = 128 + (((value - 128) * 1) / 8)
-			c.camera.sensorImage[j][k] = int(value)
-		}
-	}
+		value = 128 + (((value - 128) * 1) / 8)
+		c.Camera.SensedImage[x][y] = value
+	})
 
 	// handle inverting
 	if i {
-		for j := 0; j < CAMERA_SENSOR_W; j++ {
-			for k := 0; k < CAMERA_SENSOR_H; k++ {
-				c.camera.sensorImage[j][k] = 255 - c.camera.sensorImage[j][k]
-			}
-		}
+		utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) { c.Camera.SensedImage[x][y] = 255 - c.Camera.SensedImage[x][y] })
 	}
 
-	// make signed
-	for j := 0; j < CAMERA_SENSOR_W; j++ {
-		for k := 0; k < CAMERA_SENSOR_H; k++ {
-			c.camera.sensorImage[j][k] = c.camera.sensorImage[j][k] - 128
+	utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) { c.Camera.SensedImage[x][y] = c.Camera.SensedImage[x][y] - 128 })
+
+	tempBuf := [CameraSensorW][CameraSensorH]int{}
+	switch (n << 3) | (vh << 1) | e3 {
+	case Filter1D: // 1D filtering
+		if !c.Camera.Filter1D {
+			break
 		}
+		copy(tempBuf[:], c.Camera.SensedImage[:])
+
+		utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) {
+			ms := tempBuf[x][min(y+1, CameraSensorH-1)]
+			px := tempBuf[x][y]
+
+			value := 0
+			if p&types.Bit0 > 0 {
+				value += px
+			}
+			if p&types.Bit1 > 0 {
+				value += ms
+			}
+			if m&types.Bit0 > 0 {
+				value -= px
+			}
+			if m&types.Bit1 > 0 {
+				value -= ms
+			}
+
+			c.Camera.SensedImage[x][y] = utils.Clamp(-128, value, 127)
+		})
+	case 1:
+		c.Camera.SensedImage = [CameraSensorW][CameraSensorH]int{}
+	case Filter1DAndHoriz: // 1D filtering + Horiz. Enhancement
+		if !c.Camera.Filter1DAndHoriz {
+			break
+		}
+		utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) {
+			mw := c.Camera.SensedImage[max(0, x-1)][y]
+			me := c.Camera.SensedImage[min(x+1, CameraSensorW-1)][y]
+			px := c.Camera.SensedImage[x][y]
+			tempBuf[x][y] = utils.Clamp(0, px+(int(float64(2*px-mw-me)*edge)), 255)
+		})
+		utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) {
+			ms := tempBuf[x][min(y+1, CameraSensorH-1)]
+			px := c.Camera.SensedImage[x][y]
+
+			value := 0
+			if p&types.Bit0 > 0 {
+				value += px
+			}
+			if p&types.Bit1 > 0 {
+				value += ms
+			}
+			if m&types.Bit0 > 0 {
+				value -= px
+			}
+			if m&types.Bit1 > 0 {
+				value -= ms
+			}
+			c.Camera.SensedImage[x][y] = utils.Clamp(-128, value, 127)
+		})
+	case Filter2D: // 2D enhancement
+		if !c.Camera.Filter2D {
+			break
+		}
+		utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) {
+			ms := c.Camera.SensedImage[x][min(y+1, CameraSensorH-1)]
+			mn := c.Camera.SensedImage[x][max(0, y-1)]
+			mw := c.Camera.SensedImage[max(0, x-1)][y]
+			me := c.Camera.SensedImage[min(x+1, CameraSensorW-1)][y]
+			px := c.Camera.SensedImage[x][y]
+
+			tempBuf[x][y] = utils.Clamp(-128, px+(int(float64(4*px-mw-me-mn-ms)*edge)), 127)
+		})
+		copy(c.Camera.SensedImage[:], tempBuf[:])
 	}
 
-	tempBuf := [CAMERA_SENSOR_W][CAMERA_SENSOR_H]int{}
-	filteringMode := (n << 3) | (vh << 1) | e3
-	switch filteringMode {
-	case 0: // 1D filtering
-		for j := 0; j < CAMERA_SENSOR_W; j++ {
-			for k := 0; k < CAMERA_SENSOR_H; k++ {
-				tempBuf[j][k] = c.camera.sensorImage[j][k]
-			}
-		}
+	utils.ForPixel(CameraSensorW, CameraSensorH, func(x, y int) { c.Camera.SensedImage[x][y] = c.Camera.SensedImage[x][y] + 128 })
 
-		for j := 0; j < CAMERA_SENSOR_W; j++ {
-			for k := 0; k < CAMERA_SENSOR_H; k++ {
-				ms := tempBuf[j][min(k+1, CAMERA_SENSOR_H-1)]
-				px := tempBuf[j][k]
-
-				value := 0
-				if p&types.Bit0 > 0 {
-					value += px
-				}
-				if p&types.Bit1 > 0 {
-					value += ms
-				}
-				if m&types.Bit0 > 0 {
-					value -= px
-				}
-				if m&types.Bit1 > 0 {
-					value -= ms
-				}
-
-				c.camera.sensorImage[j][k] = clamp(-128, value, 127)
-			}
-		}
-	case 2: // 1D filtering + Horiz. Enhancement
-		for j := 0; j < CAMERA_SENSOR_W; j++ {
-			for k := 0; k < CAMERA_SENSOR_H; k++ {
-				mw := c.camera.sensorImage[max(0, j-1)][k]
-				me := c.camera.sensorImage[min(j+1, CAMERA_SENSOR_W-1)][k]
-				px := c.camera.sensorImage[j][k]
-				tempBuf[j][k] = clamp(0, px+(int(float64(2*px-mw-me)*edge)), 255)
-			}
-		}
-
-		for j := 0; j < CAMERA_SENSOR_W; j++ {
-			for k := 0; k < CAMERA_SENSOR_H; k++ {
-				ms := tempBuf[j][min(k+1, CAMERA_SENSOR_H-1)]
-				px := c.camera.sensorImage[j][k]
-
-				value := 0
-				if p&types.Bit0 > 0 {
-					value += px
-				}
-				if p&types.Bit1 > 0 {
-					value += ms
-				}
-				if m&types.Bit0 > 0 {
-					value -= px
-				}
-				if m&types.Bit1 > 0 {
-					value -= ms
-				}
-				c.camera.sensorImage[j][k] = clamp(-128, value, 127)
-			}
-		}
-	}
-
-	// make unsigned
-	for j := 0; j < CAMERA_SENSOR_W; j++ {
-		for k := 0; k < CAMERA_SENSOR_H; k++ {
-			c.camera.sensorImage[j][k] = c.camera.sensorImage[j][k] + 128
-		}
-	}
-
-	colorBuffer := [CAMERA_W][CAMERA_H]int{}
-	for j := 0; j < CAMERA_W; j++ {
-		for k := 0; k < CAMERA_H; k++ {
-			colorBuffer[j][k] = c.processCameraMatrix(c.camera.sensorImage[j][k+4], j, k)
-		}
-	}
+	colorBuffer := [CameraW][CameraH]int{}
+	utils.ForPixel(CameraW, CameraH, func(x, y int) { colorBuffer[x][y] = c.Camera.processCameraMatrix(c.Camera.SensedImage[x][y+4], x, y) })
 
 	finalBuffer := [14][16][16]uint8{}
-	for j := 0; j < CAMERA_W; j++ {
-		for k := 0; k < CAMERA_H; k++ {
-			outColor := 3 - (colorBuffer[j][k] >> 6)
+	utils.ForPixel(CameraW, CameraH, func(x, y int) {
+		outColor := 3 - (colorBuffer[x][y] >> 6)
 
-			tileBaseIndex := (k & 7) << 1
-			tileBase := finalBuffer[k>>3][j>>3][tileBaseIndex:]
+		tileBaseIndex := (y & 7) << 1
+		tileBase := finalBuffer[y>>3][x>>3][tileBaseIndex:]
 
-			if outColor&1 > 0 {
-				tileBase[0] |= 1 << (7 - 7&j)
-			}
-			if outColor&2 > 0 {
-				tileBase[1] |= 1 << (7 - 7&j)
-			}
-
-			copy(finalBuffer[k>>3][j>>3][tileBaseIndex:], tileBase)
+		if outColor&1 > 0 {
+			tileBase[0] |= 1 << (7 - 7&x)
 		}
-	}
+		if outColor&2 > 0 {
+			tileBase[1] |= 1 << (7 - 7&x)
+		}
 
-	copy(c.RAM[0x0100:], (*[CAMERA_TILE_SIZE]uint8)(unsafe.Pointer(&finalBuffer[0][0][0]))[:CAMERA_TILE_SIZE:CAMERA_TILE_SIZE])
-	copy(c.b.data[0xa100:], (*[CAMERA_TILE_SIZE]uint8)(unsafe.Pointer(&finalBuffer[0][0][0]))[:CAMERA_TILE_SIZE:CAMERA_TILE_SIZE])
+		copy(finalBuffer[y>>3][x>>3][tileBaseIndex:], tileBase)
+	})
+
+	copy(c.RAM[0x0100:], (*[CameraTileSize]uint8)(unsafe.Pointer(&finalBuffer[0][0][0]))[:CameraTileSize:CameraTileSize])
+	copy(c.b.data[0xa100:], (*[CameraTileSize]uint8)(unsafe.Pointer(&finalBuffer[0][0][0]))[:CameraTileSize:CameraTileSize])
 }
 
-func (c *Cartridge) processCameraMatrix(value, x, y int) int {
+// processCameraMatrix applies dithering and contrast settings from the registers
+// [CameraDitherContrastStart] to [CameraDitherContrastEnd]
+func (c *Camera) processCameraMatrix(value, x, y int) int {
 	x &= 3
 	y &= 3
 
 	base := 6 + (y*4+x)*3
-	r0 := int(c.camera.registers[base])
-	r1 := int(c.camera.registers[base+1])
-	r2 := int(c.camera.registers[base+2])
 
-	if value < r0 {
+	switch {
+	case value < int(c.Registers[base]):
 		return 0
-	} else if value < r1 {
+	case value < int(c.Registers[base+1]):
 		return 0x40
-	} else if value < r2 {
+	case value < int(c.Registers[base+2]):
 		return 0x80
+	default:
+		return 0xc0
 	}
-
-	return 0xc0
-}
-
-var (
-	dev *device.Device
-)
-
-func convertToGray(img image.Image) *image.Gray {
-	// If the image is already grayscale, return it as is
-	if grayImg, ok := img.(*image.Gray); ok {
-		return grayImg
-	}
-
-	// Otherwise, convert it to grayscale
-	bounds := img.Bounds()
-	gray := image.NewGray(bounds)
-
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			// Get the pixel color and convert to grayscale
-			originalColor := img.At(x, y)
-			grayColor := color.GrayModel.Convert(originalColor).(color.Gray)
-			gray.Set(x, y, grayColor)
-		}
-	}
-	return gray
 }
