@@ -1,32 +1,11 @@
-//go:build !test
-
 package utils
 
 import (
-	"bytes"
-	"golang.design/x/clipboard"
 	"golang.org/x/image/draw"
 	"image"
 	"image/color"
-	"image/png"
 	"math"
 )
-
-func CopyImage(img image.Image) error {
-	err := clipboard.Init()
-	if err != nil {
-		return err
-	}
-
-	// encode image to byte slice
-	var b bytes.Buffer
-	if err := png.Encode(&b, img); err != nil {
-		return err
-	}
-
-	clipboard.Write(clipboard.FmtImage, b.Bytes())
-	return nil
-}
 
 // ForPixel iterates over every pixel coordinate in the range of width * height, calling f
 // for each coordinate.
