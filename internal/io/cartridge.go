@@ -52,6 +52,7 @@ const (
 	HUDSONHUC1        CartridgeType = 0xFF
 	MBC1M             CartridgeType = 0x0100
 	M161              CartridgeType = 0x0101
+	WISDOMTREE        CartridgeType = 0x102
 )
 
 var batteryMappers = []CartridgeType{
@@ -180,6 +181,10 @@ func (c *Cartridge) parseHeader() {
 	case c.CartridgeType == MBC1 && c.ROMSize == (1024*1024) && bytes.Equal(c.ROM[0x0104:0x0134], c.ROM[0x4104:0x4134]):
 		c.mbc1.bankShift = 4
 		c.CartridgeType = MBC1M
+	case c.ROM[0x014D] == 0xE7:
+		if strings.Contains(string(c.ROM), "WISDOM TREE") || strings.Contains(string(c.ROM), "WISDOM\x00TREE") {
+			c.CartridgeType = WISDOMTREE
+		}
 	}
 }
 
@@ -474,6 +479,10 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 
 				c.mbc7.eeprom.clk = value&types.Bit6 > 0
 			}
+		}
+	case WISDOMTREE:
+		if address>>14 == 0 {
+			c.b.CopyTo(0x0000, 0x8000, c.ROM[(uint32(address&0x3f)*0x8000)%uint32(len(c.ROM)):])
 		}
 	default:
 		switch {

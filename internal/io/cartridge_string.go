@@ -36,6 +36,7 @@ func _() {
 	_ = x[HUDSONHUC1-255]
 	_ = x[MBC1M-256]
 	_ = x[M161-257]
+	_ = x[WISDOMTREE-258]
 }
 
 const (
@@ -46,7 +47,7 @@ const (
 	_CartridgeType_name_4 = "MBC5MBC5RAMMBC5RAMBATTMBC5RUMBLEMBC5RUMBLERAMMBC5RUMBLERAMBATT"
 	_CartridgeType_name_5 = "MBC6"
 	_CartridgeType_name_6 = "MBC7"
-	_CartridgeType_name_7 = "POCKETCAMERABANDAITAMA5HUDSONHUC3HUDSONHUC1MBC1MM161"
+	_CartridgeType_name_7 = "POCKETCAMERABANDAITAMA5HUDSONHUC3HUDSONHUC1MBC1MM161WISDOMTREE"
 )
 
 var (
@@ -55,7 +56,7 @@ var (
 	_CartridgeType_index_2 = [...]uint8{0, 5, 13, 25}
 	_CartridgeType_index_3 = [...]uint8{0, 13, 29, 33, 40, 51}
 	_CartridgeType_index_4 = [...]uint8{0, 4, 11, 22, 32, 45, 62}
-	_CartridgeType_index_7 = [...]uint8{0, 12, 23, 33, 43, 48, 52}
+	_CartridgeType_index_7 = [...]uint8{0, 12, 23, 33, 43, 48, 52, 62}
 )
 
 func (i CartridgeType) String() string {
@@ -78,7 +79,7 @@ func (i CartridgeType) String() string {
 		return _CartridgeType_name_5
 	case i == 34:
 		return _CartridgeType_name_6
-	case 252 <= i && i <= 257:
+	case 252 <= i && i <= 258:
 		i -= 252
 		return _CartridgeType_name_7[_CartridgeType_index_7[i]:_CartridgeType_index_7[i+1]]
 	default:
