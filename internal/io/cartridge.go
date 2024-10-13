@@ -125,6 +125,10 @@ type Cartridge struct {
 		}
 	}
 
+	huc1 struct {
+		irMode bool
+	}
+
 	Camera *Camera
 
 	rtc struct {
@@ -479,6 +483,9 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.ramEnabled = value&0x0f == 0x0a && c.CartridgeType != MBC3TIMERBATT
 				c.rtc.enabled = value&0x0f == 0x0a && c.Features.RTC
 				return
+			case HUDSONHUC1:
+				c.huc1.irMode = value == 0x0e
+				c.ramEnabled = value != 0x0e
 			}
 		case address < 0x3000: // MBC5 being unique
 			switch {
@@ -519,6 +526,8 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				c.updateROMBank(romBank)
 			case POCKETCAMERA:
 				c.updateROMBank(uint16(value))
+			case HUDSONHUC1:
+				c.updateROMBank(uint16(value & 0x3f))
 			}
 		case address < 0x6000:
 			switch c.CartridgeType {
@@ -561,7 +570,8 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 			case POCKETCAMERA:
 				c.Camera.registersMapped = value&types.Bit4 > 0
 				c.ramOffset = (uint32(value&0x0f) * 0x2000) % uint32(c.RAMSize) // set new RAM offset
-
+			case HUDSONHUC1:
+				c.updateRAMBank(value & 0x03)
 			}
 		case address < 0x8000:
 			switch c.CartridgeType {
@@ -634,6 +644,11 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 					return // can't write to camera ram whilst shooting
 				}
 				fallthrough
+			case HUDSONHUC1:
+				if c.huc1.irMode {
+					return // IR currently unsupported so just return
+				}
+				fallthrough // otherwise treat as normal ram
 			default:
 				// if there is no RAM or RAM is disabled, do nothing
 				if len(c.RAM) == 0 || !c.ramEnabled {

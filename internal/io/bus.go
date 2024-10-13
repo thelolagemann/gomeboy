@@ -483,6 +483,12 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 			return b.c.readMBC7RAM(addr)
 		case POCKETCAMERA:
 			return b.c.readCameraRAM(addr)
+		case HUDSONHUC1:
+			if b.c.huc1.irMode {
+				return 0xc0 // no light
+			} else {
+				return b.data[addr]
+			}
 		default:
 			if !b.c.ramEnabled {
 				return 0xff
