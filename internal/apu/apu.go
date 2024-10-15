@@ -1,7 +1,6 @@
 package apu
 
 import (
-	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -217,7 +216,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *APU {
 			if a.channels[0].enabled && a.s.Cycle()-a.channels[0].enableTime >= sampleLength {
 				pcm |= (duties[a.channel1.duty] >> a.channel1.waveDutyPosition) & 1 * a.channels[0].currentVolume
 			}
-			fmt.Printf("%02x %d %d %d %d %d %08b %d %d %d %t %t\n", pcm, a.channel1.duty, a.channel1.waveDutyPosition, (2048-a.channels[0].frequency)*4, a.s.Cycle()-a.channels[0].enableTime, a.s.Cycle(), duties[a.channel1.duty], a.channels[0].volumeEnvelopeTimer, a.channels[0].currentVolume, sampleLength, a.channels[0].enabled, a.channels[0].dacEnabled)
 			sampleLength = uint64(2048-a.channels[1].frequency)*4 + 4
 			if a.s.DoubleSpeed() {
 				sampleLength *= 2
@@ -251,7 +249,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *APU {
 				pcm |= ((uint8(a.channel4.lfsr) & 1 * a.channels[3].currentVolume) & 0x0f) << 4
 			}
 
-			fmt.Printf("%02x %d %d %t %016b\n", pcm, a.s.Cycle(), a.channels[3].enableTime, a.channels[3].isEnabled(), a.channel4.lfsr)
 			return pcm
 
 		})
@@ -869,9 +866,8 @@ func (a *APU) readWaveRAM(address uint16) uint8 {
 
 func (a *APU) catchupLFSR() {
 	if a.lastCatchup > a.s.Cycle() {
-		panic(fmt.Sprintf("%d %d %s", a.lastCatchup, a.s.Cycle(), a.s))
+		a.lastCatchup = a.s.Cycle()
 	}
-	//fmt.Println("catching up", a.s.Cycle(), a.lastCatchup, a.s)
 	currentCycle := a.s.Cycle()
 	cyclesPassed := currentCycle - (a.lastCatchup)
 	if a.s.DoubleSpeed() {
