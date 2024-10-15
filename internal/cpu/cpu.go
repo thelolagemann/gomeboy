@@ -11,9 +11,9 @@ type CPU struct {
 	PC, SP uint16 // (P)rogram (C)ounter, (S)tack (P)ointer
 	Registers
 
-	Debug, DebugBreakpoint    bool
-	doubleSpeed, skippingHalt bool
-	hasInt, hasFrame          bool
+	Debug, DebugBreakpoint            bool
+	DoubleSpeed, Halted, skippingHalt bool
+	hasInt, hasFrame                  bool
 
 	registerPointers [8]*uint8
 
@@ -113,6 +113,7 @@ step:
 // event triggering an interrupt occurs. This is used when
 // the CPU is in HALT mode and the IME is enabled.
 func (c *CPU) skipHALT() {
+	c.Halted = true
 	for !c.hasFrame && !c.b.HasInterrupts() {
 		c.s.Skip()
 	}
@@ -123,6 +124,8 @@ func (c *CPU) skipHALT() {
 	// next frame
 	if c.hasFrame && !c.b.HasInterrupts() {
 		c.skippingHalt = true
+	} else {
+		c.Halted = false
 	}
 }
 

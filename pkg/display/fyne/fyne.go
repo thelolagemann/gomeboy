@@ -317,7 +317,7 @@ func (f *fyneDriver) createMainMenu() {
 		fn   func() fyne.CanvasObject
 	}
 	debugContent := []debugContentView{
-		{"CPU", func() fyne.CanvasObject { return views.NewCPU(f.gb.CPU) }},
+		{"CPU", func() fyne.CanvasObject { return views.NewCPU(f.gb.CPU, f.gb.Bus) }},
 		{"Palette Viewer", func() fyne.CanvasObject { return views.NewPalette(f.gb.PPU) }},
 		{"Tile Viewer", func() fyne.CanvasObject { return views.NewTiles(f.gb.PPU) }},
 		{"Tilemap Viewer", func() fyne.CanvasObject { return views.NewTilemaps(f.gb.PPU) }},
