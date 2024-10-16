@@ -627,8 +627,7 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 
 					return
 				}
-
-				fallthrough
+				c.writeRAM(address, value)
 			case POCKETCAMERA:
 				if c.Camera.registersMapped {
 					address &= 0x7f
@@ -652,25 +651,27 @@ func (c *Cartridge) Write(address uint16, value uint8) {
 				if c.Camera.Registers[CameraShoot]&1 == 1 {
 					return // can't write to camera ram whilst shooting
 				}
-				fallthrough
+				c.writeRAM(address, value)
 			case HUDSONHUC1:
 				if c.huc1.irMode {
 					return // IR currently unsupported so just return
 				}
-				fallthrough // otherwise treat as normal ram
+				c.writeRAM(address, value)
 			default:
-				// if there is no RAM or RAM is disabled, do nothing
-				if len(c.RAM) == 0 || !c.ramEnabled {
-					return
-				}
-
-				// write the value to cart RAM at the current RAM offset
-				c.RAM[c.ramOffset+uint32(address&0x1fff)] = value
-				c.b.data[address] = value
+				c.writeRAM(address, value)
 			}
 		}
 	}
 
+}
+
+func (c *Cartridge) writeRAM(address uint16, value uint8) {
+	if len(c.RAM) == 0 || !c.ramEnabled {
+		return
+	}
+
+	c.RAM[c.ramOffset+uint32(address&0x1fff)] = value
+	c.b.data[address] = value
 }
 
 func (c *Cartridge) readMBC7RAM(addr uint16) uint8 {
