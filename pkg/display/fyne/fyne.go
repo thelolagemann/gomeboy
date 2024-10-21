@@ -250,6 +250,8 @@ func (f *fyneDriver) createMainMenu() {
 			}
 			f.openWindowIfNotOpen("Printer", views.NewPrinter(f.gb.Serial.AttachedDevice.(*accessories.Printer)))
 		}, views.Gated(!f.gb.Initialised())),
+		fyne.NewMenuItemSeparator(),
+		views.NewCustomizedMenuItem("Cheats", func() { f.openWindowIfNotOpen("Cheats", views.NewCheats(f.gb.Bus)) }, views.Gated(!f.gb.Initialised())),
 	)
 
 	audioChannels := views.NewCustomizedMenuItem("Audio Channels", func() {}, views.Gated(!f.gb.Initialised()))
@@ -323,6 +325,8 @@ func (f *fyneDriver) createMainMenu() {
 		{"Tilemap Viewer", func() fyne.CanvasObject { return views.NewTilemaps(f.gb.PPU) }},
 		{"OAM", func() fyne.CanvasObject { return views.NewOAM(f.gb.PPU) }},
 		{"Cartridge Info", func() fyne.CanvasObject { return views.NewCartridge(f.gb.Bus.Cartridge()) }},
+		{"Memory Viewer", func() fyne.CanvasObject { return views.NewMemory(f.gb.Bus) }},
+		{"IO", func() fyne.CanvasObject { return views.NewIO(f.gb.Bus) }},
 	}
 
 	// add views to debug menu

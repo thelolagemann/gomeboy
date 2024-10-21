@@ -28,11 +28,13 @@ type CPU struct {
 }
 
 var (
-	orange   = color.RGBA{249, 161, 72, 255}
-	disabled = color.RGBA{156, 156, 156, 255}
-	success  = color.RGBA{19, 255, 0, 255}
-	bg       = color.RGBA{47, 47, 47, 255}
-	white    = color.RGBA{255, 255, 255, 255}
+	orange       = color.RGBA{249, 161, 72, 255}
+	disabledText = color.RGBA{156, 156, 156, 255}
+	disabled     = color.RGBA{35, 35, 35, 255}
+	success      = color.RGBA{19, 255, 0, 255}
+	errorColor   = color.RGBA{0xb0, 0x00, 0x20, 255}
+	bg           = color.RGBA{47, 47, 47, 255}
+	white        = color.RGBA{255, 255, 255, 255}
 
 	registerColor   = color.RGBA{255, 255, 0, 255}
 	boolColor       = color.RGBA{0, 255, 255, 255}
@@ -158,11 +160,17 @@ func (l *registerLabel) setValue(v interface{}) {
 	switch value := v.(type) {
 	case uint8:
 		zero = value == 0
+		if l.hexValue.Text == fmt.Sprintf("= 0x%02X", value) {
+			return // value unchanged
+		}
 		l.hexValue.Text = fmt.Sprintf("= 0x%02X", value)
 		binaryText := fmt.Sprintf("%08b", value)
 		l.binaryValue0.Text = binaryText[:4] + " " + binaryText[4:]
 	case uint16:
 		zero = value == 0
+		if l.hexValue.Text == fmt.Sprintf("= 0x%04X", value) {
+			return
+		}
 		l.hexValue.Text = fmt.Sprintf("= 0x%04X", value)
 		binaryText := fmt.Sprintf("%016b", value)
 		l.binaryValue0.Text = binaryText[:4] + " " + binaryText[4:8]
@@ -171,7 +179,7 @@ func (l *registerLabel) setValue(v interface{}) {
 
 	var targetColor = white
 	if zero {
-		targetColor = disabled
+		targetColor = disabledText
 	}
 	currentColor := interpolateColor(l.binaryValue0.Color.(color.RGBA), targetColor, 0.1)
 	l.hexValue.Color = currentColor
@@ -236,14 +244,14 @@ func (l *boolLabel) setValue(v bool) {
 		valueColor = white
 		if !v {
 			valueText = " 0"
-			valueColor = disabled
+			valueColor = disabledText
 		}
 	} else {
 		valueText = "  ON"
 		valueColor = success
 		if !v {
 			valueText = " OFF"
-			valueColor = disabled
+			valueColor = disabledText
 		}
 	}
 
