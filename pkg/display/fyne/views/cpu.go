@@ -5,41 +5,29 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/display/fyne/themes"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image/color"
+	"math"
 )
 
 type CPU struct {
+	widget.BaseWidget
+
 	*cpu.CPU
 	*io.Bus
-
-	widget.BaseWidget
 
 	z, n, h, c                                     *boolLabel
 	regA, regF, regB, regC, regD, regE, regH, regL *registerLabel
 	pc                                             *registerLabel
 	sp                                             *registerLabel
 	ime, halt, doubleSpeed, debug                  *boolLabel
-
-	WindowedView
 }
-
-var (
-	orange       = color.RGBA{249, 161, 72, 255}
-	disabledText = color.RGBA{156, 156, 156, 255}
-	disabled     = color.RGBA{35, 35, 35, 255}
-	success      = color.RGBA{19, 255, 0, 255}
-	errorColor   = color.RGBA{0xb0, 0x00, 0x20, 255}
-	bg           = color.RGBA{47, 47, 47, 255}
-	white        = color.RGBA{255, 255, 255, 255}
-
-	registerColor   = color.RGBA{255, 255, 0, 255}
-	boolColor       = color.RGBA{0, 255, 255, 255}
-	boolColorNumber = color.RGBA{255, 96, 255, 255}
-)
 
 func NewCPU(cp *cpu.CPU, b *io.Bus) *CPU {
 	c := &CPU{
@@ -50,16 +38,16 @@ func NewCPU(cp *cpu.CPU, b *io.Bus) *CPU {
 		n:           newBoolLabel("N", true),
 		h:           newBoolLabel("H", true),
 		c:           newBoolLabel("C", true),
-		regA:        newRegisterLabel("A", registerColor, false),
-		regF:        newRegisterLabel("F", registerColor, false),
-		regB:        newRegisterLabel("B", registerColor, false),
-		regC:        newRegisterLabel("C", registerColor, false),
-		regD:        newRegisterLabel("D", registerColor, false),
-		regE:        newRegisterLabel("E", registerColor, false),
-		regH:        newRegisterLabel("H", registerColor, false),
-		regL:        newRegisterLabel("L", registerColor, false),
-		pc:          newRegisterLabel("PC", orange, true),
-		sp:          newRegisterLabel("SP", orange, true),
+		regA:        newRegisterLabel("A", themeColor(themes.ColorNameSecondary), false),
+		regF:        newRegisterLabel("F", themeColor(themes.ColorNameSecondary), false),
+		regB:        newRegisterLabel("B", themeColor(themes.ColorNameSecondary), false),
+		regC:        newRegisterLabel("C", themeColor(themes.ColorNameSecondary), false),
+		regD:        newRegisterLabel("D", themeColor(themes.ColorNameSecondary), false),
+		regE:        newRegisterLabel("E", themeColor(themes.ColorNameSecondary), false),
+		regH:        newRegisterLabel("H", themeColor(themes.ColorNameSecondary), false),
+		regL:        newRegisterLabel("L", themeColor(themes.ColorNameSecondary), false),
+		pc:          newRegisterLabel("PC", themeColor(theme.ColorNamePrimary), true),
+		sp:          newRegisterLabel("SP", themeColor(theme.ColorNamePrimary), true),
 		ime:         newBoolLabel("IME", false),
 		halt:        newBoolLabel("HALT", false),
 		doubleSpeed: newBoolLabel("DOUBLE SPEED", false),
@@ -69,10 +57,8 @@ func NewCPU(cp *cpu.CPU, b *io.Bus) *CPU {
 	return c
 }
 
-func (c *CPU) AttachWindow(w fyne.Window) { c.Window = w }
-
 func (c *CPU) CreateRenderer() fyne.WidgetRenderer {
-	c.Window.SetFixedSize(true)
+	findWindow("CPU").SetFixedSize(true)
 	flags := container.NewGridWithColumns(2, c.z, c.n, c.h, c.c)
 	grid := container.NewGridWithColumns(2,
 		c.regA, c.regF,
@@ -124,35 +110,20 @@ func newRegisterLabel(name string, c color.Color, wide bool) *registerLabel {
 }
 
 func (l *registerLabel) CreateRenderer() fyne.WidgetRenderer {
-	name := canvas.NewText(l.name, l.nameColor)
-	name.TextStyle.Monospace = true
-	name.TextSize = 14
-
-	l.hexValue = canvas.NewText("0x00", white)
-	l.hexValue.TextStyle.Monospace = true
-
-	l.binaryValue0 = canvas.NewText("0000 0000", white)
-	l.binaryValue0.TextStyle.Monospace = true
-
-	background := canvas.NewRectangle(bg)
-	background.CornerRadius = 5
+	name := mono(l.name, l.nameColor)
+	l.hexValue = mono("0x00", themeColor(theme.ColorNameForeground))
+	l.binaryValue0 = mono("0000 0000", themeColor(theme.ColorNameForeground))
 
 	var binaryContainer *fyne.Container
 	if l.wide {
-		l.binaryValue1 = canvas.NewText("0000 0000", white)
-		l.binaryValue1.TextStyle.Monospace = true
-
+		l.binaryValue1 = mono("0000 0000", themeColor(theme.ColorNameForeground))
 		binaryContainer = container.NewBorder(nil, nil, l.binaryValue0, l.binaryValue1)
 	} else {
 		binaryContainer = container.NewHBox(l.binaryValue0)
 	}
 
 	registerContainer := container.NewVBox(container.NewBorder(nil, nil, name, l.hexValue), binaryContainer)
-	content := container.NewStack(background, container.NewPadded(registerContainer))
-
-	background.Resize(content.MinSize())
-
-	return widget.NewSimpleRenderer(content)
+	return widget.NewSimpleRenderer(newBadge(themeColor(themes.ColorNameBackgroundOnBackground), 5, container.NewPadded(registerContainer)))
 }
 
 func (l *registerLabel) setValue(v interface{}) {
@@ -177,11 +148,11 @@ func (l *registerLabel) setValue(v interface{}) {
 		l.binaryValue1.Text = binaryText[8:12] + " " + binaryText[12:]
 	}
 
-	var targetColor = white
+	var targetColor = themeColor(theme.ColorNameForeground)
 	if zero {
-		targetColor = disabledText
+		targetColor = themeColor(themes.ColorNameDisabledText)
 	}
-	currentColor := interpolateColor(l.binaryValue0.Color.(color.RGBA), targetColor, 0.1)
+	currentColor := interpolateColor(l.binaryValue0.Color, targetColor, 0.4)
 	l.hexValue.Color = currentColor
 	l.hexValue.Refresh()
 
@@ -209,62 +180,70 @@ func newBoolLabel(name string, numbered bool) *boolLabel {
 }
 
 func (l *boolLabel) CreateRenderer() fyne.WidgetRenderer {
-	name := canvas.NewText(l.name, boolColor)
+	name := mono(l.name, themeColor(themes.ColorNameBool))
 	if l.numbered {
-		name.Color = boolColorNumber
+		name.Color = themeColor(themes.ColorNameBoolNumber)
 	}
-	name.TextStyle.Monospace = true
-	name.TextSize = 14
 
-	l.value = canvas.NewText("  ON", success)
-	l.value.TextStyle.Monospace = true
-
-	valueBackground := canvas.NewRectangle(color.RGBA{65, 65, 65, 255})
-	valueBackground.CornerRadius = 3
-
-	valueContainer := container.NewStack(valueBackground, container.NewPadded(l.value))
-
+	l.value = mono("  ON", themeColor(theme.ColorNameSuccess))
+	valueContainer := newBadge(themeColor(theme.ColorNameButton), 3, container.NewPadded(l.value))
 	content := container.NewVBox(container.NewBorder(nil, nil, container.NewPadded(name), valueContainer))
 
-	background := canvas.NewRectangle(bg)
-	background.CornerRadius = 5
-
-	finalContent := container.NewStack(background, content)
-
-	background.Resize(finalContent.MinSize())
-
-	return widget.NewSimpleRenderer(finalContent)
+	return widget.NewSimpleRenderer(newBadge(themeColor(themes.ColorNameBackgroundOnBackground), 5, content))
 }
 
 func (l *boolLabel) setValue(v bool) {
-	var valueText string
-	var valueColor color.RGBA
-	if l.numbered {
-		valueText = " 1"
-		valueColor = white
-		if !v {
-			valueText = " 0"
-			valueColor = disabledText
-		}
-	} else {
+	var valueText = " 1"
+	var valueColor = themeColor(theme.ColorNameForeground)
+	switch {
+	case l.numbered && !v:
+		valueText = " 0"
+		valueColor = themeColor(themes.ColorNameDisabledText)
+	case !l.numbered && v:
 		valueText = "  ON"
-		valueColor = success
-		if !v {
-			valueText = " OFF"
-			valueColor = disabledText
-		}
+		valueColor = themeColor(theme.ColorNameSuccess)
+	case !l.numbered && !v:
+		valueText = " OFF"
+		valueColor = themeColor(themes.ColorNameDisabledText)
+	}
+	if l.value.Text == valueText && l.value.Color == valueColor {
+		return
 	}
 
 	l.value.Text = valueText
-	l.value.Color = interpolateColor(l.value.Color.(color.RGBA), valueColor, 0.1)
+	l.value.Color = interpolateColor(l.value.Color, valueColor, 0.4)
 	l.value.Refresh()
 }
 
-func interpolateColor(c1, c2 color.RGBA, t float64) color.RGBA {
-	return color.RGBA{
-		R: uint8(float64(c1.R) + t*(float64(c2.R)-float64(c1.R))),
-		G: uint8(float64(c1.G) + t*(float64(c2.G)-float64(c1.G))),
-		B: uint8(float64(c1.B) + t*(float64(c2.B)-float64(c1.B))),
-		A: uint8(float64(c1.A) + t*(float64(c2.A)-float64(c1.A))),
+func interpolateColor(col1, col2 color.Color, t float64) color.Color {
+	t = utils.Clamp(0, t, 1)
+
+	// Convert both colors to RGBA values
+	r1, g1, b1, a1 := col1.RGBA()
+	r2, g2, b2, a2 := col2.RGBA()
+
+	// Normalize the RGBA values to the range [0, 255]
+	r1f := float64(r1) / 257.0
+	g1f := float64(g1) / 257.0
+	b1f := float64(b1) / 257.0
+	a1f := float64(a1) / 257.0
+
+	r2f := float64(r2) / 257.0
+	g2f := float64(g2) / 257.0
+	b2f := float64(b2) / 257.0
+	a2f := float64(a2) / 257.0
+
+	// Perform linear interpolation on each channel
+	interpolatedR := (1-t)*r1f + t*r2f
+	interpolatedG := (1-t)*g1f + t*g2f
+	interpolatedB := (1-t)*b1f + t*b2f
+	interpolatedA := (1-t)*a1f + t*a2f
+
+	// Convert the interpolated values back to uint8 (clamping to avoid rounding issues)
+	return color.NRGBA{
+		R: uint8(math.Round(math.Min(r2f, math.Max(0, interpolatedR)))),
+		G: uint8(math.Round(math.Min(g2f, math.Max(0, interpolatedG)))),
+		B: uint8(math.Round(math.Min(b2f, math.Max(0, interpolatedB)))),
+		A: uint8(math.Round(math.Min(a2f, math.Max(0, interpolatedA)))),
 	}
 }

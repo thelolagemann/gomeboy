@@ -5,9 +5,11 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/types"
+	"github.com/thelolagemann/gomeboy/pkg/display/fyne/themes"
 	"strings"
 )
 
@@ -57,39 +59,23 @@ func (i *IO) Refresh() {
 }
 
 func createIOSectionList(name string, regs []uint16, b *io.Bus) (fyne.CanvasObject, func()) {
-	background := canvas.NewRectangle(disabled)
-	background.CornerRadius = 5
-	sectionLabel := canvas.NewText(name, orange)
-	sectionLabel.TextStyle.Monospace = true
-
-	labelBackground := canvas.NewRectangle(bg)
-	labelBackground.Resize(sectionLabel.MinSize())
-	labelBackground.CornerRadius = 3
-
-	content := container.NewVBox(container.NewStack(labelBackground, container.NewPadded(sectionLabel)))
+	content := container.NewVBox()
 
 	if strings.Contains(name, "Wave RAM") {
 		row := container.NewHBox()
 		for range regs {
-			hexValue := canvas.NewText("00", white)
-			hexValue.TextStyle.Monospace = true
+			hexValue := mono("00", themeColor(theme.ColorNameForeground))
 
 			row.Add(hexValue)
 		}
 		content.Add(container.NewPadded(row))
 	} else {
 		for _, reg := range regs {
-			addressText := canvas.NewText(fmt.Sprintf("0x%04X", reg), boolColor)
-			addressText.TextStyle.Monospace = true
+			addressText := mono(fmt.Sprintf("0x%04X", reg), themeColor(theme.ColorNamePrimary))
 
-			nameText := canvas.NewText(fmt.Sprintf("%-5s", hardwareAddressMap[reg]), boolColorNumber)
-			nameText.TextStyle.Monospace = true
-
-			hexValue := canvas.NewText("0x00", white)
-			hexValue.TextStyle.Monospace = true
-
-			binaryValue := canvas.NewText("(0000 0000)", white)
-			binaryValue.TextStyle.Monospace = true
+			nameText := mono(fmt.Sprintf("%-5s", hardwareAddressMap[reg]), themeColor(themes.ColorNameBoolNumber))
+			hexValue := mono("0x00", themeColor(theme.ColorNameForeground))
+			binaryValue := mono("(0000 0000)", themeColor(theme.ColorNameForeground))
 
 			content.Add(container.NewPadded(container.NewHBox(addressText, nameText, hexValue, binaryValue)))
 		}
@@ -121,17 +107,16 @@ func createIOSectionList(name string, regs []uint16, b *io.Bus) (fyne.CanvasObje
 		}
 	}*/
 
-	background.Resize(content.MinSize())
-	return container.NewStack(background, content), func() {
+	return newCard(name, content), func() {
 		if strings.Contains(name, "Wave RAM") {
 			for i, reg := range regs {
-				hexValue := content.Objects[1].(*fyne.Container).Objects[0].(*fyne.Container).Objects[i].(*canvas.Text)
+				hexValue := content.Objects[0].(*fyne.Container).Objects[0].(*fyne.Container).Objects[i].(*canvas.Text)
 				hexValue.Text = fmt.Sprintf("%02X", b.LazyRead(reg))
 				hexValue.Refresh()
 			}
 		} else {
 			for i, reg := range regs {
-				regBox := content.Objects[i+1].(*fyne.Container).Objects[0].(*fyne.Container)
+				regBox := content.Objects[i].(*fyne.Container).Objects[0].(*fyne.Container)
 				v := b.LazyRead(reg)
 				if regBox.Objects[2].(*canvas.Text).Text != fmt.Sprintf("0x%02X", v) {
 					regBox.Objects[2].(*canvas.Text).Text = fmt.Sprintf("0x%02X", v)
@@ -189,13 +174,10 @@ func createIOSectionList(name string, regs []uint16, b *io.Bus) (fyne.CanvasObje
 func formatBinaryWithMask(value uint8, mask uint8) string {
 	binaryStr := ""
 	for i := 7; i >= 0; i-- {
-		// Check if this bit is part of the mask
 		if (mask & (1 << i)) != 0 {
-			// Show the actual bit value
 			bit := (value >> i) & 1
 			binaryStr += fmt.Sprintf("%d", bit)
 		} else {
-			// Show an underscore for unused bits
 			binaryStr += "_"
 		}
 

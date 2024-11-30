@@ -10,24 +10,6 @@ import (
 	"time"
 )
 
-type printerLayout struct {
-	lastY int
-}
-
-func (p printerLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) == 0 {
-		return
-	}
-	// the image should always be aligned to the top left corner
-	objects[0].Move(fyne.NewPos(0, 0))
-	objects[0].Resize(fyne.NewSize(160*2, 200*2))
-
-}
-
-func (p printerLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(160*2, 200*2)
-}
-
 type Printer struct {
 	*accessories.Printer
 	widget.BaseWidget
@@ -72,11 +54,7 @@ func (p *Printer) CreateRenderer() fyne.WidgetRenderer {
 	buttonBox.Add(saveButton)
 	buttonBox.Add(clearButton)
 
-	box := container.New(printerLayout{})
-
-	box.Add(p.raster)
-
-	return widget.NewSimpleRenderer(box)
+	return widget.NewSimpleRenderer(container.NewVBox(p.raster))
 }
 
 func (p *Printer) Refresh() {

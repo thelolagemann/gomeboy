@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/io"
+	"github.com/thelolagemann/gomeboy/pkg/display/fyne/themes"
 	"image/color"
 	"strings"
 )
@@ -17,8 +18,6 @@ type Cheats struct {
 	widget.BaseWidget
 
 	bus *io.Bus
-
-	WindowedView
 }
 
 func NewCheats(b *io.Bus) *Cheats {
@@ -26,8 +25,6 @@ func NewCheats(b *io.Bus) *Cheats {
 	c.ExtendBaseWidget(c)
 	return c
 }
-
-func (c *Cheats) AttachWindow(w fyne.Window) { c.Window = w }
 
 func (c *Cheats) CreateRenderer() fyne.WidgetRenderer {
 	actions := container.NewVBox()
@@ -40,7 +37,7 @@ func (c *Cheats) CreateRenderer() fyne.WidgetRenderer {
 	cheatCode.MultiLine = true
 	cheatCode.SetMinRowsVisible(6)
 
-	warningBox := newInfoBox(errorColor)
+	warningBox := newInfoBox(themeColor(theme.ColorNameError))
 
 	actions.Add(cheatName)
 	actions.Add(cheatCode)
@@ -49,7 +46,7 @@ func (c *Cheats) CreateRenderer() fyne.WidgetRenderer {
 		func() int {
 			return len(c.bus.LoadedCheats)
 		},
-		func() fyne.CanvasObject { return newCheatListItem(c.Window) },
+		func() fyne.CanvasObject { return newCheatListItem(findWindow("Cheats")) },
 		nil)
 	cheatList.UpdateItem = func(id widget.ListItemID, object fyne.CanvasObject) {
 		cont := object.(*cheatListItem)
@@ -75,10 +72,10 @@ func (c *Cheats) CreateRenderer() fyne.WidgetRenderer {
 
 		if !c.bus.LoadedCheats[id].Enabled {
 			c.bus.UnloadCheat(id, false)
-			cont.background.FillColor = disabled
+			cont.background.FillColor = themeColor(theme.ColorNameHover)
 			cont.enabledCheck.SetChecked(false) // to handle on initial load
 		} else {
-			cont.background.FillColor = bg
+			cont.background.FillColor = themeColor(themes.ColorNameBackgroundOnBackground)
 			c.bus.LoadCheat(c.bus.LoadedCheats[id], false)
 		}
 	}
@@ -116,7 +113,7 @@ func (c *Cheats) CreateRenderer() fyne.WidgetRenderer {
 	actions.Add(addCheat)
 	actions.Add(warningBox)
 
-	spaceTaker := canvas.NewText("                                                                        ", white)
+	spaceTaker := canvas.NewText("                                                                        ", themeColor(theme.ColorNameForeground))
 	actions.Add(spaceTaker) // force width
 
 	return widget.NewSimpleRenderer(container.NewBorder(nil, nil, actions, nil, cheatList))
@@ -141,9 +138,9 @@ func newCheatListItem(w fyne.Window) *cheatListItem {
 }
 
 func (c *cheatListItem) CreateRenderer() fyne.WidgetRenderer {
-	c.cheatName = canvas.NewText("", white)
+	c.cheatName = canvas.NewText("", themeColor(theme.ColorNameForeground))
 	c.cheatName.SetMinSize(fyne.NewSize(800, c.cheatName.MinSize().Height))
-	c.subheading = canvas.NewText("", white)
+	c.subheading = canvas.NewText("", themeColor(theme.ColorNameForeground))
 	c.subheading.TextSize = 12
 
 	textBox := container.NewVBox(c.cheatName, c.subheading)
@@ -163,7 +160,7 @@ func (c *cheatListItem) CreateRenderer() fyne.WidgetRenderer {
 	deleteButton.SetIcon(theme.DeleteIcon())
 	actionContainer.Add(editButton)
 	actionContainer.Add(deleteButton)
-	c.background = canvas.NewRectangle(bg)
+	c.background = canvas.NewRectangle(themeColor(theme.ColorNameBackground))
 	c.background.CornerRadius = 5
 	c.background.SetMinSize(fyne.NewSize(300, c.background.MinSize().Height))
 	c.enabledCheck = widget.NewCheck("", func(b bool) {
@@ -211,14 +208,4 @@ func (w *infoBox) setText(text string) {
 		w.text.SetText(text)
 		w.content.Show()
 	}
-}
-
-func findWindow(name string) fyne.Window {
-	for _, w := range fyne.CurrentApp().Driver().AllWindows() {
-		if w.Title() == name {
-			return w
-		}
-	}
-
-	return nil
 }

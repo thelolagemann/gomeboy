@@ -5,8 +5,10 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thelolagemann/gomeboy/internal/io"
+	"github.com/thelolagemann/gomeboy/pkg/utils"
 	"image/color"
 )
 
@@ -42,23 +44,18 @@ func createHexList(data []byte) *widget.List {
 		// Create template function
 		func() fyne.CanvasObject {
 			// Address, hex values (16 separate), and ASCII values in a single row
-			addressLabel := canvas.NewText("0x0000", white)
-			addressLabel.TextStyle.Monospace = true
+			addressLabel := mono("0x0000", themeColor(theme.ColorNameForeground))
 
 			// Create 16 canvas.Text objects for hex values
 			hexLabels := make([]fyne.CanvasObject, 16)
 			for i := range hexLabels {
-				t := canvas.NewText("00", white)
-				t.TextStyle.Monospace = true
-				hexLabels[i] = t
+				hexLabels[i] = mono("00", themeColor(theme.ColorNameForeground))
 			}
 
 			// Create 16 canvas.Text objects for ASCII values
 			asciiLabels := make([]fyne.CanvasObject, 16)
 			for i := range asciiLabels {
-				t := canvas.NewText(".", white)
-				t.TextStyle.Monospace = true
-				asciiLabels[i] = t
+				asciiLabels[i] = mono(".", themeColor(theme.ColorNameForeground))
 			}
 
 			// Combine everything into a horizontal container
@@ -66,9 +63,9 @@ func createHexList(data []byte) *widget.List {
 			asciiContainer := container.NewHBox(asciiLabels...)
 			return container.NewHBox(
 				addressLabel,
-				canvas.NewText("  ", white), // spacing
+				mono("  ", themeColor(theme.ColorNameForeground)), // spacing
 				hexContainer,
-				canvas.NewText("  ", white), // spacing
+				mono("  ", themeColor(theme.ColorNameForeground)), // spacing
 				asciiContainer,
 			)
 		},
@@ -94,7 +91,7 @@ func createHexList(data []byte) *widget.List {
 				if hexText == "00" {
 					hexLabel.Color = color.RGBA{0x7f, 0x7f, 0x7f, 255}
 				} else {
-					hexLabel.Color = white
+					hexLabel.Color = themeColor(theme.ColorNameForeground)
 				}
 				hexLabel.Refresh()
 			}
@@ -109,7 +106,7 @@ func createHexList(data []byte) *widget.List {
 				if asciiText == "." {
 					asciiLabel.Color = color.RGBA{0x7f, 0x7f, 0x7f, 255}
 				} else {
-					asciiLabel.Color = white
+					asciiLabel.Color = themeColor(theme.ColorNameForeground)
 				}
 				asciiLabel.Refresh()
 			}
@@ -127,13 +124,6 @@ func (m *Memory) Refresh() {
 	fmt.Println(m.list.GetScrollOffset() / 23.078125)
 }
 
-func formatASCII(b byte) string {
-	if b >= 32 && b <= 126 {
-		return string(b)
-	}
-	return "."
-}
-
 func formatRow(offset int, data []byte) (string, []string, []string) {
 	// Address
 	address := fmt.Sprintf("0x%04X", offset)
@@ -143,7 +133,7 @@ func formatRow(offset int, data []byte) (string, []string, []string) {
 	asciiValues := make([]string, 16)
 	for i := 0; i < 16 && offset+i < len(data); i++ {
 		hexValues[i] = fmt.Sprintf("%02X", data[offset+i])
-		asciiValues[i] = formatASCII(data[offset+i])
+		asciiValues[i] = utils.FormatASCII(data[offset+i])
 	}
 
 	return address, hexValues, asciiValues
