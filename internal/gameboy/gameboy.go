@@ -1,6 +1,7 @@
 package gameboy
 
 import (
+	"errors"
 	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/apu"
 	"github.com/thelolagemann/gomeboy/internal/cpu"
@@ -13,6 +14,7 @@ import (
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"github.com/thelolagemann/gomeboy/pkg/log"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -111,6 +113,46 @@ func (g *GameBoy) Init() {
 			g.Bus.CopyTo(0xA000, 0xC000, g.save.Bytes()[:length])
 		}
 	}
+
+	// try to find filename.cheats
+	cheatFile, err := os.Open(fmt.Sprintf("%s.cheats", g.filename))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Errorf("error opening %s.cheats file: %s", g.filename, err)
+	} else if err == nil {
+		cheats, err := io.ParseCheats(cheatFile)
+		if err != nil {
+			log.Errorf("error parsing %s.cheats: %s", g.filename, err)
+		} else {
+			g.Bus.LoadedCheats = cheats // so that gui can easily read/modify
+
+			// parse cheats according to type and load into bus
+			for _, c := range g.Bus.LoadedCheats {
+				if c.Enabled {
+					for _, code := range c.Codes {
+						switch len(code) {
+						case 8:
+							cheat, err := io.ParseGameSharkCode(code)
+							if err != nil {
+								log.Errorf("error parsing GameShark code %s: %s", code, err)
+							} else {
+								g.Bus.GameSharkCodes = append(g.Bus.GameSharkCodes, cheat)
+							}
+						case 11:
+							cheat, err := io.ParseGameGenieCode(code)
+							if err != nil {
+								log.Errorf("error parsing GameGenie code %s: %s", code, err)
+							} else {
+								g.Bus.GameGenieCodes = append(g.Bus.GameGenieCodes, cheat)
+							}
+						default:
+							log.Errorf("error parsing code: %s", code)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	g.Bus.Map(g.model)
 	g.Colourise()
 	if !g.dontBoot {

@@ -32,7 +32,6 @@ type Camera struct {
 
 	*io.Camera
 	*ppu.PPU
-	WindowedView
 
 	webcams        []webcams.Webcam
 	webcamSelect   *widget.Select
@@ -163,10 +162,6 @@ func PictureShooter(pic string) io.CameraShooter {
 	return func() image.Image { return img }
 }
 
-func bold(s string) fyne.CanvasObject {
-	return widget.NewLabelWithStyle(s, 0, fyne.TextStyle{Bold: true})
-}
-
 func (c *Camera) CreateRenderer() fyne.WidgetRenderer {
 	contentBox := container.NewVBox()
 
@@ -210,7 +205,7 @@ func (c *Camera) CreateRenderer() fyne.WidgetRenderer {
 
 				selectedImage = reader.URI().Path()
 				c.CameraShooter = PictureShooter(selectedImage)
-			}, c.Window)
+			}, findWindow("Camera"))
 			d.SetFilter(storage.NewExtensionFileFilter([]string{".png", ".jpg", ".jpeg"}))
 			d.Show()
 		}),
@@ -334,5 +329,3 @@ func (c *Camera) Refresh() {
 }
 
 func exposureTime(e uint16) int { return 1048576 / (int(e) * 16) }
-
-func (c *Camera) AttachWindow(w fyne.Window) { c.Window = w }

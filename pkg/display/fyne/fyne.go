@@ -15,6 +15,7 @@ import (
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/internal/serial/accessories"
 	"github.com/thelolagemann/gomeboy/pkg/display"
+	"github.com/thelolagemann/gomeboy/pkg/display/fyne/themes"
 	"github.com/thelolagemann/gomeboy/pkg/display/fyne/views"
 	"github.com/thelolagemann/gomeboy/pkg/emulator"
 	"image"
@@ -63,6 +64,7 @@ func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan
 	f.createMainMenu()
 	// create new fyne application
 	f.app = app.NewWithID("gomeboy.thelolagemann.com")
+	f.app.Settings().SetTheme(themes.Default{})
 
 	// create main window
 	mainWindow := f.app.NewWindow("GomeBoy")
@@ -230,42 +232,44 @@ func (f *fyneDriver) createMainMenu() {
 	fileMenu := fyne.NewMenu("File", menuItemOpenROM)
 
 	emuMenu := fyne.NewMenu("Emulation",
-		views.NewCustomizedMenuItem("Reset", func() {
+		NewCustomizedMenuItem("Reset", func() {
 			// close all children windows
 			for _, w := range f.windows {
 				w.Close()
 			}
 			f.gb.Init() // TODO implement resettable
 			f.toggleMainMenu()
-		}, views.Gated(!f.gb.Initialised())),
+		}, Gated(!f.gb.Initialised())),
 		fyne.NewMenuItemSeparator(),
-		views.NewCustomizedMenuItem("Camera", func() {
+		NewCustomizedMenuItem("Camera", func() {
 			f.openWindowIfNotOpen("Camera", views.NewCamera(f.gb.Bus.Cartridge().Camera, f.gb.PPU))
-		}, views.Gated(!(f.gb.Initialised() && f.gb.Bus.Cartridge().CartridgeType == io.POCKETCAMERA))),
-		views.NewCustomizedMenuItem("Printer", func() {
+		}, Gated(!(f.gb.Initialised() && f.gb.Bus.Cartridge().CartridgeType == io.POCKETCAMERA))),
+		NewCustomizedMenuItem("Printer", func() {
 			// create and attach printer if gameboy doesn't have one attached
 			if _, ok := f.gb.Serial.AttachedDevice.(*accessories.Printer); !ok {
 				printer := accessories.NewPrinter()
 				f.gb.Serial.Attach(printer)
 			}
 			f.openWindowIfNotOpen("Printer", views.NewPrinter(f.gb.Serial.AttachedDevice.(*accessories.Printer)))
-		}, views.Gated(!f.gb.Initialised())),
+		}, Gated(!f.gb.Initialised())),
+		fyne.NewMenuItemSeparator(),
+		NewCustomizedMenuItem("Cheats", func() { f.openWindowIfNotOpen("Cheats", views.NewCheats(f.gb.Bus)) }, Gated(!f.gb.Initialised())),
 	)
 
-	audioChannels := views.NewCustomizedMenuItem("Audio Channels", func() {}, views.Gated(!f.gb.Initialised()))
+	audioChannels := NewCustomizedMenuItem("Audio Channels", func() {}, Gated(!f.gb.Initialised()))
 	audioChannels.ChildMenu = fyne.NewMenu("",
-		views.NewCustomizedMenuItem("1 (Square)", func() { f.gb.APU.Debug.Square1 = !f.gb.APU.Debug.Square1 }, views.Checked(true, f.mainMenu.Refresh)),
-		views.NewCustomizedMenuItem("2 (Square)", func() { f.gb.APU.Debug.Square2 = !f.gb.APU.Debug.Square2 }, views.Checked(true, f.mainMenu.Refresh)),
-		views.NewCustomizedMenuItem("3 (Wave)", func() { f.gb.APU.Debug.Wave = !f.gb.APU.Debug.Wave }, views.Checked(true, f.mainMenu.Refresh)),
-		views.NewCustomizedMenuItem("4 (Noise)", func() { f.gb.APU.Debug.Noise = !f.gb.APU.Debug.Noise }, views.Checked(true, f.mainMenu.Refresh)),
+		NewCustomizedMenuItem("1 (Square)", func() { f.gb.APU.Debug.Square1 = !f.gb.APU.Debug.Square1 }, Checked(true, f.mainMenu.Refresh)),
+		NewCustomizedMenuItem("2 (Square)", func() { f.gb.APU.Debug.Square2 = !f.gb.APU.Debug.Square2 }, Checked(true, f.mainMenu.Refresh)),
+		NewCustomizedMenuItem("3 (Wave)", func() { f.gb.APU.Debug.Wave = !f.gb.APU.Debug.Wave }, Checked(true, f.mainMenu.Refresh)),
+		NewCustomizedMenuItem("4 (Noise)", func() { f.gb.APU.Debug.Noise = !f.gb.APU.Debug.Noise }, Checked(true, f.mainMenu.Refresh)),
 	)
 	audioMenu := fyne.NewMenu("Audio",
-		views.NewCustomizedMenuItem("Mute", func() { f.gb.APU.ToggleMute() }, views.Checked(false, f.mainMenu.Refresh), views.Gated(!f.gb.Initialised())),
+		NewCustomizedMenuItem("Mute", func() { f.gb.APU.ToggleMute() }, Checked(false, f.mainMenu.Refresh), Gated(!f.gb.Initialised())),
 		audioChannels,
-		views.NewCustomizedMenuItem("Visualiser", func() { f.openWindowIfNotOpen("Visualiser", views.NewVisualiser(f.gb.APU)) }, views.Gated(!f.gb.Initialised())),
+		NewCustomizedMenuItem("Visualiser", func() { f.openWindowIfNotOpen("Visualiser", views.NewVisualiser(f.gb.APU)) }, Gated(!f.gb.Initialised())),
 	)
 
-	videoLayers := views.NewCustomizedMenuItem("Layers", func() {}, views.Gated(!f.gb.Initialised()))
+	videoLayers := NewCustomizedMenuItem("Layers", func() {}, Gated(!f.gb.Initialised()))
 	videoTakeScreenshot := fyne.NewMenuItem("Take Screenshot", func() {
 		// create the file name
 		now := time.Now()
@@ -303,13 +307,13 @@ func (f *fyneDriver) createMainMenu() {
 		videoTakeScreenshot,
 	)
 	videoLayers.ChildMenu = fyne.NewMenu("",
-		views.NewCustomizedMenuItem("Background", func() { f.gb.PPU.Debug.BackgroundDisabled = !f.gb.PPU.Debug.BackgroundDisabled }, views.Checked(true, videoMenu.Refresh)),
-		views.NewCustomizedMenuItem("Window", func() { f.gb.PPU.Debug.WindowDisabled = !f.gb.PPU.Debug.WindowDisabled }, views.Checked(true, videoMenu.Refresh)),
-		views.NewCustomizedMenuItem("Sprites", func() { f.gb.PPU.Debug.SpritesDisabled = !f.gb.PPU.Debug.SpritesDisabled }, views.Checked(true, videoMenu.Refresh)),
+		NewCustomizedMenuItem("Background", func() { f.gb.PPU.Debug.BackgroundDisabled = !f.gb.PPU.Debug.BackgroundDisabled }, Checked(true, videoMenu.Refresh)),
+		NewCustomizedMenuItem("Window", func() { f.gb.PPU.Debug.WindowDisabled = !f.gb.PPU.Debug.WindowDisabled }, Checked(true, videoMenu.Refresh)),
+		NewCustomizedMenuItem("Sprites", func() { f.gb.PPU.Debug.SpritesDisabled = !f.gb.PPU.Debug.SpritesDisabled }, Checked(true, videoMenu.Refresh)),
 	)
 
 	// create debug menu
-	debugViews := views.NewCustomizedMenuItem("Views", func() {}, views.Gated(!f.gb.Initialised()))
+	debugViews := NewCustomizedMenuItem("Views", func() {}, Gated(!f.gb.Initialised()))
 	debugViews.ChildMenu = fyne.NewMenu("")
 
 	type debugContentView struct {
@@ -323,6 +327,8 @@ func (f *fyneDriver) createMainMenu() {
 		{"Tilemap Viewer", func() fyne.CanvasObject { return views.NewTilemaps(f.gb.PPU) }},
 		{"OAM", func() fyne.CanvasObject { return views.NewOAM(f.gb.PPU) }},
 		{"Cartridge Info", func() fyne.CanvasObject { return views.NewCartridge(f.gb.Bus.Cartridge()) }},
+		{"Memory Viewer", func() fyne.CanvasObject { return views.NewMemory(f.gb.Bus) }},
+		{"IO", func() fyne.CanvasObject { return views.NewIO(f.gb.Bus) }},
 	}
 
 	// add views to debug menu
@@ -367,11 +373,6 @@ func (f *fyneDriver) openWindowIfNotOpen(name string, view fyne.CanvasObject) {
 	// create new window
 	win := f.app.NewWindow(name)
 	win.SetOnClosed(func() { delete(f.windows, name) })
-
-	// does the view want a window attached?
-	if w, ok := view.(views.Windowed); ok {
-		w.AttachWindow(win)
-	}
 
 	win.SetContent(view)
 	view.Refresh()

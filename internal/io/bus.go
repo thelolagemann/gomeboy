@@ -38,10 +38,8 @@ type Bus struct {
 	vRAM        [2][0x2000]byte // 2 banks of 8 KiB each
 	vramChanges []VRAMChange    // cache vRAM changes for the PPU
 
-	writeHandlers  [0x100]func(byte) byte
-	lazyReaders    [0x100]func() byte
-	gameGenieCodes []GameGenieCode
-	gameSharkCodes []GameSharkCode
+	writeHandlers [0x100]func(byte) byte
+	lazyReaders   [0x100]func() byte
 
 	bootHandlers []func()
 
@@ -73,6 +71,11 @@ type Bus struct {
 	bootROMDone  bool
 	vRAMBankMask uint8
 	debug        bool
+
+	// cheats
+	LoadedCheats   []Cheat
+	GameGenieCodes []GameGenieCode
+	GameSharkCodes []GameSharkCode
 }
 
 // NewBus creates a new Bus instance.
@@ -190,8 +193,8 @@ func (b *Bus) Map(m types.Model) {
 			}
 		})
 		b.ReserveAddress(types.SVBK, func(v byte) byte {
-			copy(b.wRAM[utils.ZeroAdjust8(b.data[types.SVBK]&7)-1][:], b.data[0xD000:0xE000]) // bus -> wRAM
-			copy(b.data[0xD000:0xE000], b.wRAM[utils.ZeroAdjust8(v&7)-1][:])                  // wRAM -> bus
+			copy(b.wRAM[utils.ZeroAdjust(b.data[types.SVBK]&7)-1][:], b.data[0xD000:0xE000]) // bus -> wRAM
+			copy(b.data[0xD000:0xE000], b.wRAM[utils.ZeroAdjust(v&7)-1][:])                  // wRAM -> bus
 			return v | 0xF8
 		})
 		b.Set(types.SVBK, 0xF8)
@@ -452,8 +455,8 @@ func (b *Bus) CopyTo(start, end uint16, src []byte) {
 	copy(b.data[start:end], src)
 
 	// check to see if any game genie ROM patches should be applied to the src
-	if len(b.gameGenieCodes) > 0 {
-		for _, c := range b.gameGenieCodes {
+	if len(b.GameGenieCodes) > 0 {
+		for _, c := range b.GameGenieCodes {
 			if c.Address >= start && c.Address <= end {
 				if b.data[c.Address] == c.OldData {
 					b.data[c.Address] = c.NewData
@@ -632,12 +635,12 @@ func (b *Bus) RaiseInterrupt(interrupt uint8) {
 		b.InterruptCallback(interrupt)
 	}
 
-	if interrupt == VBlankINT && len(b.gameSharkCodes) > 0 {
-		for _, c := range b.gameSharkCodes {
+	if interrupt == VBlankINT && len(b.GameSharkCodes) > 0 {
+		for _, c := range b.GameSharkCodes {
 			if c.Address < 0xD000 {
 				b.data[c.Address] = c.NewData
 			} else if c.Address < 0xE000 {
-				if utils.ZeroAdjust8(b.Get(types.SVBK)&7) == c.ExternalRAMBank { // banked data - write to bus
+				if utils.ZeroAdjust(b.Get(types.SVBK)&7) == c.ExternalRAMBank { // banked data - write to bus
 					b.data[c.Address] = c.NewData
 				} else { // not banked so write to sRAM
 					b.wRAM[c.ExternalRAMBank][c.Address&0x0fff] = c.NewData

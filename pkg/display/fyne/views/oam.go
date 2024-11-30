@@ -13,7 +13,7 @@ import (
 type OAM struct {
 	widget.BaseWidget
 	PPU                            *ppu.PPU
-	spriteImgs                     []*tappableImage
+	spriteImgs                     []*canvas.Image
 	selectedSprite                 int
 	selectedSpriteImage            *image.RGBA
 	selectedSpriteRaster           *canvas.Raster
@@ -44,14 +44,14 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 	for i := 0; i < 40; i++ {
 		// create image for sprite
 		img := image.NewRGBA(image.Rect(0, 0, 8, 8))
-		t := canvas.NewRasterFromImage(img)
+		t := canvas.NewImageFromImage(img)
 		t.ScaleMode = canvas.ImageScalePixels
 		t.SetMinSize(fyne.NewSize(32, 32))
 
 		o.PPU.DrawSprite(img, o.PPU.Sprites[i])
 
-		tapImage := newTappableImage(img, t, func(_ *fyne.PointEvent) { o.selectedSprite = i; o.Refresh() })
-		o.spriteImgs = append(o.spriteImgs, tapImage)
+		tapImage := newWrappedTappable(func() { o.selectedSprite = i; o.Refresh() }, t)
+		o.spriteImgs = append(o.spriteImgs, t)
 
 		grid.Add(tapImage)
 	}
@@ -82,9 +82,9 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 
 func (o *OAM) Refresh() {
 	for i, img := range o.spriteImgs {
-		o.PPU.DrawSprite(img.img, o.PPU.Sprites[i])
+		o.PPU.DrawSprite(img.Image.(*image.RGBA), o.PPU.Sprites[i])
 		if o.scaleFactorActive != o.scaleFactor {
-			img.c.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
+			img.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
 		}
 		img.Refresh()
 	}

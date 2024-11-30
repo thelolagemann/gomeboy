@@ -67,29 +67,7 @@ func (t *Tilemaps) CreateRenderer() fyne.WidgetRenderer {
 	t.tilemap0ImageCanvas = canvas.NewRasterFromImage(t.tilemap0Image)
 	t.tilemap0ImageCanvas.ScaleMode = canvas.ImageScalePixels
 	t.tilemap0ImageCanvas.SetMinSize(fyne.NewSize(float32(256*scaleFactor), float32(256*scaleFactor)))
-	tilemap0Tap := newTappableImage(t.tilemap0Image, t.tilemap0ImageCanvas, func(e *fyne.PointEvent) {
-		// using the position, we need to calculate which tile was clicked
-		// 1. get the position of the click
-		// 2. divide the position by the scale factor
-		// 3. divide the position by 8 (tile size)
-		// 4. get the tile at that position
-		// 5. draw a box around the tile
-		// 6. draw the tile in the tile viewer
-		//realX := e.Position.X / float32(scaleFactor)
-		//realY := e.Position.Y / float32(scaleFactor)
-
-		//tileX := int(realX / 8)
-		//tileY := int(realY / 8)
-
-		//tileIndex := tileX + (tileY * 32)
-
-		// get the tile entry from the tilemap
-		//tileEntry := t.PPU.TileMaps[0][tileX][tileY]
-
-		// get the tile from the tile entry
-
-		//fmt.Printf("BG Priority: %v\nXFlip: %t\nYFlip: %t\nTile Number: %d\nBank: %d", tileEntry.Attributes.BGPriority, tileEntry.Attributes.XFlip, tileEntry.Attributes.YFlip, tileIndex, tileEntry.Attributes.VRAMBank)
-	})
+	tilemap0Tap := newWrappedTappable(func() {}, t.tilemap0ImageCanvas)
 	tilemap0Content.Add(tilemap0Tap)
 
 	tilemap0.Add(tilemap0Content)
