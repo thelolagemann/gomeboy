@@ -27,11 +27,6 @@ func init() {
 		log.Fatal(err.Error())
 	}
 
-	// initialize OpenGL
-	if err := gl.Init(); err != nil {
-		log.Fatal(err.Error())
-	}
-
 	mon = glfw.GetPrimaryMonitor()
 
 	// register display driver
@@ -123,6 +118,11 @@ func (g *glfwDriver) Start(c emulator.Controller, frames <-chan []byte, pressed,
 	}
 
 	window.MakeContextCurrent()
+
+	// Windows OS requires a window to be created before OpenGL can be initialized
+	if err := gl.Init(); err != nil {
+		log.Fatal(err.Error())
+	}
 
 	// initialize window settings
 	g.windowSettings.width, g.windowSettings.height = window.GetSize()
