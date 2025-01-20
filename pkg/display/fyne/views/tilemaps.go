@@ -160,7 +160,7 @@ func (t *Tilemaps) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (t *Tilemaps) Refresh() {
-	t.PPU.DumpTileMaps(t.tilemap0Image, t.tilemap1Image, t.segmentTiles)
+	// t.PPU.DumpTileMaps(t.tilemap0Image, t.tilemap1Image, t.segmentTiles)
 	t.tilemap0ImageCanvas.Refresh()
 	t.tilemap1ImageCanvas.Refresh()
 }

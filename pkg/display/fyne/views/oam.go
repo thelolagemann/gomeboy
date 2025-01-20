@@ -12,8 +12,10 @@ import (
 
 type OAM struct {
 	widget.BaseWidget
-	PPU                            *ppu.PPU
-	spriteImgs                     []*canvas.Image
+	PPU         *ppu.PPU
+	spriteImgs  []*canvas.Image
+	spriteTiles []Tile
+
 	selectedSprite                 int
 	selectedSpriteImage            *image.RGBA
 	selectedSpriteRaster           *canvas.Raster
@@ -47,8 +49,7 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 		t := canvas.NewImageFromImage(img)
 		t.ScaleMode = canvas.ImageScalePixels
 		t.SetMinSize(fyne.NewSize(32, 32))
-
-		o.PPU.DrawSprite(img, o.PPU.Sprites[i])
+		o.spriteTiles[i] = Tile{}
 
 		tapImage := newWrappedTappable(func() { o.selectedSprite = i; o.Refresh() }, t)
 		o.spriteImgs = append(o.spriteImgs, t)
@@ -82,14 +83,29 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 
 func (o *OAM) Refresh() {
 	for i, img := range o.spriteImgs {
-		o.PPU.DrawSprite(img.Image.(*image.RGBA), o.PPU.Sprites[i])
+		DrawTile(o.spriteTiles[i], o.spriteImgs[i].Image.(*image.RGBA))
 		if o.scaleFactorActive != o.scaleFactor {
 			img.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
 		}
 		img.Refresh()
 	}
-	o.PPU.DrawSprite(o.selectedSpriteImage, o.PPU.Sprites[o.selectedSprite])
+	DrawTile(o.spriteTiles[o.selectedSprite], o.selectedSpriteImage)
 	o.selectedSpriteRaster.Refresh()
-	o.selectedSpriteGrid.SetText(o.PPU.Sprites[o.selectedSprite].String())
 	o.scaleFactorActive = o.scaleFactor
+}
+
+func DrawTile(t Tile, img *image.RGBA) {
+
+}
+
+// A Tile has a size of 8x8 pixels, using a 2bpp format.
+type Tile []uint8
+
+// Draw draws the tile to the given image at the given position.
+func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal ppu.Palette) {
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			copy(img.Pix[((i2+y)*img.Stride)+((i+x)*4):], append(pal[(t[y]>>(7-x)&1)|(t[y+8]>>(7-x)&1)<<1][:], 0xff))
+		}
+	}
 }

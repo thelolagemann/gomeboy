@@ -33,10 +33,9 @@ const (
 type Bus struct {
 	InterruptCallback func(v uint8) // used to notify CPU of interrupts
 
-	data        [0x10000]byte   // 64 KiB memory
-	wRAM        [7][0x1000]byte // 7 banks of 4 KiB each (bank 0 is fixed)
-	vRAM        [2][0x2000]byte // 2 banks of 8 KiB each
-	vramChanges []VRAMChange    // cache vRAM changes for the PPU
+	data [0x10000]byte   // 64 KiB memory
+	wRAM [7][0x1000]byte // 7 banks of 4 KiB each (bank 0 is fixed)
+	vRAM [2][0x2000]byte // 2 banks of 8 KiB each
 
 	writeHandlers [0x100]func(byte) byte
 	lazyReaders   [0x100]func() byte
@@ -56,7 +55,6 @@ type Bus struct {
 	dmaActive, dmaRestarting   bool
 	dmaConflict                uint8
 	dmaEnabled                 bool
-	oamChanged, vramChanged    bool
 	regionLocks, dmaConflicted uint16
 
 	// HDMA/GDMA related stuff
@@ -83,7 +81,6 @@ func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	b := &Bus{
 		s:           s,
 		dmaConflict: 0xff,
-		vramChanges: make([]VRAMChange, 0x4000),
 	}
 	b.c = NewCartridge(rom, b)
 	b.ReserveLazyReader(types.DIV, func() byte { return byte(b.s.SysClock() >> 8) })
@@ -269,9 +266,6 @@ func (b *Bus) Boot() {
 		b.data[0x9924+uint16(i)] = i + 13
 	}
 	b.data[0x9910] = 0x19
-	for i := uint16(0x8000); i < 0x9930; i++ {
-		b.vramChanges = append(b.vramChanges, VRAMChange{i, b.data[i], 0})
-	}
 
 	// wRAM is randomized on boot (not accurate to hardware, but random enough to pass most anti-emu checks)
 	for i := 0; i < 0x2000; i++ {
@@ -405,29 +399,36 @@ func (b *Bus) Write(addr uint16, value byte) {
 			b.c.Write(addr, value)
 			return
 		// 0x8000 - 0x9FFF VRAM
-		case addr >= 0x8000 && addr <= 0x9FFF:
+		case addr <= 0x9FFF:
 			if (b.regionLocks<<8)&(1<<(addr>>12)) > 0 {
 				return
 			}
-
-			b.vramChanges = append(b.vramChanges, VRAMChange{addr, value, b.Get(types.VBK) & b.vRAMBankMask})
-			b.vramChanged = true
+			b.vRAM[b.data[types.VBK]&b.vRAMBankMask][addr&0x1fff] = value
 		// 0xC000-0xFDFF WRAM & mirror
-		case addr >= 0xC000 && addr <= 0xFDFF:
+		case addr <= 0xFDFF:
 			b.data[addr&0xDFFF] = value
 			b.data[addr&0xDDFF|0xE000] = value
 
 			return
 		// 0xFE00-0xFE9F OAM
-		case addr >= 0xFE00 && addr <= 0xFE9F:
+		case addr <= 0xFE9F:
 			if (b.regionLocks<<8)&OAM > 0 || b.isDMATransferring() {
 				return
 			}
-			b.oamChanged = true
 		}
 	}
 
 	b.data[addr] = value
+}
+
+func (b *Bus) GetVRAM(address uint16, bank uint8) uint8 {
+	return b.vRAM[bank&b.vRAMBankMask][address]
+}
+
+func (b *Bus) GetVRAMRange(address uint16, length, bank int) []byte {
+	result := make([]byte, length)
+	copy(result, b.vRAM[bank][address:int(address)+length])
+	return result
 }
 
 func (b *Bus) LazyRead(addr uint16) byte {
@@ -504,7 +505,7 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 			return f()
 		}
 	// OAM can be read locked by the PPU and a DMA transfer
-	case addr >= 0xFE00 && addr <= 0xFE9F:
+	case addr <= 0xFE9F:
 		if b.regionLocks&OAM > 0 || b.isDMATransferring() {
 			return 0xff
 		}
@@ -529,22 +530,7 @@ func (b *Bus) IsGBC() bool           { return b.isGBC }              // returns 
 func (b *Bus) IsGBCCart() bool       { return b.c.IsCGBCartridge() } // returns if cart supports CGB
 func (b *Bus) Model() types.Model    { return b.model }              // returns the current model
 
-func (b *Bus) OAMChanged() bool        { return b.oamChanged }                   // has oam changed
-func (b *Bus) VRAMChanged() bool       { return b.vramChanged }                  // has vram changed
 func (b *Bus) isDMATransferring() bool { return b.dmaActive || b.dmaRestarting } // DMA transfer in progress
-
-// OAMCatchup calls f with the OAM memory region.
-func (b *Bus) OAMCatchup(f func([160]byte)) {
-	f([160]byte(b.data[0xfe00 : 0xfe00+160]))
-	b.oamChanged = false
-}
-
-// VRAMCatchup calls f with pending vRAM changes.
-func (b *Bus) VRAMCatchup(f func([]VRAMChange)) {
-	f(b.vramChanges)
-	b.vramChanges = b.vramChanges[:0]
-	b.vramChanged = false
-}
 
 // startDMATransfer initiates a DMA transfer.
 func (b *Bus) startDMATransfer() {
@@ -558,7 +544,6 @@ func (b *Bus) startDMATransfer() {
 func (b *Bus) doDMATransfer() {
 	b.dmaConflict = b.data[b.dmaSource]
 	b.data[b.dmaDestination] = b.dmaConflict
-	b.oamChanged = true
 
 	b.dmaSource++
 	b.dmaDestination++
@@ -690,9 +675,3 @@ const (
 
 func (b *Bus) Press(i uint8)   { b.buttonState |= 1 << i; b.RaiseInterrupt(JoypadINT) } // presses the requested button
 func (b *Bus) Release(i uint8) { b.buttonState &^= 1 << i }                             // releases the requested button
-
-type VRAMChange struct {
-	Address uint16
-	Value   uint8
-	Bank    uint8
-}

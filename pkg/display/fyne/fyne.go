@@ -103,6 +103,11 @@ func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan
 		}
 	})
 
+	// Create variables to track FPS and frametime
+	var frameCount int
+	var lastTime time.Time
+
+	// Setup a ticker to update FPS/Frametime every second
 	ticker := time.NewTicker(16675004)
 	defer ticker.Stop()
 	var latestFrames [][]byte
@@ -113,13 +118,12 @@ func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan
 			case b := <-fb:
 				frameMutex.Lock()
 				latestFrames = append(latestFrames, b)
-
 				frameMutex.Unlock()
 			}
 		}
 	}()
 
-	// setup goroutine to copy from the framebuffer to the image
+	// Setup the goroutine to render frames and calculate FPS and frametime
 	go func() {
 		for {
 			select {
@@ -129,10 +133,12 @@ func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan
 				}
 				frameMutex.Lock()
 
+				// Process frame
 				if len(latestFrames) > 0 {
 					latestFrame := latestFrames[0]
 					latestFrames = latestFrames[1:]
 
+					// Update image with the latest frame
 					for i := 0; i < ppu.ScreenWidth*ppu.ScreenHeight; i++ {
 						img.Pix[i*4] = latestFrame[i*3]
 						img.Pix[i*4+1] = latestFrame[i*3+1]
@@ -143,10 +149,25 @@ func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan
 					raster.Refresh()
 				}
 
-				// send frame event to windows
+				// Send frame event to windows
 				for _, w := range f.windows {
 					w.Content().Refresh()
 				}
+
+				// Calculate FPS and frametime
+				frameCount++
+				elapsedTime := time.Since(lastTime)
+
+				// Update FPS and frametime every second
+				if elapsedTime >= time.Second {
+					fps := float64(frameCount) / elapsedTime.Seconds()
+					mainWindow.SetTitle(fmt.Sprintf("FPS: %.2f", fps))
+
+					// Reset counters for next interval
+					frameCount = 0
+					lastTime = time.Now()
+				}
+
 				frameMutex.Unlock()
 			}
 		}
@@ -165,6 +186,7 @@ func (f *fyneDriver) Start(c emulator.Controller, fb <-chan []byte, pressed chan
 				released <- k
 			}
 		})
+
 	}
 
 	// run the application

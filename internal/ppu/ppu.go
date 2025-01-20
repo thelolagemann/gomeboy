@@ -3,12 +3,10 @@ package ppu
 import (
 	_ "embed"
 	"encoding/csv"
-	"fmt"
-	"github.com/thelolagemann/gomeboy/pkg/utils"
-	"image"
+	"math/bits"
+	"sort"
 	"strconv"
 	"strings"
-	"unsafe"
 
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
@@ -32,23 +30,9 @@ const (
 // Sprite is used to define the attributes of a sprite in OAM.
 type Sprite struct {
 	x, y uint8
+	attr uint8
+	id   uint8
 	TileEntry
-}
-
-func (s Sprite) String() string {
-	return fmt.Sprintf("X: %d Y: %d\nID: %d VRAM: %d Palette: %d\nXFlip: %s YFlip: %s", s.x, s.y, s.id, s.vRAMBank, s.paletteNumber, utils.BoolToString(s.xFlip), utils.BoolToString(s.yFlip))
-}
-
-// A Tile has a size of 8x8 pixels, using a 2bpp format.
-type Tile [16]uint8
-
-// Draw draws the tile to the given image at the given position.
-func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal Palette) {
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
-			copy(img.Pix[((i2+y)*img.Stride)+((i+x)*4):], append(pal[(t[y]>>(7-x)&1)|(t[y+8]>>(7-x)&1)<<1][:], 0xff))
-		}
-	}
 }
 
 // TileEntry is used to define a tile in the tile map or OAM.
@@ -109,17 +93,6 @@ func init() {
 
 		ColourisationPalettes[uint16(hash)|uint16(disambiguation)<<8] = pal
 	}
-
-	for i := (0); i < 256; i++ {
-		nI := i
-		for j := (0); j < 256; j++ {
-			nJ := j
-			for c := uint8(0); c < 8; c++ {
-				colourNumberLUT[nI][nJ] |= uint16(colorNumber(uint8(nI), uint8(nJ), c, true)) << (14 - (c * 2))
-				colourNumberLUTReversed[nI][nJ] |= uint16(colorNumber(uint8(nI), uint8(nJ), c, false)) << (14 - (c * 2))
-			}
-		}
-	}
 }
 
 type PPU struct {
@@ -129,31 +102,21 @@ type PPU struct {
 	bgTileMap, winTileMap, objSize, addressMode uint8
 
 	// various internal flags
-	mode, modeToInt, currentLine, status uint8
-	lyCompare, windowInternal            uint8
+	mode, modeToInt, ly, status uint8
+	lx                          int
+	lyCompare, wly              uint8
 
 	lyForComparison uint16
 	lycINT, statINT bool
-	scanlineInfo    [ScreenWidth]uint8 // bit 3 - priority, bit 2-0 colourNumber
-
-	Sprites  [40]Sprite           // 40 sprite attributes from OAM
-	TileData [2][384]Tile         // 384 tiles, 8x8 pixels each (double in CGB mode)
-	TileMaps [2][32][32]TileEntry // 32x32 tiles, 8x8 pixels each
 
 	cRAM                         [128]uint8 // 64 bytes BG+OBJ
 	bcpsIncrement, ocpsIncrement bool
 	bcpsIndex, ocpsIndex         uint8
 
-	backgroundDirty                                     bool
-	backgroundLineRendered, backgroundLineShallowRender [ScreenHeight]bool
-	dirtyScanlines, spriteScanlines                     [ScreenHeight]bool // used to determine when to re-render background
-
-	dirtiedLog [65536]dirtyEvent
-	lastDirty  uint16
-
 	// external components
-	b *io.Bus
-	s *scheduler.Scheduler
+	b         *io.Bus
+	fifoCycle uint64
+	s         *scheduler.Scheduler
 
 	// palettes used for DMG -> CGB colourisation
 	BGColourisationPalette   Palette
@@ -170,7 +133,46 @@ type PPU struct {
 	Debug struct {
 		SpritesDisabled, BackgroundDisabled, WindowDisabled bool
 	}
+
+	bgFIFO, objFIFO               FIFO
+	bgFetcherStep, objFetcherStep FIFOStep
+
+	fetcherTileNo, fetcherTileAttr uint8
+	fetcherX                       uint8
+	fetcherLow, fetcherHigh        uint8
+	objFetcherLow, objFetcherHigh  uint8
+	fetcherObj                     bool
+	fetchingObj                    Sprite
+	fetcherWin                     bool
+	winTriggerWy                   bool
+
+	objBuffer []Sprite
 }
+
+// A FIFO can hold up to 8 pixels, the width of one tile.
+type FIFO []FIFOEntry
+
+// A FIFOEntry represents a single pixel in a FIFO and is composed of
+// 2 bytes and four properties.
+type FIFOEntry struct {
+	Color      uint8
+	Palette    uint8
+	Attributes uint8
+	ID         uint8
+}
+
+type FIFOStep int
+
+const (
+	GetTileID FIFOStep = iota
+	_
+	GetTileRowLow
+	_
+	GetTileRowHigh
+	_
+	_
+	PushPixels
+)
 
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	p := &PPU{
@@ -202,14 +204,14 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 			// when the LCD is off, LY reads 0, and STAT mode reads 0 (HBlank)
 			p.b.Set(types.LY, 0)
-			p.currentLine, p.mode = 0, 0
+			p.ly, p.mode = 0, 0
 
 			p.b.Unlock(io.OAM)
 			p.b.Unlock(io.VRAM)
 		} else if !p.enabled && v&types.Bit7 != 0 {
 			p.enabled = true
 			// reset LYC to compare against and clear coincidence flag
-			p.lyForComparison, p.currentLine = 0, 0
+			p.lyForComparison, p.ly = 0, 0
 			p.b.Set(types.LY, 0)
 
 			p.modeToInt = 255
@@ -249,36 +251,22 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
-		// do we need to force a re-render on background
-		if b.Get(types.SCY) != v {
-			p.dirtyBackground(scy)
-		}
-
 		return v
 	})
 	b.ReserveAddress(types.SCX, func(v byte) byte {
-		// do we need to force a re-render on background
-		if b.Get(types.SCX) != v {
-			p.dirtyBackground(scx)
-		}
-
 		return v
 	})
 	b.ReserveAddress(types.LY, func(v byte) byte {
 		if b.IsBooting() {
-			p.currentLine = v
+			p.ly = v
 			return v
 		}
 		// any write to LY resets to 0
-		p.currentLine = 0
+		p.ly = 0
 		return 0
 	})
 	b.ReserveAddress(types.LYC, func(v byte) byte {
 		p.lyCompare = v
-		// do we need to force a re-render on background
-		if b.Get(types.LYC) != v {
-			p.dirtyBackground(lyc)
-		}
 		p.statUpdate()
 		return v
 	})
@@ -286,7 +274,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		if v == b.Get(types.BGP) || p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
-		p.dirtyBackground(bgp)
 		p.ColourPalette[0] = p.BGColourisationPalette.remap(v)
 
 		return v
@@ -295,7 +282,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		if v == b.Get(types.OBP0) || p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
-		p.dirtyBackground(obp0)
 		p.ColourSpritePalette[0] = p.OBJ0ColourisationPalette.remap(v)
 
 		return v
@@ -304,7 +290,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		if v == b.Get(types.OBP1) || p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
-		p.dirtyBackground(obp1)
 		p.ColourSpritePalette[1] = p.OBJ1ColourisationPalette.remap(v)
 
 		return v
@@ -322,15 +307,18 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.OBJ0ColourisationPalette = p.ColourSpritePalette[0]
 			p.OBJ1ColourisationPalette = p.ColourSpritePalette[1]
 		}
-		p.TileMaps = [2][32][32]TileEntry{}
 	})
 
 	// setup CGB only registers
 	b.RegisterGBCHandler(func() {
+		if p.b.IsGBCCart() {
+			b.ReserveAddress(types.OPRI, func(v byte) byte {
+				return v | 0xfe
+			})
+		}
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
 			p.bcpsIndex = v & 0x3F
 			p.bcpsIncrement = v&types.Bit7 > 0
-			p.dirtyBackground(bcps)
 			return v | types.Bit6
 		})
 		b.ReserveAddress(types.BCPD, func(v byte) byte {
@@ -357,7 +345,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 					p.bcpsIndex = (p.bcpsIndex + 1) & 0x3f
 					p.b.Set(types.BCPS, p.b.Get(types.BCPS)&0xC0|p.bcpsIndex)
 				}
-				p.dirtyBackground(bcpd)
 
 				return v
 			}
@@ -373,7 +360,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		b.ReserveAddress(types.OCPS, func(v byte) byte {
 			p.ocpsIndex = v & 0x3F
 			p.ocpsIncrement = v&types.Bit7 > 0
-			p.dirtyBackground(ocps)
 			return v | types.Bit6
 		})
 		b.ReserveAddress(types.OCPD, func(v byte) byte {
@@ -401,7 +387,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 					p.ocpsIndex = (p.ocpsIndex + 1) & 0x3f
 					p.b.Set(types.OCPS, p.b.Get(types.OCPS)&0xC0|p.ocpsIndex)
 				}
-				p.dirtyBackground(ocpd)
 
 				return v
 			}
@@ -438,6 +423,8 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	s.RegisterEvent(scheduler.PPULine153Continue, p.continueLine153)
 	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
 	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
+	s.RegisterEvent(scheduler.PPUBeginFIFO, p.beginFIFO)
+	s.RegisterEvent(scheduler.PPUFIFOTransfer, p.fifoTransfer)
 	s.RegisterEvent(scheduler.PPUHBlankInterrupt, func() {
 		p.modeToInt = ModeHBlank
 		p.statUpdate()
@@ -486,25 +473,11 @@ func (p *PPU) endGlitchedLine0() {
 
 func (p *PPU) endHBlank() {
 	// increment current scanline
-	p.currentLine++
+	p.ly++
 	p.modeToInt = ModeOAM
 
 	// if we are on line 144, we are entering ModeVBlank
-	if p.currentLine == 144 {
-		if p.backgroundDirty {
-			for i := 0; i < ScreenHeight; i++ {
-				p.backgroundLineRendered[i] = false
-			}
-		} else {
-			for i := 0; i < ScreenHeight; i++ {
-				if !p.backgroundLineShallowRender[i] {
-					p.backgroundLineRendered[i] = false
-				}
-				p.backgroundLineShallowRender[i] = true
-			}
-		}
-		p.backgroundDirty = false
-
+	if p.ly == 144 {
 		// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
 		if !p.cleared {
 			p.renderBlank()
@@ -514,6 +487,10 @@ func (p *PPU) endHBlank() {
 	} else {
 		// go to OAM search
 		p.startOAM()
+	}
+
+	if p.fetcherWin {
+		p.wly++
 	}
 }
 
@@ -527,7 +504,6 @@ func (p *PPU) endVRAMTransfer() {
 }
 
 func (p *PPU) startHBlank() {
-	p.renderScanline()
 	p.statUpdate()
 
 	if p.b.IsGBCCart() {
@@ -535,7 +511,8 @@ func (p *PPU) startHBlank() {
 	}
 
 	// schedule end of ModeHBlank
-	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(196-scroll(p.b.Get(types.SCX))))
+	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(196-scroll(p.b.Get(types.SCX)))-p.fifoCycle)
+	p.fifoCycle = 0
 }
 
 // startOAM is performed on the first cycle of lines 0 to 143, and performs
@@ -546,11 +523,11 @@ func (p *PPU) startHBlank() {
 //
 //	OAM Search: 4 -> 84
 func (p *PPU) startOAM() {
-	p.b.Set(types.LY, p.currentLine) // update LY
+	p.b.Set(types.LY, p.ly) // update LY
 
 	p.mode = ModeHBlank
 	// OAM STAT int occurs 1-M cycle before STAT changes, except on line 0
-	if p.currentLine != 0 {
+	if p.ly != 0 {
 		p.modeToInt = 2
 		p.lyForComparison = 0xffff
 	} else { // line 0
@@ -572,7 +549,7 @@ func (p *PPU) startOAM() {
 // rest of the OAM search.
 func (p *PPU) continueOAM() {
 	p.mode, p.modeToInt = ModeOAM, ModeOAM
-	p.lyForComparison = uint16(p.currentLine)
+	p.lyForComparison = uint16(p.ly)
 	p.statUpdate()
 
 	p.modeToInt = 255
@@ -581,6 +558,10 @@ func (p *PPU) continueOAM() {
 	p.b.WLock(io.OAM)
 
 	p.s.ScheduleEvent(scheduler.PPUPrepareEndOAMSearch, 76)
+
+	if !p.winTriggerWy {
+		p.winTriggerWy = p.b.Get(types.WY) == p.ly
+	}
 }
 
 // endOAM is performed 80 cycles after startOAM, and performs the
@@ -591,8 +572,213 @@ func (p *PPU) endOAM() {
 
 	p.b.Lock(io.OAM | io.VRAM)
 
-	// schedule end of VRAM search
-	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, uint64(168+scroll(p.b.Get(types.SCX))))
+	p.fetcherWin = false
+
+	// fill obj buffer
+	p.objBuffer = []Sprite{}
+	for i := uint16(0); i < 0xa0 && len(p.objBuffer) < 10; i += 4 {
+		y, x, id, attr := p.b.Get(0xfe00+i), p.b.Get(0xfe00+i+1), p.b.Get(0xfe00+i+2), p.b.Get(0xfe00+i+3)
+
+		if p.ly+16 >= y &&
+			p.ly+16 < y+p.objSize {
+			spr := Sprite{
+				y:    y,
+				x:    x,
+				id:   id,
+				attr: attr,
+			}
+
+			if p.objSize == 16 {
+				if (p.ly+16-y < 8 && spr.attr&types.Bit6 > 0) || (p.ly+16-y >= 8 && spr.attr&types.Bit6 == 0) {
+					spr.id |= 1
+				} else {
+					spr.id &= 0xfe
+				}
+			}
+
+			p.objBuffer = append(p.objBuffer, spr)
+		}
+	}
+
+	sort.SliceStable(p.objBuffer, func(i, j int) bool {
+		return p.objBuffer[i].x < p.objBuffer[j].x
+	})
+
+	// schedule beginning of fifo
+	p.s.ScheduleEvent(scheduler.PPUBeginFIFO, 2)
+}
+
+func (p *PPU) beginFIFO() {
+	// clear fifo stuff
+	p.bgFIFO, p.objFIFO = FIFO{}, FIFO{}
+	p.lx = -int(p.b.Get(types.SCX) % 8)
+	p.fetcherX = 0
+	p.bgFetcherStep = 0
+	p.objFetcherStep = 0
+	p.fetcherObj = false
+
+	// output to the display is delayed by SCX % 8 dots while the pixels are discarded from the fetched tile
+	p.fifoTransfer()
+}
+
+func (p *PPU) fifoTransfer() {
+	// does an obj need to be fetched?
+	if len(p.objBuffer) > 0 && p.objEnabled && !p.fetcherObj {
+		if int(p.objBuffer[0].x) <= p.lx+8 {
+			p.fetchingObj = p.objBuffer[0]
+			p.objBuffer = p.objBuffer[1:]
+			p.fetcherObj = true
+			p.objFetcherStep = 0
+		}
+	}
+
+	// handle obj fetcher
+	if p.fetcherObj {
+		p.fifoCycle++
+		switch p.objFetcherStep {
+		case GetTileRowLow:
+			p.objFetcherLow = p.getTileRow(OBJ, p.fetchingObj.id, false)
+		case GetTileRowHigh:
+			p.objFetcherHigh = p.getTileRow(OBJ, p.fetchingObj.id, true)
+		case PushPixels:
+			if p.fetchingObj.attr&types.Bit5 > 0 { // X-Flip (CGB Only)
+				p.objFetcherLow = bits.Reverse8(p.objFetcherLow)
+				p.objFetcherHigh = bits.Reverse8(p.objFetcherHigh)
+			}
+
+			j := uint8(0)
+			for i := uint8(0x80); i > 0; i >>= 1 {
+				if p.fetchingObj.x+j < 8 {
+
+					continue // offscreen
+				}
+
+				objFIFO := FIFOEntry{
+					Attributes: p.fetchingObj.attr,
+					Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
+				}
+				if p.b.IsGBCCart() && p.b.IsGBC() {
+					objFIFO.Palette = p.fetchingObj.attr & 7
+				}
+				if p.objFetcherLow&i > 0 {
+					objFIFO.Color |= 1
+				}
+				if p.objFetcherHigh&i > 0 {
+					objFIFO.Color |= 2
+				}
+
+				if len(p.objFIFO) > 0 && int(j) < len(p.objFIFO) {
+					if p.objFIFO[j].Color == 0 || p.b.IsGBCCart() && p.b.IsGBC() && p.b.Get(types.OPRI)&types.Bit0 == 0 {
+						p.objFIFO[j] = objFIFO
+					}
+				} else {
+					p.objFIFO = append(p.objFIFO, objFIFO)
+				}
+
+				j++
+			}
+
+			p.fetcherObj = false
+			p.objFetcherStep = 0
+		}
+		p.objFetcherStep++
+		p.s.ScheduleEvent(scheduler.PPUFIFOTransfer, 1)
+		return // obj fetch steals dots
+	}
+
+	// is the window requesting a piggyback?
+	if p.winEnabled && !p.fetcherWin && p.winTriggerWy && p.lx >= int(p.b.Get(types.WX)-7) {
+		p.fetcherWin = true
+		p.fetcherX = 0
+		p.bgFetcherStep = 0
+		p.bgFIFO = FIFO{}
+	}
+
+	fetcherMode := BG
+	if p.fetcherWin {
+		fetcherMode = Window
+	}
+
+	switch p.bgFetcherStep {
+	case GetTileID:
+		p.fetcherTileNo = p.getTileID(fetcherMode)
+	case GetTileRowLow:
+		p.fetcherLow = p.getTileRow(fetcherMode, p.fetcherTileNo, false)
+	case GetTileRowHigh:
+		p.fetcherHigh = p.getTileRow(fetcherMode, p.fetcherTileNo, true)
+		if p.fetcherTileAttr&types.Bit5 > 0 {
+			p.fetcherLow = bits.Reverse8(p.fetcherLow)
+			p.fetcherHigh = bits.Reverse8(p.fetcherHigh)
+		}
+	case PushPixels:
+		// do we need to refill the FIFO?
+		if len(p.bgFIFO) == 0 {
+
+			for i := uint8(0x80); i > 0; i >>= 1 {
+				entry := FIFOEntry{}
+				if p.bgEnabled || p.b.IsGBCCart() && p.b.IsGBC() {
+					if p.fetcherLow&i > 0 {
+						entry.Color |= 1
+					}
+					if p.fetcherHigh&i > 0 {
+						entry.Color |= 2
+					}
+
+					entry.Attributes = p.fetcherTileAttr
+				}
+				p.bgFIFO = append(p.bgFIFO, entry)
+			}
+
+			// reset fetcher state and advance x
+			p.bgFetcherStep = -1
+			p.fetcherX++
+		} else {
+			p.bgFetcherStep-- // wait until we can
+		}
+	}
+	// advance fetcher step
+	p.bgFetcherStep++
+
+	// are there any pixels in the FIFO?
+	if len(p.bgFIFO) > 0 {
+		// handle offscreen pixels
+		if p.lx < 0 {
+			p.bgFIFO = p.bgFIFO[1:]
+			p.lx++
+		} else {
+			bgPX := p.bgFIFO[0]
+			var colors = p.ColourPalette[bgPX.Attributes&7][bgPX.Color]
+
+			if len(p.objFIFO) > 0 {
+				objPX := p.objFIFO[0]
+				p.objFIFO = p.objFIFO[1:]
+
+				if objPX.Color > 0 &&
+					(bgPX.Color == 0 ||
+						!(objPX.Attributes&types.Bit7 > 0 || (p.b.IsGBCCart() && p.b.IsGBC() && bgPX.Attributes&types.Bit7 > 0 && p.bgEnabled))) {
+					colors = p.ColourSpritePalette[objPX.Palette][objPX.Color]
+				}
+			}
+
+			// shift pixel from FIFO to screen
+			p.PreparedFrame[p.ly][p.lx] = colors
+			p.bgFIFO = p.bgFIFO[1:]
+
+			p.lx++
+			// have we filled the LCD yet?
+			if p.lx == 160 {
+				// schedule beginning of HBlank mode
+				p.modeToInt = ModeHBlank
+				p.statUpdate()
+				p.modeToInt = ModeVRAM
+
+				p.s.ScheduleEvent(scheduler.PPUVRAMTransfer, 4)
+				return
+			}
+		}
+	}
+
+	p.s.ScheduleEvent(scheduler.PPUFIFOTransfer, 1)
 }
 
 // startVBlank is performed on the first cycle of each line 144 to 152, and
@@ -600,8 +786,9 @@ func (p *PPU) endOAM() {
 // until for 456 * 10 cycles, when the PPU enters Mode 2 (OAM search) on
 // line 153 (PPU be like line 0, no line 153. you know, line 0, not the line 153 it's the next line :)).
 func (p *PPU) startVBlank() {
+	p.winTriggerWy = false
 	// should we start line 153?
-	if p.currentLine == 153 {
+	if p.ly == 153 {
 		p.startLine153()
 		return
 	}
@@ -610,9 +797,9 @@ func (p *PPU) startVBlank() {
 	p.statUpdate()
 
 	// set the LY register to current scanline
-	p.b.Set(types.LY, p.currentLine)
+	p.b.Set(types.LY, p.ly)
 
-	if p.currentLine == 144 {
+	if p.ly == 144 {
 		p.modeToInt = ModeOAM
 
 		// trigger vblank interrupt
@@ -626,9 +813,9 @@ func (p *PPU) startVBlank() {
 }
 
 func (p *PPU) continueVBlank() {
-	p.lyForComparison = uint16(p.currentLine)
+	p.lyForComparison = uint16(p.ly)
 	p.statUpdate()
-	if p.currentLine == 144 {
+	if p.ly == 144 {
 		p.mode = ModeVBlank
 
 		// trigger vblank interrupt
@@ -643,7 +830,7 @@ func (p *PPU) continueVBlank() {
 		p.modeToInt = ModeVBlank
 		p.statUpdate()
 	}
-	p.currentLine++
+	p.ly++
 
 	p.s.ScheduleEvent(scheduler.PPUStartVBlank, 452)
 }
@@ -675,140 +862,70 @@ func (p *PPU) endLine153() {
 func (p *PPU) endFrame() {
 	p.lyForComparison = 0
 	p.statUpdate()
-	p.currentLine, p.windowInternal = 0, 0
+	p.ly, p.wly = 0, 0
 
 	p.s.ScheduleEvent(scheduler.PPUStartOAMSearch, 444)
 }
 
-func (p *PPU) DumpTileMaps(tileMap1, tileMap2 *image.RGBA, gap int) {
-	// draw tilemap (0x9800 - 0x9BFF)
-	for i := uint8(0); i < 32; i++ {
-		for j := uint8(0); j < 32; j++ {
-			tileEntry := p.TileMaps[0][j][i]
-			// get tile data
-			tile := p.TileData[tileEntry.vRAMBank][getID(tileEntry.id, p.addressMode)]
-			tile.Draw(tileMap1, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette[0])
+type FetcherMode int
 
-			tileEntry = p.TileMaps[1][j][i]
+const (
+	BG FetcherMode = iota
+	Window
+	OBJ
+)
 
-			// get tile data
-			tile = p.TileData[tileEntry.vRAMBank][getID(tileEntry.id, p.addressMode)]
-			tile.Draw(tileMap2, int(i)*(8+gap), int(j)*(8+gap), p.ColourPalette[0])
-		}
+// getTileID determines which background window/tile to fetch pixels from.
+func (p *PPU) getTileID(mode FetcherMode) uint8 {
+	address := uint16(0x1800)
+
+	switch mode {
+	case BG:
+		address |= uint16(p.bgTileMap) << 10
+		address |= uint16(p.ly+p.b.Get(types.SCY)) >> 3 << 5
+		address |= (uint16(p.b.Get(types.SCX)>>3) + uint16(p.fetcherX)) & 0x1f
+	case Window:
+		address |= uint16(p.winTileMap) << 10
+		address |= (uint16(p.wly) >> 3) << 5
+		address |= uint16(p.fetcherX)
 	}
+
+	if p.b.IsGBCCart() && p.b.IsGBC() {
+		p.fetcherTileAttr = p.b.GetVRAM(address, 1)
+	}
+	return p.b.GetVRAM(address, 0)
 }
 
-func (p *PPU) writeOAM(b [160]byte) {
-	p.spriteScanlines = [ScreenHeight]bool{}
-	yMask := int(p.objSize & 0x10)
-	for i, value := range b {
-		// get the current sprite and x, y pos
+// getTileRow fetches one slice of the bitplane currently being read.
+func (p *PPU) getTileRow(mode FetcherMode, id uint8, high bool) uint8 {
+	address := uint16(0x0000)
+	address |= uint16(id) << 4                      // Tile ID Offset
+	address |= uint16(p.addressMode&^(id>>7)) << 12 // Negation of id.7 when LCDC.4 is set
+	attr := p.fetcherTileAttr                       // Objects & CGB Only
+	yPos := uint16(0)
 
-		s := &p.Sprites[i>>2]
-		oldX, oldY := s.x, s.y
-
-		switch i & 3 {
-		case 0:
-			s.y = value
-			// is the sprite visible now?
-			newYPos := s.y
-			if newYPos > ScreenHeight+16 || oldX > ScreenHeight+8 {
-				continue // sprite is not visible
-			}
-
-			// we need to add the positions that the sprite is now visible on
-			for i := int(newYPos) - 16; i < int(newYPos)-yMask && i < ScreenHeight; i++ {
-				if i < 0 {
-					continue
-				}
-				p.spriteScanlines[i] = true
-				p.backgroundLineRendered[i] = false
-			}
-		case 1:
-			s.x = value
-			// is the sprite visible now?
-			newXPos := s.x
-			if newXPos > ScreenWidth+8 || oldY > ScreenHeight+16 {
-				continue // sprite is not visible
-			}
-
-			// we need to add the positions that the sprite is now visible on
-			for i := int(oldY) - 16; i < int(oldY) && i < ScreenHeight; i++ {
-				if i < 0 {
-					continue
-				}
-				p.spriteScanlines[i] = true
-				p.backgroundLineRendered[i] = false
-			}
-		case 2:
-			s.id = value
-		case 3:
-			s.priority = value&types.Bit7 == 0
-			s.yFlip = value&types.Bit6 != 0
-			s.xFlip = value&types.Bit5 != 0
-			s.vRAMBank = (value >> 3) & 1
-
-			if p.b.IsGBCCart() {
-				s.paletteNumber = value & 0x7
-			} else {
-				s.paletteNumber = value & types.Bit4 >> 4
-			}
-		}
+	switch mode {
+	case BG:
+		yPos = uint16(p.ly+p.b.Get(types.SCY)) & 7
+	case Window:
+		yPos = uint16(p.wly & 7)
+	case OBJ:
+		yPos = (uint16(p.ly) - uint16(p.fetchingObj.y)) & 7
+		attr = p.fetchingObj.attr
+		address &^= 0x1000 // Clear Address Mode
 	}
+
+	if attr&types.Bit6 > 0 { // Y-Flip (Objects & CGB Only)
+		yPos = ^yPos & 7
+	}
+	address |= yPos << 1 // Y-Pos Offset
+
+	if high {
+		address |= 1
+	}
+
+	return p.b.GetVRAM(address, attr&types.Bit3>>3)
 }
-
-func (p *PPU) writeVRAM(changes []io.VRAMChange) {
-	var tileC bool
-	for _, c := range changes {
-		address, bank, value := c.Address, c.Bank, c.Value
-		address &= 0x1FFF
-
-		switch {
-		case address <= 0x17FF:
-			p.TileData[bank][address>>4][(address>>1)&0x7+((address&1)<<3)] = value
-			tileC = true
-
-		case address <= 0x1FFF:
-			y, x, id := (address>>5)&0x1f, address&0x1f, (address>>10)&1
-			switch bank {
-			case 0:
-				p.TileMaps[id][y][x].id = value
-			case 1:
-				// update the tilemap
-				t := &p.TileMaps[id][y][x]
-				t.priority = value&0x80 != 0
-				t.yFlip = value&types.Bit6 != 0
-				t.xFlip = value&types.Bit5 != 0
-				t.paletteNumber = value & 0b111
-				t.vRAMBank = value >> 3 & 0x1
-			}
-			if uint8(id) == p.bgTileMap && x<<3 < ScreenWidth {
-				for kY := y << 3; kY < ScreenHeight && kY < y<<3+8; kY++ {
-					p.backgroundLineShallowRender[kY] = false
-				}
-			}
-		}
-	}
-
-	if tileC {
-		p.dirtyBackground(tile)
-	}
-}
-
-// colorNumber is a helper function to determine the colour number of the given index
-func colorNumber(b1, b2, index uint8, xFlip bool) uint8 {
-	shift := 7 - index
-	if xFlip {
-		shift = index
-	}
-	return (b1 >> shift & 0x1) | ((b2 >> shift & 0x1) << 1)
-}
-
-var colourNumberLUT = [256][256]uint16{}
-var colourNumberLUTReversed = [256][256]uint16{}
-
-// getID is a helper function to determine the ID of a tile according to the addressing mode
-func getID(id, mode uint8) uint16 { return uint16(id) + uint16(mode&^(id>>7))<<8 }
 
 // scroll is a helper function to determine the cycle offset of a scroll value
 func scroll(value uint8) uint8 { return (value&7 + 3) &^ 3 }
@@ -840,27 +957,6 @@ func (p *PPU) statUpdate() {
 	}
 }
 
-func (p *PPU) renderScanline() {
-	currentScanline := p.b.Get(types.LY)
-	if p.b.VRAMChanged() {
-		p.b.VRAMCatchup(p.writeVRAM)
-	}
-	if (!p.backgroundLineRendered[currentScanline]) && p.bgEnabled || p.b.IsGBCCart() {
-		p.renderBackgroundScanline()
-	}
-
-	if p.winEnabled && !p.Debug.WindowDisabled {
-		p.renderWindowScanline()
-	}
-
-	if p.b.OAMChanged() {
-		p.b.OAMCatchup(p.writeOAM)
-	}
-	if p.objEnabled && p.spriteScanlines[currentScanline] && !p.Debug.SpritesDisabled {
-		p.renderSpritesScanline(currentScanline)
-	}
-}
-
 func (p *PPU) renderBlank() {
 	for y := uint8(0); y < ScreenHeight; y++ {
 		for x := uint8(0); x < ScreenWidth; x++ {
@@ -868,186 +964,4 @@ func (p *PPU) renderBlank() {
 		}
 	}
 	p.cleared = true
-}
-
-func (p *PPU) renderWindowScanline() {
-	// do nothing if window is out of bounds
-	if p.b.Get(types.LY) < p.b.Get(types.WY) ||
-		p.b.Get(types.WX) > ScreenWidth ||
-		p.b.Get(types.WY) > ScreenHeight {
-		return
-	}
-
-	// get the initial x pos and pixel pos
-	xPos, xPixelPos := uint8(0), uint8(0)
-
-	// get the first tile entry
-	tileEntry, b1, b2, pal := p.getTile(xPos, p.windowInternal, p.winTileMap)
-
-	scanline := &p.PreparedFrame[p.currentLine]
-
-	for i := int(p.b.Get(types.WX)) - 7; i < ScreenWidth; i++ {
-		if i < 0 {
-			continue
-		}
-		colorNum := colorNumber(b1, b2, xPixelPos, tileEntry.xFlip)
-		*(*[3]uint8)(unsafe.Pointer(&scanline[i])) = pal[colorNum]
-
-		p.scanlineInfo[i] = colorNum
-		if tileEntry.priority {
-			p.scanlineInfo[i] |= 0b100
-		}
-
-		// did we just finish a tile?
-		if xPixelPos++; xPixelPos == 8 {
-			xPos += 8
-			// get the next tile entry
-			tileEntry, b1, b2, pal = p.getTile(xPos, p.windowInternal, p.winTileMap)
-
-			xPixelPos = 0
-		}
-	}
-
-	p.dirtyScanlines[p.currentLine] = true
-	p.windowInternal++
-}
-
-// getTile returns the TileEntry, and palette for the
-// tile at the given xPos and yPos on the given tile map.
-func (p *PPU) getTile(xPos, yPos, tileMap uint8) (tileEntry TileEntry, b1, b2 uint8, pal Palette) {
-	tileEntry = p.TileMaps[tileMap][yPos>>3][xPos>>3]
-	pal = p.ColourPalette[tileEntry.paletteNumber]
-
-	yPixelPos := yPos & 7
-	if tileEntry.yFlip {
-		yPixelPos = 7 - yPixelPos
-	}
-	tileData := p.TileData[tileEntry.vRAMBank][getID(tileEntry.id, p.addressMode)][yPixelPos:]
-	b1, b2 = tileData[0], tileData[8]
-
-	return
-}
-
-func (p *PPU) renderBackgroundScanline() {
-	// get the initial x and y pos
-	yPos := p.b.Get(types.LY) + p.b.Get(types.SCY)
-	xPos := p.b.Get(types.SCX)
-	xPixelPos := xPos & 7
-
-	// get the first tile entry
-	tileEntry, b1, b2, pal := p.getTile(xPos, yPos, p.bgTileMap)
-	var colourLUT = colourNumberLUT[b1][b2]
-	if tileEntry.xFlip {
-		colourLUT = colourNumberLUTReversed[b1][b2]
-	}
-	var scanline [ScreenWidth][3]uint8
-	colourLUT >>= xPixelPos << 1
-
-	for i := uint8(0); i < ScreenWidth; {
-		for x := xPixelPos; x < 8 && i < ScreenWidth; x++ {
-			// get color number of pixel
-			colorNum := colourLUT & 3
-			colourLUT >>= 2
-			// set scanline using unsafe to copy 4 bytes at a time
-			scanline[i] = pal[colorNum]
-
-			p.scanlineInfo[i] = uint8(colorNum)
-			if tileEntry.priority {
-				p.scanlineInfo[i] |= 0b100
-			}
-
-			xPixelPos++
-			xPos++
-			i++
-		}
-
-		if i < ScreenWidth {
-			tileEntry, b1, b2, pal = p.getTile(xPos, yPos, p.bgTileMap)
-			colourLUT = colourNumberLUT[b1][b2]
-			if tileEntry.xFlip {
-				colourLUT = colourNumberLUTReversed[b1][b2]
-			}
-
-			xPixelPos = 0
-		}
-	}
-
-	p.backgroundLineRendered[p.b.Get(types.LY)] = true
-	p.dirtyScanlines[p.b.Get(types.LY)] = false
-
-	// update scanline in frame
-	p.PreparedFrame[p.b.Get(types.LY)] = scanline
-}
-
-func (p *PPU) renderSpritesScanline(scanline uint8) {
-	spriteXPerScreen := [ScreenWidth]uint8{}
-	spriteCount := 0 // number of sprites on the current scanline (max 10)
-
-	objSize := p.objSize
-	for _, sprite := range p.Sprites {
-		adjustedScanline := scanline + 16
-		if sprite.y > adjustedScanline || sprite.y+p.objSize <= adjustedScanline {
-			continue
-		}
-
-		yPixelPos := scanline - sprite.y
-		if sprite.yFlip {
-			yPixelPos = p.objSize - yPixelPos - 1
-		}
-		yPixelPos &= 7
-		tileID := sprite.id
-		if objSize == 16 {
-			if (adjustedScanline-sprite.y < 8 && sprite.yFlip) || (adjustedScanline-sprite.y >= 8 && !sprite.yFlip) {
-				tileID |= 0x01
-			} else {
-				tileID &= 0xFE
-			}
-		}
-
-		// get the 2 bytes of data that make up the row of the tile
-		b1 := p.TileData[sprite.vRAMBank][tileID][yPixelPos]
-		b2 := p.TileData[sprite.vRAMBank][tileID][yPixelPos+8]
-
-		pal := p.ColourSpritePalette[sprite.paletteNumber]
-		colourLUT := colourNumberLUT[b1][b2]
-		if sprite.xFlip {
-			colourLUT = colourNumberLUTReversed[b1][b2]
-		}
-
-		for x := uint8(0); x < 8 && (sprite.x)+x < ScreenWidth+8; x++ {
-			colourNumber := colourLUT & 3
-			colourLUT >>= 2
-			pixelPos := (sprite.x - 8) + x
-			if pixelPos >= ScreenWidth {
-				continue
-			}
-
-			// skip if the color is transparent
-			if colourNumber == 0 ||
-				// handle bg/win tile -> sprite priority
-				(!p.b.IsGBCCart() || p.bgEnabled) && !(sprite.priority && p.scanlineInfo[pixelPos]&4 == 0) && p.scanlineInfo[pixelPos]&3 != 0 ||
-				// skip if sprite is already drawn on this pixel
-				spriteXPerScreen[pixelPos] != 0 && (p.b.IsGBCCart() || spriteXPerScreen[pixelPos] <= sprite.x) {
-				continue
-			}
-
-			// did rendering this sprite change the background
-			if p.PreparedFrame[scanline][pixelPos] != pal[colourNumber] {
-				p.backgroundLineRendered[scanline] = false
-				p.PreparedFrame[scanline][pixelPos] = pal[colourNumber]
-			}
-
-			// mark the pixel as occupied
-			spriteXPerScreen[pixelPos] = sprite.x
-		}
-
-		if spriteCount++; spriteCount == 10 {
-			break
-		}
-	}
-}
-
-func (p *PPU) DrawSprite(img *image.RGBA, spr Sprite) {
-	// get the tile that sprite is using and call tile.Draw
-	p.TileData[spr.vRAMBank][spr.id].Draw(img, 0, 0, p.ColourSpritePalette[spr.paletteNumber])
 }

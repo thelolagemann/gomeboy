@@ -317,7 +317,7 @@ func (c *Camera) Refresh() {
 				y += 8
 				x = 0
 			}
-			c.PPU.TileData[0][tile].Draw(c.tiledImage.Image.(*image.RGBA), x, y, c.PPU.ColourPalette[0])
+			//c.PPU.TileData[0][tile].Draw(c.tiledImage.Image.(*image.RGBA), x, y, c.PPU.ColourPalette[0])
 			x += 8
 		}
 	}
