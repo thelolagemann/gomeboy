@@ -288,6 +288,10 @@ func (c *Cartridge) IsCGBCartridge() bool {
 	return c.CGBFlag > CGBUnset
 }
 
+func (c *Cartridge) CGBMode() bool {
+	return c.CGBFlag == CGBOnly
+}
+
 // Licensee returns the Licensee of the cartridge, according to the parsed header data.
 func (c *Cartridge) Licensee() string {
 	if c.OldLicenseeCode == 0x33 {

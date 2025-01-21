@@ -19,7 +19,6 @@ const (
 	PPUHBlankInterrupt
 	PPUBeginFIFO
 	PPUFIFOTransfer
-	PPUEndFIFO
 	PPUStartOAMSearch
 	PPUEndFrame
 	PPUContinueOAMSearch

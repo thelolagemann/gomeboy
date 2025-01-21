@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
@@ -32,13 +33,6 @@ type Sprite struct {
 	x, y uint8
 	attr uint8
 	id   uint8
-	TileEntry
-}
-
-// TileEntry is used to define a tile in the tile map or OAM.
-type TileEntry struct {
-	id, paletteNumber, vRAMBank uint8
-	priority, xFlip, yFlip      bool
 }
 
 type Palette [4][3]uint8 // 4 RGB values
@@ -134,7 +128,11 @@ type PPU struct {
 		SpritesDisabled, BackgroundDisabled, WindowDisabled bool
 	}
 
-	bgFIFO, objFIFO               FIFO
+	bgFIFO, objFIFO         FIFO
+	bgFIFOTail, objFIFOTail int
+	bgFIFOHead, objFIFOHead int
+	bgFIFOSize, objFIFOSize int
+
 	bgFetcherStep, objFetcherStep FIFOStep
 
 	fetcherTileNo, fetcherTileAttr uint8
@@ -150,15 +148,14 @@ type PPU struct {
 }
 
 // A FIFO can hold up to 8 pixels, the width of one tile.
-type FIFO []FIFOEntry
+type FIFO [8]FIFOEntry
 
-// A FIFOEntry represents a single pixel in a FIFO and is composed of
-// 2 bytes and four properties.
+// A FIFOEntry represents a single pixel in a FIFO.
 type FIFOEntry struct {
 	Color      uint8
 	Palette    uint8
 	Attributes uint8
-	ID         uint8
+	Handled    bool
 }
 
 type FIFOStep int
@@ -311,11 +308,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 	// setup CGB only registers
 	b.RegisterGBCHandler(func() {
-		if p.b.IsGBCCart() {
-			b.ReserveAddress(types.OPRI, func(v byte) byte {
-				return v | 0xfe
-			})
-		}
 		b.ReserveAddress(types.BCPS, func(v byte) byte {
 			p.bcpsIndex = v & 0x3F
 			p.bcpsIncrement = v&types.Bit7 > 0
@@ -510,9 +502,7 @@ func (p *PPU) startHBlank() {
 		p.b.HandleHDMA()
 	}
 
-	// schedule end of ModeHBlank
-	p.s.ScheduleEvent(scheduler.PPUHBlank, uint64(196-scroll(p.b.Get(types.SCX)))-p.fifoCycle)
-	p.fifoCycle = 0
+	p.s.ScheduleEvent(scheduler.PPUHBlank, 196-uint64(scroll(p.b.Get(types.SCX))))
 }
 
 // startOAM is performed on the first cycle of lines 0 to 143, and performs
@@ -610,15 +600,20 @@ func (p *PPU) endOAM() {
 
 func (p *PPU) beginFIFO() {
 	// clear fifo stuff
-	p.bgFIFO, p.objFIFO = FIFO{}, FIFO{}
-	p.lx = -int(p.b.Get(types.SCX) % 8)
+	p.objFIFO = FIFO{}
+	p.bgFIFO = FIFO{}
+	p.bgFIFOHead, p.objFIFOHead = 0, 0
+	p.bgFIFOTail, p.objFIFOTail = 0, 0
+	p.bgFIFOSize, p.objFIFOSize = 0, 0
+
+	p.lx = -int(p.b.Get(types.SCX) & 7)
 	p.fetcherX = 0
 	p.bgFetcherStep = 0
 	p.objFetcherStep = 0
 	p.fetcherObj = false
 
-	// output to the display is delayed by SCX % 8 dots while the pixels are discarded from the fetched tile
 	p.fifoTransfer()
+	p.fifoCycle = 0
 }
 
 func (p *PPU) fifoTransfer() {
@@ -645,34 +640,30 @@ func (p *PPU) fifoTransfer() {
 				p.objFetcherLow = bits.Reverse8(p.objFetcherLow)
 				p.objFetcherHigh = bits.Reverse8(p.objFetcherHigh)
 			}
-
 			j := uint8(0)
 			for i := uint8(0x80); i > 0; i >>= 1 {
 				if p.fetchingObj.x+j < 8 {
-
 					continue // offscreen
 				}
 
 				objFIFO := FIFOEntry{
 					Attributes: p.fetchingObj.attr,
 					Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
+					Handled:    true,
 				}
 				if p.b.IsGBCCart() && p.b.IsGBC() {
 					objFIFO.Palette = p.fetchingObj.attr & 7
 				}
-				if p.objFetcherLow&i > 0 {
-					objFIFO.Color |= 1
-				}
-				if p.objFetcherHigh&i > 0 {
-					objFIFO.Color |= 2
-				}
+				objFIFO.Color = ((p.objFetcherLow & i) >> (7 - j)) | ((p.objFetcherHigh&i)>>(7-j))<<1
 
-				if len(p.objFIFO) > 0 && int(j) < len(p.objFIFO) {
-					if p.objFIFO[j].Color == 0 || p.b.IsGBCCart() && p.b.IsGBC() && p.b.Get(types.OPRI)&types.Bit0 == 0 {
+				if int(j) < p.objFIFOSize {
+					if p.objFIFO[j].Color == 0 && p.objFIFO[j].Handled || p.b.Cartridge().CGBMode() {
 						p.objFIFO[j] = objFIFO
 					}
 				} else {
-					p.objFIFO = append(p.objFIFO, objFIFO)
+					p.objFIFO[p.objFIFOTail] = objFIFO
+					p.objFIFOTail = (p.objFIFOTail + 1) & 7
+					p.objFIFOSize++
 				}
 
 				j++
@@ -692,6 +683,7 @@ func (p *PPU) fifoTransfer() {
 		p.fetcherX = 0
 		p.bgFetcherStep = 0
 		p.bgFIFO = FIFO{}
+		p.bgFIFOHead, p.bgFIFOTail, p.bgFIFOSize = 0, 0, 0
 	}
 
 	fetcherMode := BG
@@ -712,21 +704,18 @@ func (p *PPU) fifoTransfer() {
 		}
 	case PushPixels:
 		// do we need to refill the FIFO?
-		if len(p.bgFIFO) == 0 {
-
+		if p.bgFIFOSize == 0 {
+			var j = uint8(0)
 			for i := uint8(0x80); i > 0; i >>= 1 {
 				entry := FIFOEntry{}
-				if p.bgEnabled || p.b.IsGBCCart() && p.b.IsGBC() {
-					if p.fetcherLow&i > 0 {
-						entry.Color |= 1
-					}
-					if p.fetcherHigh&i > 0 {
-						entry.Color |= 2
-					}
-
+				if p.bgEnabled || p.b.Cartridge().CGBMode() && p.b.IsGBC() {
+					entry.Color = ((p.fetcherLow & i) >> (7 - j)) | ((p.fetcherHigh&i)>>(7-j))<<1
 					entry.Attributes = p.fetcherTileAttr
 				}
-				p.bgFIFO = append(p.bgFIFO, entry)
+				p.bgFIFO[p.bgFIFOTail] = entry
+				p.bgFIFOTail = (p.bgFIFOTail + 1) & 7
+				p.bgFIFOSize++
+				j++
 			}
 
 			// reset fetcher state and advance x
@@ -740,29 +729,30 @@ func (p *PPU) fifoTransfer() {
 	p.bgFetcherStep++
 
 	// are there any pixels in the FIFO?
-	if len(p.bgFIFO) > 0 {
+	if p.bgFIFOSize > 0 {
 		// handle offscreen pixels
 		if p.lx < 0 {
-			p.bgFIFO = p.bgFIFO[1:]
+			p.bgFIFOHead = (p.bgFIFOHead + 1) & 7
+			p.bgFIFOSize--
 			p.lx++
 		} else {
-			bgPX := p.bgFIFO[0]
-			var colors = p.ColourPalette[bgPX.Attributes&7][bgPX.Color]
+			bgPX := p.bgFIFO[p.bgFIFOHead]
+			*(*[3]uint8)(unsafe.Pointer(&p.PreparedFrame[p.ly][p.lx])) = p.ColourPalette[bgPX.Attributes&7][bgPX.Color]
 
-			if len(p.objFIFO) > 0 {
-				objPX := p.objFIFO[0]
-				p.objFIFO = p.objFIFO[1:]
+			if p.objFIFOSize > 0 {
+				objPX := p.objFIFO[p.objFIFOHead]
+				p.objFIFOHead = (p.objFIFOHead + 1) & 7
+				p.objFIFOSize--
 
 				if objPX.Color > 0 &&
 					(bgPX.Color == 0 ||
-						!(objPX.Attributes&types.Bit7 > 0 || (p.b.IsGBCCart() && p.b.IsGBC() && bgPX.Attributes&types.Bit7 > 0 && p.bgEnabled))) {
-					colors = p.ColourSpritePalette[objPX.Palette][objPX.Color]
+						!(objPX.Attributes&types.Bit7 > 0 || (p.b.Cartridge().CGBMode() && p.b.IsGBC() && bgPX.Attributes&types.Bit7 > 0 && p.bgEnabled))) {
+					p.PreparedFrame[p.ly][p.lx] = p.ColourSpritePalette[objPX.Palette][objPX.Color]
 				}
 			}
 
-			// shift pixel from FIFO to screen
-			p.PreparedFrame[p.ly][p.lx] = colors
-			p.bgFIFO = p.bgFIFO[1:]
+			p.bgFIFOHead = (p.bgFIFOHead + 1) & 7
+			p.bgFIFOSize--
 
 			p.lx++
 			// have we filled the LCD yet?
