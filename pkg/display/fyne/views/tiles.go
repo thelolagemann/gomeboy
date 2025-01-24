@@ -326,12 +326,21 @@ func (t *Tiles) Refresh() {
 }
 
 func getTileData(b *io.Bus, bank int, index int) Tile {
-	var t Tile
-	for i := 0; i < 16; i++ {
-		t[i] = b.GetVRAM(0000, 0)
+	var t, tT Tile = make(Tile, 16), make(Tile, 16)
+	address := uint16(0x0000) | uint16(index)<<4
+	for i := uint16(0); i < 16; i++ {
+		t[i] = b.GetVRAM(address+i, uint8(bank))
 	}
 
-	return t
+	for i := 0; i < 16; i++ {
+		if i%2 == 0 {
+			tT[i/2] = t[i]
+		} else {
+			tT[8+i/2] = t[i]
+		}
+	}
+
+	return tT
 }
 
 func (t *Tiles) getTiles(w, h int, bank0, bank1 bool) *image.RGBA {

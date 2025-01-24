@@ -15,7 +15,7 @@ const (
 	EIHaltDelay
 
 	PPUStartHBlank
-	PPUHBlank
+	PPUEndHBlank
 	PPUHBlankInterrupt
 	PPUBeginFIFO
 	PPUFIFOTransfer
@@ -28,7 +28,7 @@ const (
 	PPULine153End
 	PPUStartVBlank
 	PPUContinueVBlank
-	PPUVRAMTransfer
+	PPUEndVRAMTransfer
 	PPUStartGlitchedLine0
 	PPUMiddleGlitchedLine0
 	PPUContinueGlitchedLine0

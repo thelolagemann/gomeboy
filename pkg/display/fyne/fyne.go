@@ -344,10 +344,11 @@ func (f *fyneDriver) createMainMenu() {
 	}
 	debugContent := []debugContentView{
 		{"CPU", func() fyne.CanvasObject { return views.NewCPU(f.gb.CPU, f.gb.Bus) }},
+		{"FIFO", func() fyne.CanvasObject { return views.NewFIFO(f.gb.PPU) }},
 		{"Palette Viewer", func() fyne.CanvasObject { return views.NewPalette(f.gb.PPU) }},
 		{"Tile Viewer", func() fyne.CanvasObject { return views.NewTiles(f.gb.PPU) }},
 		{"Tilemap Viewer", func() fyne.CanvasObject { return views.NewTilemaps(f.gb.PPU) }},
-		{"OAM", func() fyne.CanvasObject { return views.NewOAM(f.gb.PPU) }},
+		{"OAM", func() fyne.CanvasObject { return views.NewOAM(f.gb.PPU, f.gb.Bus) }},
 		{"Cartridge Info", func() fyne.CanvasObject { return views.NewCartridge(f.gb.Bus.Cartridge()) }},
 		{"Memory Viewer", func() fyne.CanvasObject { return views.NewMemory(f.gb.Bus) }},
 		{"IO", func() fyne.CanvasObject { return views.NewIO(f.gb.Bus) }},

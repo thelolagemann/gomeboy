@@ -77,7 +77,7 @@ var ModelEvents = map[Model][]Event{
 	},
 	SGB: {
 		{scheduler.APUSample, 64},
-		{scheduler.PPUHBlank, 196},
+		{scheduler.PPUEndHBlank, 196},
 		{scheduler.APUFrameSequencer, 952},
 		{scheduler.APUChannel3, 952},
 	},

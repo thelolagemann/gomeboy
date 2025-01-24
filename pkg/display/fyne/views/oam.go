@@ -1,10 +1,13 @@
 package views
 
 import (
+	"bytes"
+	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"image"
 	"strconv"
@@ -13,6 +16,7 @@ import (
 type OAM struct {
 	widget.BaseWidget
 	PPU         *ppu.PPU
+	b           *io.Bus
 	spriteImgs  []*canvas.Image
 	spriteTiles []Tile
 
@@ -23,8 +27,8 @@ type OAM struct {
 	scaleFactor, scaleFactorActive int
 }
 
-func NewOAM(p *ppu.PPU) *OAM {
-	o := &OAM{PPU: p}
+func NewOAM(p *ppu.PPU, b *io.Bus) *OAM {
+	o := &OAM{PPU: p, spriteTiles: make([]Tile, 40), b: b}
 	o.ExtendBaseWidget(o)
 	return o
 }
@@ -83,19 +87,25 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 
 func (o *OAM) Refresh() {
 	for i, img := range o.spriteImgs {
-		DrawTile(o.spriteTiles[i], o.spriteImgs[i].Image.(*image.RGBA))
+		// get the tile id from bus
+		tileID := o.b.Get(0xfe00 + uint16(i)<<2 + 2)
+		data := getTileData(o.b, 0, int(tileID))
+		if bytes.Equal(data, o.spriteTiles[i]) {
+			continue
+		}
+		o.spriteTiles[i] = data
+
+		o.spriteTiles[i].Draw(o.spriteImgs[i].Image.(*image.RGBA), 0, 0, o.PPU.ColourSpritePalette[0])
 		if o.scaleFactorActive != o.scaleFactor {
 			img.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
 		}
 		img.Refresh()
 	}
-	DrawTile(o.spriteTiles[o.selectedSprite], o.selectedSpriteImage)
+	o.spriteTiles[o.selectedSprite].Draw(o.selectedSpriteImage, 0, 0, o.PPU.ColourSpritePalette[0])
 	o.selectedSpriteRaster.Refresh()
+	address := 0xfe00 + uint16(o.selectedSprite<<2)
+	o.selectedSpriteGrid.SetText(fmt.Sprintf("Y: %d\nX: %d\nID: %02x\nAttributes: %08b\n", o.b.Get(address), o.b.Get(address+1), o.b.Get(address+2), o.b.Get(address+3)))
 	o.scaleFactorActive = o.scaleFactor
-}
-
-func DrawTile(t Tile, img *image.RGBA) {
-
 }
 
 // A Tile has a size of 8x8 pixels, using a 2bpp format.
