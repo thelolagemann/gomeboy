@@ -643,7 +643,7 @@ func (p *PPU) beginFIFO() {
 
 func (p *PPU) fifoTransfer() {
 	// does an obj need to be fetched?
-	if p.objEnabled && !p.fetcherObj && len(p.objBuffer) > 0 {
+	if (p.objEnabled) && !p.fetcherObj && len(p.objBuffer) > 0 {
 		if int(p.objBuffer[0].x) <= p.lx+8 {
 			p.fetchingObj = p.objBuffer[0]
 			p.objBuffer = p.objBuffer[1:]
@@ -680,20 +680,23 @@ func (p *PPU) fifoTransfer() {
 					Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
 					Handled:    true,
 				}
-				if p.b.IsGBCCart() && p.b.IsGBC() {
+				if p.b.Cartridge().CGBMode() && p.b.IsGBC() {
 					objFIFO.Palette = p.fetchingObj.attr & 7
 				}
 				objFIFO.Color = ((p.objFetcherLow & i) >> (7 - j)) | ((p.objFetcherHigh&i)>>(7-j))<<1
 
 				if int(j) < p.objFIFOSize {
-					if p.objFIFO[j].Color == 0 || p.b.Cartridge().CGBMode() {
-						p.objFIFO[j] = objFIFO
+					if p.objFIFO[(p.objFIFOStart+int(j))%8].Color == 0 || p.b.Cartridge().CGBMode() {
+						p.objFIFO[(p.objFIFOStart+int(j))%8] = objFIFO
 					}
 				} else {
 					p.objFIFO[p.objFIFOCount] = objFIFO
 					p.objFIFOCount = (p.objFIFOCount + 1) & 7
 					p.objFIFOSize++
 
+					if p.objFIFOSize > 8 {
+						panic(p.objFIFOSize)
+					}
 				}
 
 				j++
