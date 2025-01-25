@@ -54,3 +54,48 @@ func ZeroAdjust[T constraints.Integer](v T) T {
 	}
 	return v
 }
+
+type FIFO[T any] struct {
+	data           []T
+	tail, head     int
+	capacity, size int
+}
+
+func NewFIFO[T any](size int) *FIFO[T] {
+	f := &FIFO[T]{capacity: size}
+	f.data = make([]T, size)
+	return f
+}
+
+func (f *FIFO[T]) Push(v T) {
+	if f.size >= f.capacity {
+		return // FIFO is full
+	}
+	f.data[f.tail] = v
+	f.tail = (f.tail + 1) % f.capacity
+	f.size++
+}
+
+func (f *FIFO[T]) GetIndex(i int) T {
+	return f.data[(f.head+i)%f.capacity]
+}
+
+func (f *FIFO[T]) ReplaceIndex(i int, v T) {
+	f.data[(f.head+i)%f.capacity] = v
+}
+
+func (f *FIFO[T]) Pop() (T, bool) {
+	if f.size == 0 {
+		return f.data[0], false // FIFO is empty
+	}
+	fe := f.data[f.head]
+	f.head = (f.head + 1) % f.capacity
+	f.size--
+
+	return fe, true
+}
+
+func (f *FIFO[T]) Size() int { return f.size }
+func (f *FIFO[T]) Cap() int  { return f.capacity }
+
+func (f *FIFO[T]) Reset() { f.head, f.tail, f.size = 0, 0, 0 }
