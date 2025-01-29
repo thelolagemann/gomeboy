@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unsafe"
 )
 
 const (
@@ -100,10 +99,13 @@ type PPU struct {
 	mode, modeToInt, ly, status uint8
 	lx                          int
 	lyCompare, wly              uint8
+	scy, scx                    uint8
 
 	lyForComparison uint16
 	lycINT, statINT bool
 
+	latchedX                     uint8
+	cgbMode                      bool
 	cRAM                         [128]uint8 // 64 bytes BG+OBJ
 	bcpsIncrement, ocpsIncrement bool
 	bcpsIndex, ocpsIndex         uint8
@@ -136,17 +138,19 @@ type PPU struct {
 
 	fetcherTileNo, fetcherTileAttr uint8
 	fetcherX                       uint8
-	fetcherLow, fetcherHigh        uint8
+	fetcherData                    [2]uint8
 	objFetcherLow, objFetcherHigh  uint8
 	fetcherObj                     bool
 	fetchingObj                    Sprite
 	fetcherWin                     bool
 	winTriggerWy                   bool
 
-	objBuffer []Sprite
+	objBuffer   []Sprite
+	visibleObjs int
 
-	fetcherTileNoAddress, fetcherLowAddress, fetcherHighAddress uint16
-	objFetcherLowAddress, objFetcherHighAddress                 uint16
+	fetcherTileNoAddress, fetcherAddress        uint16
+	objFetcherLowAddress, objFetcherHighAddress uint16
+	firstTile                                   bool
 }
 
 type DebugColor uint32
@@ -165,10 +169,7 @@ type FIFOEntry struct {
 	Color      uint8
 	Palette    uint8
 	Attributes uint8
-	Handled    bool
-
-	OBJIndex uint8
-	OBJXPos  uint8
+	OBJIndex   uint8
 }
 
 type Fetcher struct {
@@ -237,6 +238,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 			p.cleared = false
 			p.fifoCycle = p.s.Cycle()
+			p.cgbMode = b.IsGBCCart() && b.IsGBC()
 			p.s.ScheduleEvent(scheduler.PPUStartGlitchedLine0, 76)
 		}
 
@@ -270,12 +272,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
+		p.scy = v
 		return v
 	})
 	b.ReserveAddress(types.SCX, func(v byte) byte {
-		if p.lx >= 0 && p.ly < 144 && p.lx < 160 {
-			p.DebugView[p.ly][p.lx] = SCXPalette.RGB()
-		}
+		p.scx = v
 		return v
 	})
 	b.ReserveAddress(types.LY, func(v byte) byte {
@@ -492,14 +493,13 @@ func (p *PPU) endGlitchedLine0() {
 }
 
 func (p *PPU) endHBlank() {
+	if p.ly != 143 {
+		p.modeToInt = ModeOAM
+	}
+
 	// increment current scanline
 	p.ly++
-	p.modeToInt = ModeOAM
 
-	scanlineTook := p.s.Cycle() - p.fifoCycle
-	if scanlineTook != 456 && scanlineTook != 452 {
-		//panic(p.s.Cycle() - p.fifoCycle)
-	}
 	// if we are on line 144, we are entering ModeVBlank
 	if p.ly == 144 {
 		// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
@@ -521,9 +521,8 @@ func (p *PPU) endHBlank() {
 
 func (p *PPU) endVRAMTransfer() {
 	p.mode, p.modeToInt = ModeHBlank, ModeHBlank
+	p.b.Unlock(io.OAM | io.VRAM)
 
-	p.b.Unlock(io.OAM)
-	p.b.Unlock(io.VRAM)
 	p.s.ScheduleEvent(scheduler.PPUStartHBlank, 4)
 }
 
@@ -538,7 +537,7 @@ func (p *PPU) startHBlank() {
 		dotsPast >>= 1
 	}
 
-	p.s.ScheduleEvent(scheduler.PPUEndHBlank, 456-(dotsPast))
+	p.s.ScheduleEvent(scheduler.PPUEndHBlank, 456-dotsPast)
 }
 
 // startOAM is performed on the first cycle of lines 0 to 143, and performs
@@ -592,49 +591,53 @@ func (p *PPU) endOAM() {
 	p.mode, p.modeToInt = ModeVRAM, ModeVRAM
 
 	p.b.Lock(io.OAM | io.VRAM)
+	p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, 168+uint64(scroll(p.scx)))
 }
-
+func scroll(value uint8) uint8 { return (value&7 + 3) &^ 3 }
 func (p *PPU) beginFIFO() {
 	p.objFIFO.Reset()
 	p.bgFIFO.Reset()
-	// fill obj buffer
-	p.objBuffer = []Sprite{}
-	for i := uint16(0); i < 0xa0 && len(p.objBuffer) < 10; i += 4 {
-		y, x, id, attr := p.b.Get(0xfe00+i), p.b.Get(0xfe00+i+1), p.b.Get(0xfe00+i+2), p.b.Get(0xfe00+i+3)
 
-		if p.ly+16 >= y &&
-			p.ly+16 < y+p.objSize {
-			spr := Sprite{
-				y:     y,
-				x:     x,
-				id:    id,
-				attr:  attr,
-				index: uint8(i) >> 2,
-			}
+	if p.objEnabled || p.cgbMode {
+		// fill obj buffer
+		p.objBuffer = []Sprite{}
+		for i := uint16(0); i < 0xa0 && len(p.objBuffer) < 10; i += 4 {
+			y, x, id, attr := p.b.Get(0xfe00+i), p.b.Get(0xfe00+i+1), p.b.Get(0xfe00+i+2), p.b.Get(0xfe00+i+3)
 
-			if p.objSize == 16 {
-				if (p.ly+16-y < 8 && spr.attr&types.Bit6 > 0) || (p.ly+16-y >= 8 && spr.attr&types.Bit6 == 0) {
-					spr.id |= 1
-				} else {
-					spr.id &= 0xfe
+			if p.ly+16 >= y &&
+				p.ly+16 < y+p.objSize {
+				spr := Sprite{
+					y:     y,
+					x:     x,
+					id:    id,
+					attr:  attr,
+					index: uint8(i) >> 2,
 				}
+
+				if p.objSize == 16 {
+					if (p.ly+16-y < 8 && spr.attr&types.Bit6 > 0) || (p.ly+16-y >= 8 && spr.attr&types.Bit6 == 0) {
+						spr.id |= 1
+					} else {
+						spr.id &= 0xfe
+					}
+				}
+
+				p.objBuffer = append(p.objBuffer, spr)
 			}
-
-			p.objBuffer = append(p.objBuffer, spr)
 		}
+
+		sort.SliceStable(p.objBuffer, func(i, j int) bool {
+			return p.objBuffer[i].x < p.objBuffer[j].x
+		})
+		p.visibleObjs = len(p.objBuffer)
 	}
-
-	sort.SliceStable(p.objBuffer, func(i, j int) bool {
-		return p.objBuffer[i].x < p.objBuffer[j].x
-	})
-
-	p.lx = -int(p.b.Get(types.SCX) & 7)
+	p.lx = -int(p.scx & 7)
 	p.fetcherX = 0
 	p.fetcherWin = false
 	p.bgFetcherStep = 0
 	p.objFetcherStep = 0
 	p.fetcherObj = false
-	p.fetcherTileNoAddress, p.fetcherLowAddress, p.fetcherHighAddress = 0, 0, 0
+	p.fetcherTileNoAddress, p.fetcherAddress = 0, 0
 	p.objFetcherLowAddress, p.objFetcherHighAddress = 0, 0
 	if !p.winTriggerWy {
 		p.winTriggerWy = p.b.Get(types.WY) == p.ly
@@ -643,14 +646,70 @@ func (p *PPU) beginFIFO() {
 	p.s.ScheduleEvent(scheduler.PPUFIFOTransfer, 6) // 6 cycles for the offscreen fetch
 }
 
+func (p *PPU) stepPixelFetcher() {
+	mode := BG
+	if p.fetcherWin {
+		mode = Window
+	}
+	switch p.bgFetcherStep {
+	case GetTileIDT1:
+		p.fetcherTileNoAddress = p.getTileID(mode)
+		p.bgFetcherStep++
+	case GetTileIDT2:
+		p.fetcherTileNo = p.b.GetVRAM(p.fetcherTileNoAddress, 0)
+		if p.cgbMode { // CGB access both tile ID & attributes on the same dot
+			p.fetcherTileAttr = p.b.GetVRAM(p.fetcherTileNoAddress, 1)
+		}
+		p.bgFetcherStep++
+	case GetTileRowLowT1:
+		p.fetcherAddress = p.getTileRow(mode, p.fetcherTileNo)
+		p.bgFetcherStep++
+	case GetTileRowLowT2:
+		p.fetcherData[0] = p.b.GetVRAM(p.fetcherAddress, p.fetcherTileAttr&types.Bit3>>3)
+		p.bgFetcherStep++
+	case GetTileRowHighT1:
+		p.fetcherAddress = p.getTileRow(mode, p.fetcherTileNo) | 1
+		p.bgFetcherStep++
+	case GetTileRowHighT2:
+		p.fetcherData[1] = p.b.GetVRAM(p.fetcherAddress, p.fetcherTileAttr&types.Bit3>>3)
+		p.bgFetcherStep++
+		if p.fetcherTileAttr&types.Bit5 > 0 {
+			p.fetcherData[0] = bits.Reverse8(p.fetcherData[0])
+			p.fetcherData[1] = bits.Reverse8(p.fetcherData[1])
+		}
+	case PushPixels:
+		p.bgFetcherStep = PushPixels
+		// is the FIFO accepting pixels?
+		if p.bgFIFO.Size > 0 {
+			break // can't push to FIFO when it has pixels in it
+		}
+
+		if p.bgEnabled || p.cgbMode {
+			e := FIFOEntry{
+				Attributes: p.fetcherTileAttr,
+			}
+			low, high := p.fetcherData[0], p.fetcherData[1]
+			for j := uint8(0); j < 8; j++ {
+				e.Color = (low&(1<<(7-j)))>>(7-j) | ((high&(1<<(7-j)))>>(7-j))<<1
+				p.bgFIFO.Data[j] = e
+			}
+		}
+
+		p.bgFIFO.Size = 8
+		p.bgFetcherStep = GetTileIDT1
+		p.fetcherX++
+	}
+}
+
 func (p *PPU) fifoTransfer() {
 	// does an obj need to be fetched?
-	if (p.objEnabled) && !p.fetcherObj && len(p.objBuffer) > 0 {
-		if int(p.objBuffer[0].x) == p.lx+8 {
+	if p.visibleObjs > 0 && !p.fetcherObj {
+		if int(p.objBuffer[0].x) <= p.lx+8 {
+
 			p.fetchingObj = p.objBuffer[0]
 			p.objBuffer = p.objBuffer[1:]
 			p.fetcherObj = true
-			p.objFetcherStep = 0
+			p.objFetcherStep = 0 // tile ID is taken from the OBJ buffer
 			p.bgFetcherStep = 0
 		}
 	}
@@ -659,11 +718,11 @@ func (p *PPU) fifoTransfer() {
 	if p.fetcherObj {
 		switch p.objFetcherStep {
 		case GetTileRowLowT1:
-			p.objFetcherLowAddress = p.getTileRow(OBJ, p.fetchingObj.id, false)
+			p.objFetcherLowAddress = p.getTileRow(OBJ, p.fetchingObj.id)
 		case GetTileRowLowT2:
 			p.objFetcherLow = p.b.GetVRAM(p.objFetcherLowAddress, p.fetchingObj.attr&types.Bit3>>3)
 		case GetTileRowHighT1:
-			p.objFetcherHighAddress = p.getTileRow(OBJ, p.fetchingObj.id, true)
+			p.objFetcherHighAddress = p.getTileRow(OBJ, p.fetchingObj.id) | 1
 		case GetTileRowHighT2:
 			p.objFetcherHigh = p.b.GetVRAM(p.objFetcherHighAddress, p.fetchingObj.attr&types.Bit3>>3)
 			if p.fetchingObj.attr&types.Bit5 > 0 { // X-Flip (CGB Only)
@@ -681,18 +740,16 @@ func (p *PPU) fifoTransfer() {
 				objFIFO := FIFOEntry{
 					Attributes: p.fetchingObj.attr,
 					Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
-					Handled:    true,
 					OBJIndex:   p.fetchingObj.index,
-					OBJXPos:    p.fetchingObj.x,
 				}
-				if p.b.IsGBCCart() && p.b.IsGBC() {
+				if p.cgbMode {
 					objFIFO.Palette = p.fetchingObj.attr & 7
 				}
 				objFIFO.Color = ((p.objFetcherLow & i) >> (7 - j)) | ((p.objFetcherHigh&i)>>(7-j))<<1
 
-				if int(j) < p.objFIFO.Size() {
+				if int(j) < p.objFIFO.Size {
 					if p.objFIFO.GetIndex(int(j)).Color == 0 ||
-						p.b.IsGBCCart() && p.b.IsGBC() &&
+						p.cgbMode &&
 							objFIFO.Color != 0 && p.objFIFO.GetIndex(int(j)).OBJIndex > p.fetchingObj.index || p.objFIFO.GetIndex(int(j)).Color == 0 {
 						p.objFIFO.ReplaceIndex(int(j), objFIFO)
 					}
@@ -701,10 +758,11 @@ func (p *PPU) fifoTransfer() {
 				}
 
 				j++
-			}
 
+			}
 			p.fetcherObj = false
-			p.objFetcherStep = 0
+			p.visibleObjs--
+
 		}
 		p.objFetcherStep++
 		p.s.ScheduleEvent(scheduler.PPUFIFOTransfer, 1)
@@ -715,93 +773,36 @@ func (p *PPU) fifoTransfer() {
 	if p.winEnabled && !p.fetcherWin && p.winTriggerWy && p.lx >= int(p.b.Get(types.WX)-7) {
 		p.fetcherWin = true
 		p.fetcherX = 0
-		p.bgFetcherStep = -1
+		p.bgFetcherStep = 0
 		p.bgFIFO.Reset()
 	}
 
-	fetcherMode := BG
-	if p.fetcherWin {
-		fetcherMode = Window
-	}
-
-	switch p.bgFetcherStep {
-	case GetTileIDT1:
-		p.fetcherTileNoAddress = p.getTileID(fetcherMode)
-	case GetTileIDT2:
-		p.fetcherTileNo = p.b.GetVRAM(p.fetcherTileNoAddress, 0)
-		if p.b.IsGBCCart() && p.b.IsGBC() {
-			p.fetcherTileAttr = p.b.GetVRAM(p.fetcherTileNoAddress, 1)
-		}
-	case GetTileRowLowT1:
-		p.fetcherLowAddress = p.getTileRow(fetcherMode, p.fetcherTileNo, false)
-	case GetTileRowLowT2:
-		p.fetcherLow = p.b.GetVRAM(p.fetcherLowAddress, p.fetcherTileAttr&types.Bit3>>3)
-	case GetTileRowHighT1:
-		p.fetcherHighAddress = p.getTileRow(fetcherMode, p.fetcherTileNo, true)
-	case GetTileRowHighT2:
-		p.fetcherHigh = p.b.GetVRAM(p.fetcherHighAddress, p.fetcherTileAttr&types.Bit3>>3)
-		if p.fetcherTileAttr&types.Bit5 > 0 {
-			p.fetcherLow = bits.Reverse8(p.fetcherLow)
-			p.fetcherHigh = bits.Reverse8(p.fetcherHigh)
-		}
-	case PushPixels:
-		// do we need to refill the FIFO?
-		if p.bgFIFO.Size() == 0 {
-			var j = uint8(0)
-			for i := uint8(0x80); i > 0; i >>= 1 {
-				entry := FIFOEntry{}
-				if p.bgEnabled || p.b.IsGBCCart() && p.b.IsGBC() {
-					entry.Color = ((p.fetcherLow & i) >> (7 - j)) | ((p.fetcherHigh&i)>>(7-j))<<1
-					entry.Attributes = p.fetcherTileAttr
-				}
-				p.bgFIFO.Push(entry)
-				j++
-			}
-
-			// reset fetcher state and advance x
-			p.bgFetcherStep = -1
-			p.fetcherX++
-		} else {
-			p.bgFetcherStep-- // wait until we can
-		}
-	}
-
-	// advance fetcher step
-	p.bgFetcherStep++
-
+	p.stepPixelFetcher()
 	// now that the pixel fetchers have been clocked, the PPU needs to try and push a pixel to LCD
-	if p.bgFIFO.Size() > 0 { // only if the background FIFO contains pixels
+	if p.bgFIFO.Size > 0 { // only if the background FIFO contains pixels
 		if p.lx < 0 { // handle offscreen pixels
 			p.bgFIFO.Pop()
 			p.lx++
 		} else {
 			bgPX, _ := p.bgFIFO.Pop()
-			*(*[3]uint8)(unsafe.Pointer(&p.PreparedFrame[p.ly][p.lx])) = p.ColourPalette[bgPX.Attributes&7][bgPX.Color]
-			if p.objFIFO.Size() > 0 {
+			p.PreparedFrame[p.ly][p.lx] = p.ColourPalette[bgPX.Attributes&7][bgPX.Color]
+			if p.objFIFO.Size > 0 {
 				objPX, _ := p.objFIFO.Pop()
 
-				if objPX.Color > 0 {
-					if p.b.Cartridge().CGBMode() && p.b.IsGBC() {
+				if p.cgbMode {
+					if p.objEnabled && objPX.Color > 0 {
 						if bgPX.Color == 0 || !p.bgEnabled || (bgPX.Attributes&types.Bit7 == 0 && objPX.Attributes&types.Bit7 == 0) {
 							p.PreparedFrame[p.ly][p.lx] = p.ColourSpritePalette[objPX.Palette][objPX.Color]
 						}
-					} else if !(bgPX.Color != 0 && objPX.Attributes&types.Bit7 > 0) {
-						p.PreparedFrame[p.ly][p.lx] = p.ColourSpritePalette[objPX.Palette][objPX.Color]
 					}
+				} else if objPX.Color > 0 && !(bgPX.Color != 0 && objPX.Attributes&types.Bit7 > 0) {
+					p.PreparedFrame[p.ly][p.lx] = p.ColourSpritePalette[objPX.Palette][objPX.Color]
 				}
 			}
 
 			p.lx++
 			// have we filled the LCD yet?
 			if p.lx == 160 {
-				if (p.s.Cycle()-p.fifoCycle)&3 > 0 { // align to m cycle
-					p.s.ScheduleEvent(scheduler.PPUHBlankInterrupt, 4-(p.s.Cycle()-p.fifoCycle)&3)
-				} else {
-					p.modeToInt = ModeHBlank
-					p.statUpdate()
-					p.modeToInt = ModeVRAM
-					p.s.ScheduleEvent(scheduler.PPUEndVRAMTransfer, 4)
-				}
 
 				return
 			}
@@ -906,15 +907,15 @@ const (
 	OBJ
 )
 
-// getTileID determines the address for which background window/tile to fetch pixels from.
+// getTileID determines the address for which background/window tile to fetch pixels from.
 func (p *PPU) getTileID(mode FetcherMode) uint16 {
 	address := uint16(0x1800)
 
 	switch mode {
 	case BG:
 		address |= uint16(p.bgTileMap) << 10
-		address |= uint16(p.ly+p.b.Get(types.SCY)) >> 3 << 5
-		address |= (uint16(p.b.Get(types.SCX)>>3) + uint16(p.fetcherX)) & 0x1f
+		address |= uint16(p.ly+p.scy) >> 3 << 5
+		address |= (uint16(p.scx>>3) + uint16(p.fetcherX)) & 0x1f
 	case Window:
 		address |= uint16(p.winTileMap) << 10
 		address |= (uint16(p.wly) >> 3) << 5
@@ -925,7 +926,7 @@ func (p *PPU) getTileID(mode FetcherMode) uint16 {
 }
 
 // getTileRow fetches one slice of the bitplane currently being read.
-func (p *PPU) getTileRow(mode FetcherMode, id uint8, high bool) uint16 {
+func (p *PPU) getTileRow(mode FetcherMode, id uint8) uint16 {
 	address := uint16(0x0000)
 	address |= uint16(id) << 4                      // Tile ID Offset
 	address |= uint16(p.addressMode&^(id>>7)) << 12 // Negation of id.7 when LCDC.4 is set
@@ -934,7 +935,7 @@ func (p *PPU) getTileRow(mode FetcherMode, id uint8, high bool) uint16 {
 
 	switch mode {
 	case BG:
-		yPos = uint16(p.ly+p.b.Get(types.SCY)) & 7
+		yPos = uint16(p.ly+p.scy) & 7
 	case Window:
 		yPos = uint16(p.wly & 7)
 	case OBJ:
@@ -947,10 +948,6 @@ func (p *PPU) getTileRow(mode FetcherMode, id uint8, high bool) uint16 {
 		yPos = ^yPos & 7
 	}
 	address |= yPos << 1 // Y-Pos Offset
-
-	if high {
-		address |= 1
-	}
 
 	return address
 }

@@ -425,12 +425,6 @@ func (b *Bus) GetVRAM(address uint16, bank uint8) uint8 {
 	return b.vRAM[bank&b.vRAMBankMask][address]
 }
 
-func (b *Bus) GetVRAMRange(address uint16, length, bank int) []byte {
-	result := make([]byte, length)
-	copy(result, b.vRAM[bank][address:int(address)+length])
-	return result
-}
-
 func (b *Bus) LazyRead(addr uint16) byte {
 	if handler := b.lazyReaders[addr&0xFF]; handler != nil {
 		return handler()
