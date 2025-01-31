@@ -75,12 +75,6 @@ var ModelEvents = map[Model][]Event{
 		{scheduler.APUFrameSequencer, 984},
 		{scheduler.APUChannel3, 984},
 	},
-	SGB: {
-		{scheduler.APUSample, 64},
-		{scheduler.PPUEndHBlank, 196},
-		{scheduler.APUFrameSequencer, 952},
-		{scheduler.APUChannel3, 952},
-	},
 }
 
 // ModelIO - model specific starting IO registers.

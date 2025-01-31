@@ -14,25 +14,13 @@ const (
 	EIPending
 	EIHaltDelay
 
-	PPUStartHBlank
-	PPUEndHBlank
-	PPUHBlankInterrupt
-	PPUBeginFIFO
-	PPUFIFOTransfer
-	PPUStartOAMSearch
+	PPUHandleVisualLine
+	PPUHandleGlitchedLine0
 	PPUEndFrame
-	PPUContinueOAMSearch
-	PPUPrepareEndOAMSearch
-	PPUEndOAMSearch
 	PPULine153Continue
 	PPULine153End
 	PPUStartVBlank
 	PPUContinueVBlank
-	PPUEndVRAMTransfer
-	PPUStartGlitchedLine0
-	PPUMiddleGlitchedLine0
-	PPUContinueGlitchedLine0
-	PPUEndGlitchedLine0
 	PPUOAMInterrupt
 
 	DMAStartTransfer
