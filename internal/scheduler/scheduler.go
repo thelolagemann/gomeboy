@@ -135,7 +135,7 @@ func (s *Scheduler) doEvents(until uint64) uint64 {
 
 // ScheduleEvent schedules an event to be executed at the given cycle.
 func (s *Scheduler) ScheduleEvent(eventType EventType, cycle uint64) {
-	if s.doubleSpeed && eventType <= PPUOAMInterrupt {
+	if s.doubleSpeed && eventType <= PPUHandleOffscreenLine {
 		cycle = cycle * 2
 	}
 	// when the event is scheduled, it is scheduled for the current cycle + the cycle
@@ -247,7 +247,7 @@ func (s *Scheduler) ChangeSpeed(speed bool) {
 		// is affected by the speed change (APU, PPU, Serial)
 		event := s.root
 		for event != nil {
-			if event.eventType <= PPUOAMInterrupt {
+			if event.eventType <= PPUHandleOffscreenLine {
 				if eventsProcessed[event.eventType] {
 					event = event.next
 					continue
@@ -284,7 +284,7 @@ func (s *Scheduler) ChangeSpeed(speed bool) {
 		// is affected by the speed change (APU, PPU, Serial)
 		event := s.root
 		for event != nil {
-			if event.eventType <= PPUOAMInterrupt {
+			if event.eventType <= PPUHandleOffscreenLine {
 				// first we need to get the cycle at which the event
 				// would be executed at double speed
 				cycleToExecute := event.cycle

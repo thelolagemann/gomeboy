@@ -81,16 +81,13 @@ func (f *FIFO[T]) ReplaceIndex(i int, v T) {
 	f.Data[(f.head+i)&(f.capacity-1)] = v
 }
 
-func (f *FIFO[T]) Pop() (T, bool) {
-	if f.Size == 0 {
-		return f.Data[0], false // FIFO is empty
-	}
+func (f *FIFO[T]) Pop() *T {
 	fe := f.Data[f.head]
 	f.head++
 	f.head &= f.capacity - 1
 	f.Size--
 
-	return fe, true
+	return &fe
 }
 
 func (f *FIFO[T]) Cap() int { return f.capacity }

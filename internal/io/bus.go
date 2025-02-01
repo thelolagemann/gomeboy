@@ -69,6 +69,7 @@ type Bus struct {
 	bootROMDone  bool
 	vRAMBankMask uint8
 	debug        bool
+	Debugging    bool
 
 	// cheats
 	LoadedCheats   []Cheat
@@ -76,11 +77,18 @@ type Bus struct {
 	GameSharkCodes []GameSharkCode
 }
 
+func (b *Bus) Debugf(f string, a ...interface{}) {
+	if b.Debugging && b.s.Cycle() < 101938 {
+		//fmt.Printf(fmt.Sprintf("%d:", b.s.Cycle())+f, a...)
+	}
+}
+
 // NewBus creates a new Bus instance.
 func NewBus(s *scheduler.Scheduler, rom []byte) *Bus {
 	b := &Bus{
 		s:           s,
 		dmaConflict: 0xff,
+		Debugging:   true,
 	}
 	b.c = NewCartridge(rom, b)
 	b.ReserveLazyReader(types.DIV, func() byte { return byte(b.s.SysClock() >> 8) })
@@ -276,18 +284,6 @@ func (b *Bus) Boot() {
 		}
 	}
 
-	// setup starting events for scheduler
-	events := types.ModelEvents[b.model]
-	if len(events) > 0 {
-		for i := scheduler.APUChannel1; i <= scheduler.SerialBitInterrupt; i++ {
-			b.s.DescheduleEvent(i)
-		}
-		// set starting event for scheduler
-		for _, e := range events {
-			b.s.ScheduleEvent(e.Type, e.Cycle)
-		}
-	}
-
 	if b.model == types.CGBABC || b.model == types.CGB0 {
 		b.Set(types.VBK, 0xFE)
 
@@ -438,6 +434,28 @@ func (b *Bus) Get(addr uint16) byte           { return b.data[addr] }  // get va
 func (b *Bus) Set(addr uint16, value byte)    { b.data[addr] = value } // set value at address
 func (b *Bus) SetBit(addr uint16, bit byte)   { b.data[addr] |= bit }  // set bit at address
 
+func (b *Bus) Block(region uint16, block bool) {
+	if block {
+		b.Lock(region)
+	} else {
+		b.Unlock(region)
+	}
+}
+func (b *Bus) RBlock(region uint16, block bool) {
+	if block {
+		b.RLock(region)
+	} else {
+		b.RUnlock(region)
+	}
+}
+func (b *Bus) WBlock(region uint16, block bool) {
+	if block {
+		b.WLock(region)
+	} else {
+		b.WUnlock(region)
+	}
+}
+
 func (b *Bus) RLock(region uint16)   { b.regionLocks |= region }              // locks reading from region
 func (b *Bus) RUnlock(region uint16) { b.regionLocks &^= region }             // unlocks reading from region
 func (b *Bus) WLock(region uint16)   { b.regionLocks |= region >> 8 }         // locks writing to region
@@ -461,10 +479,7 @@ func (b *Bus) CopyTo(start, end uint16, src []byte) {
 	}
 }
 
-// ClockedRead clocks the Game Boy and reads a byte from the
-// bus.
-func (b *Bus) ClockedRead(addr uint16) byte {
-	b.s.Tick(4)
+func (b *Bus) Read(addr uint16) byte {
 	switch {
 	case addr <= 0x9FFF || addr >= 0xC000 && addr <= 0xFDFF:
 		addrBitmask := uint16(1 << (addr >> 12))
@@ -508,6 +523,13 @@ func (b *Bus) ClockedRead(addr uint16) byte {
 	// if we've managed to fall through to here, we should be
 	// able to read the data as it is on the bus
 	return b.data[addr]
+}
+
+// ClockedRead clocks the Game Boy and reads a byte from the
+// bus.
+func (b *Bus) ClockedRead(addr uint16) byte {
+	b.s.Tick(4)
+	return b.Read(addr)
 }
 
 // ClockedWrite clocks the Game Boy and writes a byte to the

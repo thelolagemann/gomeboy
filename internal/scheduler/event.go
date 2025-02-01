@@ -16,12 +16,7 @@ const (
 
 	PPUHandleVisualLine
 	PPUHandleGlitchedLine0
-	PPUEndFrame
-	PPULine153Continue
-	PPULine153End
-	PPUStartVBlank
-	PPUContinueVBlank
-	PPUOAMInterrupt
+	PPUHandleOffscreenLine
 
 	DMAStartTransfer
 	DMAEndTransfer

@@ -153,6 +153,7 @@ type PPU struct {
 	linePos                                     int
 	lineState                                   lineState
 	glitchedLineState                           glitchedLineState
+	offscreenLineState                          offscreenLineState
 }
 
 type DebugColor uint32
@@ -219,7 +220,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			}
 
 			// deschedule all PPU events
-			for i := scheduler.PPUHandleVisualLine; i <= scheduler.PPUOAMInterrupt; i++ {
+			for i := scheduler.PPUHandleVisualLine; i <= scheduler.PPUHandleOffscreenLine; i++ {
 				p.s.DescheduleEvent(i)
 			}
 
@@ -237,7 +238,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.linePos = -16
 			p.cgbMode = b.IsGBCCart() && b.IsGBC()
 			p.glitchedLineState = startGlitchedLine
-			p.statUpdate() // TODO not sure why this is needed here
+			p.statUpdate()
 			p.s.ScheduleEvent(scheduler.PPUHandleGlitchedLine0, 1)
 		}
 
@@ -252,8 +253,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.STAT, func(v byte) byte {
-		// writing to STAT briefly enables all STAT interrupts but only on DMG. Road Rash relies
-		// on this bug, so maybe add a warning for users trying to play Road Rash in CGB mode
+		p.b.Debugf("writing stat %08b\n", v)
 		if !p.b.IsGBC() {
 			oldStat := p.status
 			p.status = 0xff
@@ -268,6 +268,9 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveLazyReader(types.STAT, func() byte {
+		if p.ly < 3 {
+			p.b.Debugf("reading stat %d %08b\n", p.ly, p.status|p.mode)
+		}
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
@@ -418,14 +421,9 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		})
 	})
 
-	s.RegisterEvent(scheduler.PPUStartVBlank, p.startVBlank)
-	s.RegisterEvent(scheduler.PPUContinueVBlank, p.continueVBlank)
-	s.RegisterEvent(scheduler.PPULine153Continue, p.continueLine153)
-	s.RegisterEvent(scheduler.PPULine153End, p.endLine153)
-	s.RegisterEvent(scheduler.PPUEndFrame, p.endFrame)
-	s.RegisterEvent(scheduler.PPUHandleVisualLine, p.handleLine)
+	s.RegisterEvent(scheduler.PPUHandleVisualLine, p.handleVisualLine)
 	s.RegisterEvent(scheduler.PPUHandleGlitchedLine0, p.handleGlitchedLine0)
-
+	s.RegisterEvent(scheduler.PPUHandleOffscreenLine, p.handleOffscreenLine)
 	return p
 }
 
@@ -447,6 +445,10 @@ var (
 	}
 )
 
+// handleGlitchedLine0 handles the very first line after turning the LCD on. Timing is a bit different
+// from normal, being cut short by 8 dots, whilst also presenting as ModeHBlank when it would otherwise
+// be in ModeOAM. The OAM scanning is also skipped, although this doesn't matter as the LCD doesn't start
+// displaying a signal from the PPU until the first VBlank is reached.
 func (p *PPU) handleGlitchedLine0() {
 	switch p.glitchedLineState {
 	case startGlitchedLine:
@@ -474,7 +476,7 @@ func (p *PPU) handleGlitchedLine0() {
 		p.b.Lock(io.VRAM)
 		p.lineState = startFifo
 		p.fifoCycle -= 8
-		p.handleLine()
+		p.handleVisualLine()
 		return
 	}
 
@@ -503,7 +505,7 @@ var stateCycles = []uint64{
 	cgbOAMWBlock: 1,  // 3
 	updateLY:     1,  // 4
 	startOAM:     76, // 78
-	oamIndex37:   4,  //  84
+	oamIndex37:   4,  // 84
 	finishOAM:    5,  // 89
 	startFifo:    0,
 	fifo:         1,   // 256-373 (167.5 - 284.5 cycles)
@@ -526,31 +528,28 @@ var objStepCycles = []uint64{
 	getRowHigh:   1,
 }
 
-func (p *PPU) handleLine() {
-
-	//fmt.Printf("doing line state %d %d %d %d \n", p.lx, p.lineState, p.s.Cycle()-p.fifoCycle, p.s.Cycle())
-
+// handleVisualLine handles lines 0 -> 143, stepping from OAM -> VRAM -> HBlank until line 143 is reached.
+func (p *PPU) handleVisualLine() {
+	if p.lineState != fifo {
+		p.b.Debugf("doing %d %d\n", p.lineState, p.s.Cycle()-p.fifoCycle)
+	}
 	switch p.lineState {
-	case startLine:
+	case startLine: // 0 -> 2
 		p.fifoCycle = p.s.Cycle()
-		if p.cgbMode && !p.s.DoubleSpeed() {
-			p.b.WLock(io.OAM)
-		}
-	case cgbOAMWBlock:
-		if p.cgbMode {
-			p.b.WLock(io.OAM)
-		}
-	case updateLY:
+		p.b.WBlock(io.OAM, p.cgbMode && !p.s.DoubleSpeed())
+	case cgbOAMWBlock: // 2 -> 3
+		p.b.WBlock(io.OAM, p.cgbMode)
+	case updateLY: // 3 -> 4
 		p.b.Set(types.LY, p.ly)
-		if !p.s.DoubleSpeed() {
-			p.b.RLock(io.OAM)
-		}
+		p.b.RBlock(io.OAM, !p.s.DoubleSpeed())
 
 		if p.ly != 0 {
 			p.lyForComparison = 0xffff
 		} else {
 			p.lyForComparison = 0
 		}
+
+		// OAM stat int fires 1 T-Cycle before STAT changes, except on line 0
 		if p.ly != 0 {
 			p.modeToInt = ModeOAM
 			p.mode = ModeHBlank
@@ -560,25 +559,20 @@ func (p *PPU) handleLine() {
 		p.statUpdate()
 	case startOAM:
 		p.b.Lock(io.OAM)
-		p.mode = ModeOAM
-		p.modeToInt = ModeOAM
+		p.mode, p.modeToInt = ModeOAM, ModeOAM
 		p.lyForComparison = uint16(p.ly)
 		p.statUpdate()
 		p.modeToInt = 255
 		p.statUpdate()
-	case oamIndex37: // PPU bug?
-		if !p.cgbMode {
-			p.b.RLock(io.VRAM)
-			p.b.WUnlock(io.OAM)
-		} else {
-			p.b.RUnlock(io.VRAM)
-			p.b.WLock(io.OAM)
-		}
+	case oamIndex37: //
+		p.b.RBlock(io.VRAM, !p.cgbMode)
+		p.b.WBlock(io.OAM, p.cgbMode)
 		p.b.WUnlock(io.VRAM)
-	case finishOAM:
+	case finishOAM: // = 84 cycles
 		p.mode, p.modeToInt = ModeVRAM, ModeVRAM
 		p.b.Lock(io.OAM | io.VRAM)
-		p.statUpdate()
+		p.statUpdate() // no VRAM int so this should clear the stat line
+
 		if p.objEnabled || p.cgbMode {
 			// fill obj buffer
 			p.objBuffer = []Sprite{}
@@ -619,6 +613,7 @@ func (p *PPU) handleLine() {
 		p.bgFIFO.Size = 8
 		p.lineState = fifo
 		p.bgFetcherStep = 0
+		p.fetcherObj = false
 		fallthrough
 	case fifo:
 		// is the PPU currently fetching an OBJ?
@@ -681,11 +676,11 @@ func (p *PPU) handleLine() {
 
 	checkObj:
 		for p.visibleObjs > 0 && p.objBuffer[0].x < p.xForObj() && (p.objEnabled || p.cgbMode) {
-
 			p.visibleObjs--
 			p.objBuffer = p.objBuffer[1:]
 		}
-		// are there any pending OBJs?
+
+		// are there any pending OBJs on this X coordinate?
 		if p.visibleObjs > 0 && (p.objEnabled || p.cgbMode) && p.objBuffer[0].x == p.xForObj() {
 			// finish the current BG fetch (if needed)
 			if p.bgFetcherStep < GetTileRowHighT2 || p.bgFIFO.Size == 0 {
@@ -700,7 +695,7 @@ func (p *PPU) handleLine() {
 				p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
 			}
 
-			return // we should have scheduled the correct
+			return // OBJ fetching immediately halts pushing pixels to the LCD
 		}
 
 		p.pushPixel()
@@ -711,18 +706,17 @@ func (p *PPU) handleLine() {
 			return
 		}
 
-		p.lineState = finishVRAM
-		fallthrough
-	case finishVRAM:
 		p.linePos = -16
 		if !p.s.DoubleSpeed() {
 			p.mode, p.modeToInt = ModeHBlank, ModeHBlank
 			p.b.Unlock(io.OAM | io.VRAM)
 		}
+		p.lineState = finishVRAM
 	case startHBlank:
 		p.modeToInt, p.modeToInt = ModeHBlank, ModeHBlank
 		p.b.Unlock(io.OAM | io.VRAM)
 		p.statUpdate()
+
 		if p.cgbMode {
 			p.b.HandleHDMA()
 		}
@@ -747,12 +741,13 @@ func (p *PPU) handleLine() {
 				p.renderBlank()
 			}
 
-			p.lineState = startLine
-			p.startVBlank()
+			p.offscreenLineState = startVBlank
+			p.handleOffscreenLine()
 		} else {
 			// go to OAM search
+			p.b.Debugf("finishing HBlank at %d\n", p.s.Cycle()-p.fifoCycle)
 			p.lineState = startLine
-			p.handleLine()
+			p.handleVisualLine()
 		}
 
 		if p.fetcherWin {
@@ -764,6 +759,97 @@ func (p *PPU) handleLine() {
 
 	p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, stateCycles[p.lineState])
 	p.lineState++
+}
+
+type offscreenLineState int
+
+const (
+	startVBlank offscreenLineState = iota
+	updateLYVBlank
+	updateLYCVBlank
+	handleVBlankInt
+	line153Start
+	line153LYUpdate
+	line153LY0
+	line153LYC
+	line153LYC0
+	endFrame
+)
+
+var offscreenLineCycles = []uint64{
+	startVBlank:     2,   // 2
+	updateLYVBlank:  2,   // 4
+	updateLYCVBlank: 1,   // 5
+	handleVBlankInt: 451, // 456
+	line153Start:    2,   // 2
+	line153LYUpdate: 4,   // 6
+	line153LY0:      2,   // 8
+	line153LYC:      4,   // 12
+	line153LYC0:     444, // 456
+}
+
+// handleOffscreenLine handles lines 144 - 153
+func (p *PPU) handleOffscreenLine() {
+	switch p.offscreenLineState {
+	case startVBlank:
+		p.lyForComparison = 0xffff
+		p.statUpdate()
+	case updateLYVBlank:
+		p.b.Set(types.LY, p.ly)
+		if p.ly == 144 && !p.statINT && p.status&0x20 > 0 {
+			p.b.RaiseInterrupt(io.LCDINT)
+		}
+	case updateLYCVBlank:
+		p.lyForComparison = uint16(p.ly)
+		p.statUpdate()
+	case handleVBlankInt:
+		switch p.ly {
+		case 144: // Entering VBlank
+			p.mode, p.modeToInt = ModeVBlank, ModeVBlank
+			p.b.RaiseInterrupt(io.VBlankINT)
+
+			// entering vblank also triggers the OAM interrupt
+			if !p.statINT && p.status&0x20 > 0 {
+				p.b.RaiseInterrupt(io.LCDINT)
+			}
+
+			p.statUpdate()
+		case 152: // Leaving VBlank
+			p.offscreenLineState = line153Start
+			p.ly++
+			p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, offscreenLineCycles[handleVBlankInt])
+			return
+		}
+
+		p.ly++
+		p.offscreenLineState = startVBlank
+		p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, offscreenLineCycles[handleVBlankInt]) // loop back around, accounting for inc
+		return
+	case line153Start:
+		p.lyForComparison = 0xffff
+		p.statUpdate()
+	case line153LYUpdate:
+		p.b.Set(types.LY, 153)
+	case line153LY0:
+		p.b.Set(types.LY, 0)
+		p.lyForComparison = 153
+		p.statUpdate()
+	case line153LYC:
+		p.lyForComparison = 0xffff
+		p.statUpdate()
+	case line153LYC0:
+		p.lyForComparison = 0
+		p.statUpdate()
+	case endFrame:
+		p.ly = 0
+		p.winTriggerWy = false
+		p.lineState = startLine
+		p.handleVisualLine()
+		return
+	}
+
+	p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, offscreenLineCycles[p.offscreenLineState])
+	p.offscreenLineState++
 }
 
 func (p *PPU) xForObj() uint8 {
@@ -900,93 +986,6 @@ func (p *PPU) pushPixel() {
 	p.lx++
 }
 
-// startVBlank is performed on the first cycle of each line 144 to 152, and
-// performs the ModeVBlank period for the current line. The ModeVBlank period lasts
-// until for 456 * 10 cycles, when the PPU enters Mode 2 (OAM search) on
-// line 153 (PPU be like line 0, no line 153. you know, line 0, not the line 153 it's the next line :)).
-func (p *PPU) startVBlank() {
-	p.winTriggerWy = false
-	// should we start line 153?
-	if p.ly == 153 {
-		p.startLine153()
-		return
-	}
-
-	p.lyForComparison = 0xffff
-	p.statUpdate()
-
-	// set the LY register to current scanline
-	p.b.Set(types.LY, p.ly)
-
-	if p.ly == 144 {
-		p.modeToInt = ModeOAM
-
-		// trigger vblank interrupt
-		if p.b.Model() != types.CGBABC && p.b.Model() != types.CGB0 {
-			p.b.RaiseInterrupt(io.VBlankINT)
-		}
-	}
-	p.statUpdate()
-
-	p.s.ScheduleEvent(scheduler.PPUContinueVBlank, 4)
-}
-
-func (p *PPU) continueVBlank() {
-	p.lyForComparison = uint16(p.ly)
-	p.statUpdate()
-	if p.ly == 144 {
-		p.mode = ModeVBlank
-
-		// trigger vblank interrupt
-		if p.b.Model() == types.CGBABC || p.b.Model() == types.CGB0 {
-			p.b.RaiseInterrupt(io.VBlankINT)
-		}
-
-		// entering vblank also triggers the OAM STAT interrupt if enabled
-		if !p.statINT && p.status&0x20 != 0 {
-			p.b.RaiseInterrupt(io.LCDINT)
-		}
-		p.modeToInt = ModeVBlank
-		p.statUpdate()
-	}
-	p.ly++
-
-	p.s.ScheduleEvent(scheduler.PPUStartVBlank, 452)
-}
-
-func (p *PPU) startLine153() {
-	p.b.Set(types.LY, 153)
-	p.lyForComparison = 0xffff
-	p.statUpdate()
-
-	p.s.ScheduleEvent(scheduler.PPULine153Continue, 4)
-}
-
-func (p *PPU) continueLine153() {
-	p.b.Set(types.LY, 0)
-	p.lyForComparison = 153
-	p.statUpdate()
-
-	p.s.ScheduleEvent(scheduler.PPULine153End, 4)
-}
-
-func (p *PPU) endLine153() {
-	p.b.Set(types.LY, 0)
-	p.lyForComparison = 0xffff
-	p.statUpdate()
-
-	p.s.ScheduleEvent(scheduler.PPUEndFrame, 4)
-}
-
-func (p *PPU) endFrame() {
-	p.lyForComparison = 0
-	p.statUpdate()
-	p.ly, p.wly = 0, 0
-
-	p.lineState = startLine
-	p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 444)
-}
-
 type FetcherMode int
 
 const (
@@ -1084,6 +1083,7 @@ func (p *PPU) statUpdate() {
 
 	// trigger interrupt if needed
 	if p.statINT && !prevInterruptLine {
+		p.b.Debugf("STAT INT %08b %d %d\n", p.status, p.modeToInt, p.s.Cycle())
 		p.b.RaiseInterrupt(io.LCDINT)
 	}
 }

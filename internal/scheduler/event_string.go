@@ -18,26 +18,21 @@ func _() {
 	_ = x[EIHaltDelay-7]
 	_ = x[PPUHandleVisualLine-8]
 	_ = x[PPUHandleGlitchedLine0-9]
-	_ = x[PPUEndFrame-10]
-	_ = x[PPULine153Continue-11]
-	_ = x[PPULine153End-12]
-	_ = x[PPUStartVBlank-13]
-	_ = x[PPUContinueVBlank-14]
-	_ = x[PPUOAMInterrupt-15]
-	_ = x[DMAStartTransfer-16]
-	_ = x[DMAEndTransfer-17]
-	_ = x[DMATransfer-18]
-	_ = x[TimerTIMAReload-19]
-	_ = x[TimerTIMAFinishReload-20]
-	_ = x[TimerTIMAIncrement-21]
-	_ = x[SerialBitTransfer-22]
-	_ = x[SerialBitInterrupt-23]
-	_ = x[CameraShoot-24]
+	_ = x[PPUHandleOffscreenLine-10]
+	_ = x[DMAStartTransfer-11]
+	_ = x[DMAEndTransfer-12]
+	_ = x[DMATransfer-13]
+	_ = x[TimerTIMAReload-14]
+	_ = x[TimerTIMAFinishReload-15]
+	_ = x[TimerTIMAIncrement-16]
+	_ = x[SerialBitTransfer-17]
+	_ = x[SerialBitInterrupt-18]
+	_ = x[CameraShoot-19]
 }
 
-const _EventType_name = "APUFrameSequencerAPUFrameSequencer2APUChannel1APUChannel2APUChannel3APUSampleEIPendingEIHaltDelayPPUHandleVisualLinePPUHandleGlitchedLine0PPUEndFramePPULine153ContinuePPULine153EndPPUStartVBlankPPUContinueVBlankPPUOAMInterruptDMAStartTransferDMAEndTransferDMATransferTimerTIMAReloadTimerTIMAFinishReloadTimerTIMAIncrementSerialBitTransferSerialBitInterruptCameraShoot"
+const _EventType_name = "APUFrameSequencerAPUFrameSequencer2APUChannel1APUChannel2APUChannel3APUSampleEIPendingEIHaltDelayPPUHandleVisualLinePPUHandleGlitchedLine0PPUHandleOffscreenLineDMAStartTransferDMAEndTransferDMATransferTimerTIMAReloadTimerTIMAFinishReloadTimerTIMAIncrementSerialBitTransferSerialBitInterruptCameraShoot"
 
-var _EventType_index = [...]uint16{0, 17, 35, 46, 57, 68, 77, 86, 97, 116, 138, 149, 167, 180, 194, 211, 226, 242, 256, 267, 282, 303, 321, 338, 356, 367}
+var _EventType_index = [...]uint16{0, 17, 35, 46, 57, 68, 77, 86, 97, 116, 138, 160, 176, 190, 201, 216, 237, 255, 272, 290, 301}
 
 func (i EventType) String() string {
 	if i >= EventType(len(_EventType_index)-1) {

@@ -66,17 +66,6 @@ func Which(rom []byte) Model {
 	return Unset
 }
 
-// ModelEvents - model specific starting events (this isn't accurate at all:)
-var ModelEvents = map[Model][]Event{
-	DMG0: {
-		{scheduler.APUChannel1, 48},
-		{scheduler.APUSample, 93},
-		{scheduler.PPUStartVBlank, 252},
-		{scheduler.APUFrameSequencer, 984},
-		{scheduler.APUChannel3, 984},
-	},
-}
-
 // ModelIO - model specific starting IO registers.
 var ModelIO = map[Model]map[HardwareAddress]interface{}{
 	Unset:  {DIV: uint16(0xABC9)},
