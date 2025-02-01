@@ -80,7 +80,7 @@ step:
 		// prefetch during the last instruction (except during halt)
 		// this is a cheeky hack as we don't emulate the prefetch
 		c.s.Tick(2)
-		if c.hasInt {
+		if c.b.CanInterrupt() {
 			goto handleInterrupt
 		}
 		c.s.Tick(2)

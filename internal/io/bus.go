@@ -1,6 +1,7 @@
 package io
 
 import (
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
@@ -78,8 +79,8 @@ type Bus struct {
 }
 
 func (b *Bus) Debugf(f string, a ...interface{}) {
-	if b.Debugging && b.s.Cycle() < 101938 {
-		//fmt.Printf(fmt.Sprintf("%d:", b.s.Cycle())+f, a...)
+	if b.Debugging && b.s.DoubleSpeed() {
+		fmt.Printf(fmt.Sprintf("%d:", b.s.Cycle())+f, a...)
 	}
 }
 

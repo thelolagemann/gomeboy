@@ -97,14 +97,14 @@ type PPU struct {
 
 	// various internal flags
 	mode, modeToInt, ly, status uint8
-	lx                          int
-	lyCompare, wly              uint8
+	lx, wly                     int
+	lyCompare                   uint8
 	scy, scx                    uint8
+	wy, wx                      uint8
 
 	lyForComparison uint16
 	lycINT, statINT bool
 
-	latchedX                     uint8
 	cgbMode                      bool
 	cRAM                         [128]uint8 // 64 bytes BG+OBJ
 	bcpsIncrement, ocpsIncrement bool
@@ -143,7 +143,7 @@ type PPU struct {
 	fetcherObj                     bool
 	fetchingObj                    Sprite
 	fetcherWin                     bool
-	winTriggerWy                   bool
+	winTriggerWy, winTriggerWx     bool
 
 	objBuffer   []Sprite
 	visibleObjs int
@@ -154,6 +154,7 @@ type PPU struct {
 	lineState                                   lineState
 	glitchedLineState                           glitchedLineState
 	offscreenLineState                          offscreenLineState
+	winTileX                                    uint8
 }
 
 type DebugColor uint32
@@ -320,9 +321,11 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.WY, func(v byte) byte {
+		p.wy = v
 		return v
 	})
 	b.ReserveAddress(types.WX, func(v byte) byte {
+		p.wx = v
 		return v
 	})
 
@@ -531,10 +534,11 @@ var objStepCycles = []uint64{
 // handleVisualLine handles lines 0 -> 143, stepping from OAM -> VRAM -> HBlank until line 143 is reached.
 func (p *PPU) handleVisualLine() {
 	if p.lineState != fifo {
-		p.b.Debugf("doing %d %d\n", p.lineState, p.s.Cycle()-p.fifoCycle)
+		//p.b.Debugf("doing state: %d dot:%d scx:%d\n", p.lineState, p.fifoCycle, p.scx)
 	}
 	switch p.lineState {
 	case startLine: // 0 -> 2
+		p.handleWY()
 		p.fifoCycle = p.s.Cycle()
 		p.b.WBlock(io.OAM, p.cgbMode && !p.s.DoubleSpeed())
 	case cgbOAMWBlock: // 2 -> 3
@@ -561,6 +565,7 @@ func (p *PPU) handleVisualLine() {
 		p.b.Lock(io.OAM)
 		p.mode, p.modeToInt = ModeOAM, ModeOAM
 		p.lyForComparison = uint16(p.ly)
+		p.handleWY()
 		p.statUpdate()
 		p.modeToInt = 255
 		p.statUpdate()
@@ -616,6 +621,35 @@ func (p *PPU) handleVisualLine() {
 		p.fetcherObj = false
 		fallthrough
 	case fifo:
+		// is the window trying to piggyback the BG fetcher?
+		if !p.winTriggerWx && p.winTriggerWy && p.winEnabled {
+			windowActivated := false
+			if p.wx == 0 {
+				if p.linePos == -7 {
+					windowActivated = true
+				} else if p.linePos == -16 && p.scx&7 > 0 {
+					windowActivated = true
+				} else if p.linePos >= -15 && p.linePos <= -8 {
+					windowActivated = true
+				}
+			} else if p.wx < 166 {
+				if p.wx == uint8(p.linePos)+7 {
+					windowActivated = true
+				}
+			}
+
+			// have we met the conditions to start fetching a window?
+			if windowActivated {
+				p.wly++
+				p.winTileX = 0
+
+				// fetching the window clears the BG fifo and resets the fetcher
+				p.bgFIFO.Reset()
+				p.winTriggerWx = true
+				p.bgFetcherStep = GetTileIDT1
+			}
+		}
+
 		// is the PPU currently fetching an OBJ?
 		if p.fetcherObj {
 			switch p.objStep {
@@ -712,6 +746,7 @@ func (p *PPU) handleVisualLine() {
 			p.b.Unlock(io.OAM | io.VRAM)
 		}
 		p.lineState = finishVRAM
+		p.winTriggerWx = false
 	case startHBlank:
 		p.modeToInt, p.modeToInt = ModeHBlank, ModeHBlank
 		p.b.Unlock(io.OAM | io.VRAM)
@@ -720,11 +755,12 @@ func (p *PPU) handleVisualLine() {
 		if p.cgbMode {
 			p.b.HandleHDMA()
 		}
-		dotsPast := (p.s.Cycle() - p.fifoCycle)
+		dotsPast := p.s.Cycle() - p.fifoCycle
 		if p.s.DoubleSpeed() {
 			dotsPast >>= 1
 		}
 
+		p.b.Debugf("starting hblank at %d %d\n", p.s.Cycle()-p.fifoCycle, p.fifoCycle)
 		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 456-dotsPast)
 
 		p.lineState = finishHBlank
@@ -745,13 +781,9 @@ func (p *PPU) handleVisualLine() {
 			p.handleOffscreenLine()
 		} else {
 			// go to OAM search
-			p.b.Debugf("finishing HBlank at %d\n", p.s.Cycle()-p.fifoCycle)
+			p.b.Debugf("finishing HBlank at %d %d\n", p.s.Cycle(), p.fifoCycle)
 			p.lineState = startLine
 			p.handleVisualLine()
-		}
-
-		if p.fetcherWin {
-			p.wly++
 		}
 
 		return
@@ -796,7 +828,7 @@ func (p *PPU) handleOffscreenLine() {
 		p.statUpdate()
 	case updateLYVBlank:
 		p.b.Set(types.LY, p.ly)
-		if p.ly == 144 && !p.statINT && p.status&0x20 > 0 {
+		if p.b.Model() >= types.CGB0 && p.ly == 144 && !p.statINT && p.status&0x20 > 0 {
 			p.b.RaiseInterrupt(io.LCDINT)
 		}
 	case updateLYCVBlank:
@@ -809,7 +841,7 @@ func (p *PPU) handleOffscreenLine() {
 			p.b.RaiseInterrupt(io.VBlankINT)
 
 			// entering vblank also triggers the OAM interrupt
-			if !p.statINT && p.status&0x20 > 0 {
+			if p.b.Model() < types.CGB0 && !p.statINT && p.status&0x20 > 0 {
 				p.b.RaiseInterrupt(io.LCDINT)
 			}
 
@@ -843,6 +875,7 @@ func (p *PPU) handleOffscreenLine() {
 	case endFrame:
 		p.ly = 0
 		p.winTriggerWy = false
+		p.wly = -1
 		p.lineState = startLine
 		p.handleVisualLine()
 		return
@@ -863,11 +896,16 @@ func (p *PPU) xForObj() uint8 {
 
 func (p *PPU) stepPixelFetcher() {
 	mode := BG
-	if p.fetcherWin {
-		mode = Window
-	}
 	switch p.bgFetcherStep {
 	case GetTileIDT1:
+		// window can be disabled mid-scanline?
+		if !p.winEnabled {
+			p.winTriggerWx = false
+		}
+		if p.winTriggerWx {
+			mode = Window
+		}
+
 		p.fetcherTileNoAddress = p.getTileID(mode)
 		p.bgFetcherStep++
 	case GetTileIDT2:
@@ -877,12 +915,18 @@ func (p *PPU) stepPixelFetcher() {
 		}
 		p.bgFetcherStep++
 	case GetTileRowLowT1:
+		if p.winTriggerWx {
+			mode = Window
+		}
 		p.fetcherAddress = p.getTileRow(mode, p.fetcherTileNo)
 		p.bgFetcherStep++
 	case GetTileRowLowT2:
 		p.fetcherData[0] = p.b.GetVRAM(p.fetcherAddress, p.fetcherTileAttr&types.Bit3>>3)
 		p.bgFetcherStep++
 	case GetTileRowHighT1:
+		if p.winTriggerWx {
+			mode = Window
+		}
 		p.fetcherAddress = p.getTileRow(mode, p.fetcherTileNo) | 1
 		p.bgFetcherStep++
 	case GetTileRowHighT2:
@@ -892,6 +936,13 @@ func (p *PPU) stepPixelFetcher() {
 			p.fetcherData[0] = bits.Reverse8(p.fetcherData[0])
 			p.fetcherData[1] = bits.Reverse8(p.fetcherData[1])
 		}
+
+		// was that a window fetch?
+		if p.winTriggerWx {
+			p.winTileX++
+			p.winTileX &= 0x1f
+		}
+
 		fallthrough
 	case PushPixels:
 		p.bgFetcherStep = PushPixels
@@ -976,7 +1027,7 @@ func (p *PPU) pushPixel() {
 	if pixel > 0 && bgPriority {
 		drawOAM = false
 	}
-	p.PreparedFrame[p.ly][p.lx] = p.ColourPalette[bgPX.Palette][pixel]
+	p.PreparedFrame[p.ly][p.lx] = p.ColourPalette[bgPX.Attributes&7][pixel]
 
 	if drawOAM {
 		p.PreparedFrame[p.ly][p.lx] = p.ColourSpritePalette[objPX.Palette][objPX.Color]
@@ -1011,6 +1062,7 @@ func (p *PPU) getTileID(mode FetcherMode) uint16 {
 	case Window:
 		address |= uint16(p.winTileMap) << 10
 		address |= (uint16(p.wly) >> 3) << 5
+		address |= uint16(p.winTileX)
 		//address |= uint16(p.fetcherX)
 	}
 
@@ -1032,7 +1084,7 @@ func (p *PPU) getTileRow(mode FetcherMode, id uint8) uint16 {
 		yPos = uint16(p.wly & 7)
 	}
 
-	if attr&types.Bit6 > 0 { // Y-Flip (Objects & CGB Only)
+	if attr&types.Bit6 > 0 { // Y-Flip (CGB Only)
 		yPos = ^yPos & 7
 	}
 	address |= yPos << 1 // Y-Pos Offset
@@ -1083,8 +1135,34 @@ func (p *PPU) statUpdate() {
 
 	// trigger interrupt if needed
 	if p.statINT && !prevInterruptLine {
-		p.b.Debugf("STAT INT %08b %d %d\n", p.status, p.modeToInt, p.s.Cycle())
+		if p.modeToInt == ModeHBlank {
+			p.b.Debugf("STAT INT %08b %d %d\n", p.status, p.modeToInt, p.s.Cycle())
+		}
 		p.b.RaiseInterrupt(io.LCDINT)
+	}
+}
+
+// handleWY checks to see if the window has been enabled
+func (p *PPU) handleWY() {
+	if !p.enabled {
+		return
+	}
+
+	comparison := p.ly
+	if (!p.cgbMode || p.s.DoubleSpeed()) && p.lyForComparison != 0xffff {
+		comparison = uint8(p.lyForComparison)
+	}
+
+	if p.winEnabled && p.wy == comparison {
+		p.winTriggerWy = true
+	}
+}
+
+func (p *PPU) fetcherY() uint8 {
+	if p.winTriggerWx {
+		return uint8(p.wly)
+	} else {
+		return p.ly + p.scy
 	}
 }
 
