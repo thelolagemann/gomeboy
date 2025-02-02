@@ -266,6 +266,7 @@ var InstructionSet = [256]Instruction{
 	0x74: {"LD (HL), H", func(c *CPU) { c.b.ClockedWrite(c.HL.Uint16(), c.H) }},
 	0x75: {"LD (HL), L", func(c *CPU) { c.b.ClockedWrite(c.HL.Uint16(), c.L) }},
 	0x76: {"HALT", func(c *CPU) {
+		c.b.Debugf("%04x HALT\n", c.PC)
 		if c.b.InterruptsEnabled() {
 			//panic("halt with interrupts enabled")
 			c.skipHALT()

@@ -16,8 +16,9 @@ type CPU struct {
 
 	registerPointers [8]*uint8
 
-	b *io.Bus
-	s *scheduler.Scheduler
+	b       *io.Bus
+	s       *scheduler.Scheduler
+	haltBug bool
 }
 
 func NewCPU(b *io.Bus, sched *scheduler.Scheduler) *CPU {
@@ -43,7 +44,7 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler) *CPU {
 	sched.RegisterEvent(scheduler.EIPending, func() {
 		c.b.EnableInterrupts()
 	})
-	sched.RegisterEvent(scheduler.EIHaltDelay, func() { c.b.EnableInterrupts(); c.PC-- })
+	sched.RegisterEvent(scheduler.EIHaltDelay, func() { c.b.EnableInterrupts(); c.haltBug = true })
 
 	return c
 }
@@ -84,6 +85,10 @@ step:
 			goto handleInterrupt
 		}
 		c.s.Tick(2)
+		if c.haltBug {
+			c.PC--
+			c.haltBug = false
+		}
 		op := c.b.Read(c.PC)
 		c.PC++
 		InstructionSet[op].fn(c)
@@ -92,6 +97,7 @@ step:
 handleInterrupt:
 	// check to see if hasInt was triggered by an interrupt
 	if c.b.CanInterrupt() {
+		c.b.Debugf(" %04x Servicing Interrupt %08b\n", c.PC, c.b.Get(types.IE))
 		c.s.Tick(4)
 		c.s.Tick(4)
 

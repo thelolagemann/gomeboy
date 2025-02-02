@@ -269,9 +269,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveLazyReader(types.STAT, func() byte {
-		if p.ly < 3 {
-			p.b.Debugf("reading stat %d %08b\n", p.ly, p.status|p.mode)
-		}
 		return types.Bit7 | p.status | p.mode
 	})
 	b.ReserveAddress(types.SCY, func(v byte) byte {
@@ -534,7 +531,7 @@ var objStepCycles = []uint64{
 // handleVisualLine handles lines 0 -> 143, stepping from OAM -> VRAM -> HBlank until line 143 is reached.
 func (p *PPU) handleVisualLine() {
 	if p.lineState != fifo {
-		//p.b.Debugf("doing state: %d dot:%d scx:%d\n", p.lineState, p.fifoCycle, p.scx)
+		//p.b.Debugf("doing state: %d dot:%d\n", p.lineState, p.s.Cycle()-p.fifoCycle)
 	}
 	switch p.lineState {
 	case startLine: // 0 -> 2
@@ -760,7 +757,6 @@ func (p *PPU) handleVisualLine() {
 			dotsPast >>= 1
 		}
 
-		p.b.Debugf("starting hblank at %d %d\n", p.s.Cycle()-p.fifoCycle, p.fifoCycle)
 		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 456-dotsPast)
 
 		p.lineState = finishHBlank
@@ -781,7 +777,6 @@ func (p *PPU) handleVisualLine() {
 			p.handleOffscreenLine()
 		} else {
 			// go to OAM search
-			p.b.Debugf("finishing HBlank at %d %d\n", p.s.Cycle(), p.fifoCycle)
 			p.lineState = startLine
 			p.handleVisualLine()
 		}
