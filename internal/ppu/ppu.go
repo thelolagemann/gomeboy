@@ -1,8 +1,10 @@
+//go:generate go run golang.org/x/tools/cmd/stringer -type=LineState,OffscreenLineState,FetcherState -output=ppu_string.go
 package ppu
 
 import (
 	_ "embed"
 	"encoding/csv"
+	"fmt"
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
@@ -96,14 +98,13 @@ type PPU struct {
 	bgTileMap, winTileMap, objSize, addressMode uint8
 
 	// various internal flags
-	mode, modeToInt, ly, status uint8
-	lx, wly                     int
-	lyCompare                   uint8
-	scy, scx                    uint8
-	wy, wx                      uint8
+	mode, ly, lx, wly, status  uint8
+	scxDiscarded, scxToDiscard uint8
 
-	lyForComparison uint16
-	lycINT, statINT bool
+	lyCompare       uint8
+	scy, scx        uint8
+	wy, wx          uint8
+	bgp, pendingBGP uint8
 
 	cgbMode                      bool
 	cRAM                         [128]uint8 // 64 bytes BG+OBJ
@@ -111,9 +112,9 @@ type PPU struct {
 	bcpsIndex, ocpsIndex         uint8
 
 	// external components
-	b         *io.Bus
-	fifoCycle uint64
-	s         *scheduler.Scheduler
+	b                 *io.Bus
+	lineDot, frameDot uint64
+	s                 *scheduler.Scheduler
 
 	// palettes used for DMG -> CGB colourisation
 	BGColourisationPalette   Palette
@@ -125,47 +126,39 @@ type PPU struct {
 	ColourSpritePalette ColourPalette
 
 	PreparedFrame [ScreenHeight][ScreenWidth][3]uint8
-	DebugView     [ScreenHeight][ScreenWidth][3]uint8
 
 	// debug
 	Debug struct {
 		SpritesDisabled, BackgroundDisabled, WindowDisabled bool
 	}
 
-	bgFIFO, objFIFO       *utils.FIFO[FIFOEntry]
-	bgFetcher, objFetcher *Fetcher
-	bgFetcherStep         FetcherStep
-	objStep               objStep
+	bgFIFO, objFIFO *utils.FIFO[FIFOEntry]
+	bgFetcherX      uint8
+	winFetcherX     uint8 // window has its own internal LX for fetching
 
 	fetcherTileNo, fetcherTileAttr uint8
-	fetcherData                    [2]uint8
+	fetcherData, fetcherDataCache  [2]uint8
 	objFetcherLow, objFetcherHigh  uint8
 	fetcherObj                     bool
 	fetchingObj                    Sprite
 	fetcherWin                     bool
 	winTriggerWy, winTriggerWx     bool
 
-	objBuffer   []Sprite
-	visibleObjs int
+	objBuffer []Sprite
+
+	objFetcherTileNo, objFetcherAttr uint8
 
 	fetcherTileNoAddress, fetcherAddress        uint16
 	objFetcherLowAddress, objFetcherHighAddress uint16
-	linePos                                     int
-	lineState                                   lineState
-	glitchedLineState                           glitchedLineState
-	offscreenLineState                          offscreenLineState
-	winTileX                                    uint8
-}
+	lineState                                   LineState
+	offscreenLineState                          OffscreenLineState
+	fetcherState                                FetcherState
 
-type DebugColor uint32
-
-const (
-	BGPalette  DebugColor = 0x0000ffff
-	SCXPalette DebugColor = 0xffff00ff
-)
-
-func (d DebugColor) RGB() [3]uint8 {
-	return [3]uint8{uint8(d >> 24), uint8(d >> 16), uint8(d >> 8)}
+	// various INT lines
+	LYC_EQ_LY_INT     bool
+	STAT_INT          bool
+	firstLine         bool
+	fetcherDataCached bool
 }
 
 // A FIFOEntry represents a single pixel in a FIFO.
@@ -176,31 +169,14 @@ type FIFOEntry struct {
 	OBJIndex   uint8
 }
 
-type Fetcher struct {
-	Step                                  FetcherStep
-	FetcherLowAddress, FetcherHighAddress uint16
-	FetcherLow, FetcherHigh               uint8
-}
-
-type FetcherStep int
-
-const (
-	GetTileIDT1 FetcherStep = iota
-	GetTileIDT2
-	GetTileRowLowT1
-	GetTileRowLowT2
-	GetTileRowHighT1
-	GetTileRowHighT2
-	PushPixels
-)
-
 func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	p := &PPU{
 		b: b,
 		s: s,
 
-		bgFIFO:  utils.NewFIFO[FIFOEntry](8),
-		objFIFO: utils.NewFIFO[FIFOEntry](8),
+		bgFIFO:        utils.NewFIFO[FIFOEntry](8),
+		objFIFO:       utils.NewFIFO[FIFOEntry](8),
+		LYC_EQ_LY_INT: true,
 	}
 
 	for pal := 0; pal < 8; pal++ {
@@ -228,19 +204,32 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			// when the LCD is off, LY reads 0, and STAT mode reads 0 (HBlank)
 			p.b.Set(types.LY, 0)
 			p.ly, p.mode = 0, 0
-			p.lyForComparison = 0
+			p.wly = 255
+			p.b.Debugf("turning off ppu\n")
 
+			// OAM & VRAM bus is released
 			p.b.Unlock(io.OAM | io.VRAM)
-			p.lineState = startLine
-			p.glitchedLineState = startGlitchedLine
+			p.lineState = StartOAMScanAfterTurnOn
+			p.resetFetcher()
 		} else if !p.enabled && v&types.Bit7 != 0 {
 			p.enabled = true
 			p.cleared = false
-			p.linePos = -16
 			p.cgbMode = b.IsGBCCart() && b.IsGBC()
-			p.glitchedLineState = startGlitchedLine
-			p.statUpdate()
-			p.s.ScheduleEvent(scheduler.PPUHandleGlitchedLine0, 1)
+
+			// STAT's LYC_EQ_LY is updated here (but interrupt isn't raised)
+			if p.ly == p.lyCompare && p.LYC_EQ_LY_INT {
+				p.status |= types.Bit2
+			} else {
+				p.status &^= types.Bit2
+			}
+			p.b.Debugf("turning on ppu STAT: %08b\n", p.status)
+
+			p.lineDot = p.s.Cycle()
+			p.frameDot = p.s.Cycle()
+
+			p.lineState = StartOAMScanAfterTurnOn
+
+			p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
 		}
 
 		p.winTileMap = v >> 6 & 1
@@ -254,7 +243,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.STAT, func(v byte) byte {
-		p.b.Debugf("writing stat %08b\n", v)
+		//p.b.Debugf("writing stat %08b\n", v)
 		if !p.b.IsGBC() {
 			oldStat := p.status
 			p.status = 0xff
@@ -280,10 +269,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.LY, func(v byte) byte {
-		if b.IsBooting() {
-			p.ly = v
-			return v
-		}
+
 		// any write to LY resets to 0
 		p.ly = 0
 		return 0
@@ -294,11 +280,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.BGP, func(v byte) byte {
-		if v == b.Get(types.BGP) || p.b.IsGBCCart() && p.b.IsGBC() {
-			return v
-		}
-		p.ColourPalette[0] = p.BGColourisationPalette.remap(v)
-
+		p.ColourPalette[0] = p.BGColourisationPalette.remap(p.bgp | v)
 		return v
 	})
 	b.ReserveAddress(types.OBP0, func(v byte) byte {
@@ -422,365 +404,295 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	})
 
 	s.RegisterEvent(scheduler.PPUHandleVisualLine, p.handleVisualLine)
-	s.RegisterEvent(scheduler.PPUHandleGlitchedLine0, p.handleGlitchedLine0)
 	s.RegisterEvent(scheduler.PPUHandleOffscreenLine, p.handleOffscreenLine)
 	return p
 }
 
-type glitchedLineState int
+type LineState int
 
 const (
-	startGlitchedLine glitchedLineState = iota
-	glitchedLineOAMWBlock
-	glitchedLineEndOAM
-	glitchedLineStartVRAM
-)
-
-var (
-	glitchedLineCycles = []uint64{
-		startGlitchedLine:     76, // 77
-		glitchedLineOAMWBlock: 2,  // 79
-		glitchedLineEndOAM:    5,  // 84
-		glitchedLineStartVRAM: 0,  // 83 -
-	}
-)
-
-// handleGlitchedLine0 handles the very first line after turning the LCD on. Timing is a bit different
-// from normal, being cut short by 8 dots, whilst also presenting as ModeHBlank when it would otherwise
-// be in ModeOAM. The OAM scanning is also skipped, although this doesn't matter as the LCD doesn't start
-// displaying a signal from the PPU until the first VBlank is reached.
-func (p *PPU) handleGlitchedLine0() {
-	switch p.glitchedLineState {
-	case startGlitchedLine:
-		p.ly, p.lyForComparison = 0, 0
-		p.b.Set(types.LY, 0)
-		p.linePos = -16
-		p.mode = ModeHBlank
-		p.modeToInt = 255
-		p.b.Unlock(io.OAM | io.VRAM)
-		p.statUpdate()
-		p.fifoCycle = p.s.Cycle()
-	case glitchedLineOAMWBlock:
-		p.b.WLock(io.OAM)
-		p.statUpdate()
-	case glitchedLineEndOAM:
-		p.mode, p.modeToInt = ModeVRAM, ModeVRAM
-		p.b.Lock(io.OAM)
-		if p.s.DoubleSpeed() {
-			p.b.Lock(io.VRAM)
-		}
-		if !p.cgbMode {
-			p.b.Lock(io.VRAM)
-		}
-	case glitchedLineStartVRAM:
-		p.b.Lock(io.VRAM)
-		p.lineState = startFifo
-		p.fifoCycle -= 8
-		p.handleVisualLine()
-		return
-	}
-
-	p.s.ScheduleEvent(scheduler.PPUHandleGlitchedLine0, glitchedLineCycles[p.glitchedLineState])
-	p.glitchedLineState++
-}
-
-type lineState int
-
-const (
-	startLine lineState = iota
-	cgbOAMWBlock
-	updateLY
-	startOAM
-	oamIndex37
-	finishOAM
-	startFifo
-	fifo
-	finishVRAM
-	startHBlank
-	finishHBlank
+	StartOAMScanAfterTurnOn LineState = iota
+	StartOAMScan
+	ReleaseOAMBus
+	AcquireOAMBus
+	StartPixelTransfer
+	PixelTransferDummy
+	PixelTransferSCXDiscard
+	PixelTransferLX0
+	PixelTransferLX8
+	EnterHBlank
+	HBlankUpdateOAM
+	HBlankUpdateLY
+	HBlankUpdateLYCInt
+	HBlankEnd
+	HBlankLastLine
+	HBlankLastLineLYCInt
+	HBlankLastLineEnd
 )
 
 var stateCycles = []uint64{
-	startLine:    2,  // 2
-	cgbOAMWBlock: 1,  // 3
-	updateLY:     1,  // 4
-	startOAM:     76, // 78
-	oamIndex37:   4,  // 84
-	finishOAM:    5,  // 89
-	startFifo:    0,
-	fifo:         1,   // 256-373 (167.5 - 284.5 cycles)
-	finishVRAM:   1,   // 257
-	startHBlank:  199, // 456 (depending on how many cycles fifo took)
-}
-
-type objStep int
-
-const (
-	startObjStep objStep = iota
-	getRowLow
-	getRowHigh
-	pushPixels
-)
-
-var objStepCycles = []uint64{
-	startObjStep: 2,
-	getRowLow:    2,
-	getRowHigh:   1,
+	StartOAMScanAfterTurnOn: 79,
+	StartOAMScan:            76,
+	ReleaseOAMBus:           2, // 76 - 78 dots (+2)
+	AcquireOAMBus:           2, // 78 - 80 dots (+2)
+	StartPixelTransfer:      3, // 80 - 83 dots (+3)
+	PixelTransferDummy:      1, // 83 - 84 dots (+2)
+	PixelTransferSCXDiscard: 1, // variable
+	PixelTransferLX0:        1, // 83 - 91 dots (+8)
+	PixelTransferLX8:        1,
+	// EnterHBlank is variable and is manually scheduled
+	HBlankUpdateOAM:      1,
+	HBlankUpdateLY:       1,
+	HBlankUpdateLYCInt:   1,
+	HBlankEnd:            1,
+	HBlankLastLine:       1,
+	HBlankLastLineLYCInt: 1,
+	// HBlankLastLineEnd:  enters new mode
 }
 
 // handleVisualLine handles lines 0 -> 143, stepping from OAM -> VRAM -> HBlank until line 143 is reached.
 func (p *PPU) handleVisualLine() {
-	if p.lineState != fifo {
-		//p.b.Debugf("doing state: %d dot:%d\n", p.lineState, p.s.Cycle()-p.fifoCycle)
+	if p.lineState != PixelTransferLX8 {
+		p.b.Debugf("%-30s : LY: %03d LX: %03d SCX: %03d dot:%03d\n", p.lineState, p.ly, p.lx, p.scx, p.s.Cycle()-p.lineDot)
 	}
 	switch p.lineState {
-	case startLine: // 0 -> 2
-		p.handleWY()
-		p.fifoCycle = p.s.Cycle()
-		p.b.WBlock(io.OAM, p.cgbMode && !p.s.DoubleSpeed())
-	case cgbOAMWBlock: // 2 -> 3
-		p.b.WBlock(io.OAM, p.cgbMode)
-	case updateLY: // 3 -> 4
-		p.b.Set(types.LY, p.ly)
-		p.b.RBlock(io.OAM, !p.s.DoubleSpeed())
-
-		if p.ly != 0 {
-			p.lyForComparison = 0xffff
-		} else {
-			p.lyForComparison = 0
-		}
-
-		// OAM stat int fires 1 T-Cycle before STAT changes, except on line 0
-		if p.ly != 0 {
-			p.modeToInt = ModeOAM
-			p.mode = ModeHBlank
-		} else if !p.cgbMode {
-			p.mode = ModeHBlank
-		}
+	case StartOAMScanAfterTurnOn:
 		p.statUpdate()
-	case startOAM:
-		p.b.Lock(io.OAM)
-		p.mode, p.modeToInt = ModeOAM, ModeOAM
-		p.lyForComparison = uint16(p.ly)
-		p.handleWY()
-		p.statUpdate()
-		p.modeToInt = 255
-		p.statUpdate()
-	case oamIndex37: //
-		p.b.RBlock(io.VRAM, !p.cgbMode)
-		p.b.WBlock(io.OAM, p.cgbMode)
-		p.b.WUnlock(io.VRAM)
-	case finishOAM: // = 84 cycles
-		p.mode, p.modeToInt = ModeVRAM, ModeVRAM
+		p.lineState = StartPixelTransfer
+		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 79)
+		return
+	case StartOAMScan:
+		p.lineDot = p.s.Cycle()
+	case ReleaseOAMBus: // on dot 76
+		p.b.Unlock(io.OAM)
+	case AcquireOAMBus: // on dot 78
 		p.b.Lock(io.OAM | io.VRAM)
-		p.statUpdate() // no VRAM int so this should clear the stat line
+	case StartPixelTransfer: // on dot 79?
 
-		if p.objEnabled || p.cgbMode {
-			// fill obj buffer
-			p.objBuffer = []Sprite{}
-			for i := uint16(0); i < 0xa0 && len(p.objBuffer) < 10; i += 4 {
-				y, x, id, attr := p.b.Get(0xfe00+i), p.b.Get(0xfe00+i+1), p.b.Get(0xfe00+i+2), p.b.Get(0xfe00+i+3)
-
-				if p.ly+16 >= y &&
-					p.ly+16 < y+p.objSize {
-					spr := Sprite{
-						y:     y,
-						x:     x,
-						id:    id,
-						attr:  attr,
-						index: uint8(i) >> 2,
-					}
-
-					if p.objSize == 16 {
-						if (p.ly+16-y < 8 && spr.attr&types.Bit6 > 0) || (p.ly+16-y >= 8 && spr.attr&types.Bit6 == 0) {
-							spr.id |= 1
-						} else {
-							spr.id &= 0xfe
-						}
-					}
-
-					p.objBuffer = append(p.objBuffer, spr)
-				}
-			}
-
-			sort.SliceStable(p.objBuffer, func(i, j int) bool {
-				return p.objBuffer[i].x < p.objBuffer[j].x
-			})
-			p.visibleObjs = len(p.objBuffer)
-		}
-	case startFifo:
-		p.bgFIFO.Reset()
-		p.objFIFO.Reset()
-		p.lx = 0
+		p.enterPixelTransfer()
+		return
+	case PixelTransferDummy: // on dot 83?
+		// the first tile fetch is used to handle SCX % 8 > 0, however this data
+		// will just be discarded, so we "fill" the BG FIFO with junk data
 		p.bgFIFO.Size = 8
-		p.lineState = fifo
-		p.bgFetcherStep = 0
-		p.fetcherObj = false
-		fallthrough
-	case fifo:
-		// is the window trying to piggyback the BG fetcher?
-		if !p.winTriggerWx && p.winTriggerWy && p.winEnabled {
-			windowActivated := false
-			if p.wx == 0 {
-				if p.linePos == -7 {
-					windowActivated = true
-				} else if p.linePos == -16 && p.scx&7 > 0 {
-					windowActivated = true
-				} else if p.linePos >= -15 && p.linePos <= -8 {
-					windowActivated = true
-				}
-			} else if p.wx < 166 {
-				if p.wx == uint8(p.linePos)+7 {
-					windowActivated = true
-				}
-			}
 
-			// have we met the conditions to start fetching a window?
-			if windowActivated {
-				p.wly++
-				p.winTileX = 0
+		p.scxToDiscard = p.scx & 7
 
-				// fetching the window clears the BG fifo and resets the fetcher
-				p.bgFIFO.Reset()
-				p.winTriggerWx = true
-				p.bgFetcherStep = GetTileIDT1
-			}
-		}
+		if p.scxToDiscard > 0 {
+			p.scxDiscarded = 0
+			// window can be activated before BG when SCX % 8 > 0
+			//p.checkWindowTrigger()
 
-		// is the PPU currently fetching an OBJ?
-		if p.fetcherObj {
-			switch p.objStep {
-			case startObjStep:
-				p.stepPixelFetcher()
-			case getRowLow:
-				p.stepPixelFetcher()
-				p.objFetcherLow = p.b.GetVRAM(p.getOBJRow(p.fetchingObj.id), p.fetchingObj.attr&types.Bit3>>3)
-			case getRowHigh:
-				p.objFetcherHigh = p.b.GetVRAM(p.getOBJRow(p.fetchingObj.id)|1, p.fetchingObj.attr&types.Bit3>>3)
-				if p.fetchingObj.attr&types.Bit5 > 0 {
-					p.objFetcherLow = bits.Reverse8(p.objFetcherLow)
-					p.objFetcherHigh = bits.Reverse8(p.objFetcherHigh)
-				}
-			case pushPixels:
-				j := uint8(0)
-				for i := uint8(0x80); i > 0; i >>= 1 {
-					if p.fetchingObj.x+j < 8 {
-						j++
-						continue // offscreen
-					}
-
-					objFIFO := FIFOEntry{
-						Attributes: p.fetchingObj.attr,
-						Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
-						OBJIndex:   p.fetchingObj.index,
-					}
-					if p.cgbMode {
-						objFIFO.Palette = p.fetchingObj.attr & 7
-					}
-					objFIFO.Color = ((p.objFetcherLow & i) >> (7 - j)) | ((p.objFetcherHigh&i)>>(7-j))<<1
-
-					if int(j) < p.objFIFO.Size {
-						if p.objFIFO.GetIndex(int(j)).Color == 0 ||
-							p.cgbMode &&
-								objFIFO.Color != 0 && p.objFIFO.GetIndex(int(j)).OBJIndex > p.fetchingObj.index || p.objFIFO.GetIndex(int(j)).Color == 0 {
-							p.objFIFO.ReplaceIndex(int(j), objFIFO)
-						}
-					} else {
-						p.objFIFO.Push(objFIFO)
-					}
-
-					j++
-
-				}
-				p.fetcherObj = false
-				p.visibleObjs--
-
-				goto checkObj
-				// TODO here go back to check for obj
-			}
-
-			p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, objStepCycles[p.objStep])
-			p.objStep++
-
-			return
-		}
-
-	checkObj:
-		for p.visibleObjs > 0 && p.objBuffer[0].x < p.xForObj() && (p.objEnabled || p.cgbMode) {
-			p.visibleObjs--
-			p.objBuffer = p.objBuffer[1:]
-		}
-
-		// are there any pending OBJs on this X coordinate?
-		if p.visibleObjs > 0 && (p.objEnabled || p.cgbMode) && p.objBuffer[0].x == p.xForObj() {
-			// finish the current BG fetch (if needed)
-			if p.bgFetcherStep < GetTileRowHighT2 || p.bgFIFO.Size == 0 {
-				p.stepPixelFetcher()
-				p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1) // sleep for 1 cycle
-			} else {
-				p.stepPixelFetcher()
-				p.fetcherObj = true
-				p.objStep = startObjStep
-				p.fetchingObj = p.objBuffer[0]
-				p.objBuffer = p.objBuffer[1:]
-				p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
-			}
-
-			return // OBJ fetching immediately halts pushing pixels to the LCD
-		}
-
-		p.pushPixel()
-		p.stepPixelFetcher()
-		if p.linePos != 160 {
-			// end of line handle here
+			p.lineState = PixelTransferSCXDiscard
 			p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
+
 			return
 		}
+		p.lineState = PixelTransferLX0
 
-		p.linePos = -16
-		if !p.s.DoubleSpeed() {
-			p.mode, p.modeToInt = ModeHBlank, ModeHBlank
-			p.b.Unlock(io.OAM | io.VRAM)
+		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
+		return
+	// TODO handle SCX discard
+	case PixelTransferSCXDiscard:
+		if p.canPopBG() {
+			p.bgFIFO.Pop()
+			p.scxDiscarded++
+			if p.scxDiscarded == p.scxToDiscard {
+				// can we finally start transferring pixels yet?
+				p.lineState = PixelTransferLX0
+
+				p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
+				return
+			}
+
 		}
-		p.lineState = finishVRAM
-		p.winTriggerWx = false
-	case startHBlank:
-		p.modeToInt, p.modeToInt = ModeHBlank, ModeHBlank
-		p.b.Unlock(io.OAM | io.VRAM)
-		p.statUpdate()
+		p.stepPixelFetcher()
+		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
+		return // remain in this state until we have discarded all SCX % 8 pixels
+	case PixelTransferLX0: // on dot 83
+		incLX := false
 
+		// the first 8 pixels are discarded, so just pop them
+		if p.canPopBG() {
+			p.bgFIFO.Pop()
+
+			// not sure if this ever happens, but we should still discard them
+			if p.objFIFO.Size > 0 {
+				p.objFIFO.Pop()
+			}
+
+			incLX = true
+
+			// remain in the PixelTransferLX0 state until we have reached LX==8
+			if p.lx+1 == 8 {
+				p.lineState = PixelTransferLX8
+			}
+
+			p.checkWindowTrigger()
+		}
+
+		// step the fetcher
+		p.stepPixelFetcher()
+
+		// did we inc LX?
+		if incLX {
+			p.lx++
+		}
+
+		// the window is considered to be active for the rest of the frame
+		// if at some point during it happens that window is enabled while
+		// LY == WY. this doesn't mean that the window will always be rendered,
+		// as WX == LX condition is checked again during pixel transfer
+		if p.winEnabled && p.ly == p.wy {
+			p.winTriggerWy = true
+		}
+
+		// remain in the PixelTransferLX0 state until we reach LX==8
+		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, stateCycles[p.lineState])
+		return
+	case PixelTransferLX8:
+		incLX := false
+
+		if p.canPopBG() {
+			var color [3]uint8
+			var drawOAM, bgPriority bool
+			var bgEnabled = true
+			bgPixel := p.bgFIFO.Pop()
+			bgPriority = bgPixel.Attributes&types.Bit7 > 0
+
+			// TODO handle LCDC delay
+
+			// are there pending OBJ pixels?
+			if p.objFIFO.Size > 0 {
+				objPixel := p.objFIFO.Pop()
+
+				// in DMG mode three conditions must be met to push an OBJ pixel instead of a BG pixel
+				// - OBJ are enabled
+				// - OBJ pixel is opaque (color = [1,2,3])
+				// - BG_OVER_OBJ is disabled | BG color == 0
+				if p.objEnabled && objPixel.Color > 0 {
+					color = p.ColourSpritePalette[objPixel.Palette][objPixel.Color]
+					drawOAM = true
+					if objPixel.Attributes&types.Bit7 > 0 {
+						bgPriority = true
+					}
+				}
+			}
+
+			// BG_EN bit is different on CGB
+			if !p.bgEnabled {
+				if p.cgbMode {
+					bgPriority = false
+				} else {
+					bgEnabled = false
+				}
+			}
+
+			// did an OBJ pixel get drawn?
+			if !drawOAM || bgPriority && bgPixel.Color > 0 {
+				if bgEnabled {
+					color = p.ColourPalette[bgPixel.Attributes&7][bgPixel.Color]
+				} else {
+					color = p.ColourPalette[bgPixel.Attributes&7][0]
+				}
+			}
+
+			if p.ly >= 144 {
+				panic(fmt.Sprintf("ROM: %s exceeded line boundaries", p.b.Cartridge().String()))
+			}
+			// draw pixel to frame
+			p.PreparedFrame[p.ly][p.lx-8] = color
+
+			incLX = true
+
+			// have we reached the end of the screen?
+			if p.lx+1 == 168 {
+				p.lx++
+
+				p.lineState = EnterHBlank
+				p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
+				return
+			}
+
+			p.checkWindowTrigger()
+
+		}
+		p.stepPixelFetcher()
+
+		if incLX {
+			p.lx++
+		}
+
+		// the window is considered to be active for the rest of the frame
+		// if at some point during it happens that window is enabled while
+		// LY == WY. this doesn't mean that the window will always be rendered,
+		// as WX == LX condition is checked again during pixel transfer
+		if p.winEnabled && p.ly == p.wy {
+			p.winTriggerWy = true
+		}
+
+		// remain in the PixelTransferLX8 state until we reach LX==168
+		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
+		return
+	case EnterHBlank: // variable
+		p.mode = ModeHBlank
+		p.statUpdate()
+		p.b.Unlock(io.OAM | io.VRAM)
+
+		dotsPassed := p.s.Cycle() - p.lineDot
+
+		if p.s.DoubleSpeed() {
+			dotsPassed >>= 1
+		}
+
+		if p.ly == 143 {
+			p.lineState = HBlankLastLine
+			p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 454-dotsPassed)
+			return
+		} else {
+			p.lineState = HBlankUpdateOAM
+		}
+		// TODO verify timing
 		if p.cgbMode {
 			p.b.HandleHDMA()
 		}
-		dotsPast := p.s.Cycle() - p.fifoCycle
-		if p.s.DoubleSpeed() {
-			dotsPast >>= 1
-		}
 
-		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 456-dotsPast)
-
-		p.lineState = finishHBlank
+		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 452-dotsPassed)
 		return
-	case finishHBlank:
-		if p.ly != 143 {
-			p.modeToInt = ModeOAM
-		}
+
+	case HBlankUpdateOAM: // dot 452
+		p.updateOAMStat()
+		p.statUpdate()
+	case HBlankUpdateLY: // dot 453
 		p.ly++
-		// if we are on line 144, we are entering ModeVBlank
-		if p.ly == 144 {
-			// was the LCD just turned on? (the Game Boy never receives the first frame after turning on the LCD)
-			if !p.cleared {
-				p.renderBlank()
-			}
+		p.b.Set(types.LY, p.ly)
 
-			p.offscreenLineState = startVBlank
-			p.handleOffscreenLine()
-		} else {
-			// go to OAM search
-			p.lineState = startLine
-			p.handleVisualLine()
-		}
+		// LYC_EQ_LY IRQ is disabled on dot 454
+		p.LYC_EQ_LY_INT = false
+		p.statUpdate()
+		p.b.Lock(io.OAM)
+	case HBlankUpdateLYCInt: // dot 454
+		p.LYC_EQ_LY_INT = true
+		p.statUpdate()
+	case HBlankEnd: // dot 455
+		p.enterOAMScan()
+		return
+	case HBlankLastLine: // dot 453
+		p.ly++
+		p.b.Set(types.LY, p.ly)
+		p.LYC_EQ_LY_INT = false
+		p.statUpdate()
+	case HBlankLastLineLYCInt: // 454
+		p.LYC_EQ_LY_INT = true
+		p.statUpdate()
+	case HBlankLastLineEnd:
+		p.offscreenLineState = StartVBlank
+		p.mode = ModeVBlank
+		p.statUpdate()
 
+		// raise vblank int as we're now entering vblank
+		p.b.RaiseInterrupt(io.VBlankINT)
+		p.handleOffscreenLine()
 		return
 	}
 
@@ -788,91 +700,77 @@ func (p *PPU) handleVisualLine() {
 	p.lineState++
 }
 
-type offscreenLineState int
+type OffscreenLineState int
 
 const (
-	startVBlank offscreenLineState = iota
-	updateLYVBlank
-	updateLYCVBlank
-	handleVBlankInt
-	line153Start
-	line153LYUpdate
-	line153LY0
-	line153LYC
-	line153LYC0
-	endFrame
+	StartVBlank OffscreenLineState = iota
+	VBlankUpdateLY
+	StartVBlankLastLine
+	VBlankLastLine
+	VBlankLastLineUpdateLYCInt
+	VBlankLastLineUpdateHBlank
+	VBlankEnd
 )
 
 var offscreenLineCycles = []uint64{
-	startVBlank:     2,   // 2
-	updateLYVBlank:  2,   // 4
-	updateLYCVBlank: 1,   // 5
-	handleVBlankInt: 451, // 456
-	line153Start:    2,   // 2
-	line153LYUpdate: 4,   // 6
-	line153LY0:      2,   // 8
-	line153LYC:      4,   // 12
-	line153LYC0:     444, // 456
+	StartVBlank:                454, // 454
+	VBlankUpdateLY:             2,   // 456
+	StartVBlankLastLine:        1,   // 1
+	VBlankLastLine:             5,   // 6 (+5)
+	VBlankLastLineUpdateLYCInt: 447, // 452
+	VBlankLastLineUpdateHBlank: 2,   // 454
+	VBlankEnd:                  0,   // 456
 }
 
 // handleOffscreenLine handles lines 144 - 153
 func (p *PPU) handleOffscreenLine() {
+	p.b.Debugf("doing offscreen state: %s dot:%d frame dot: %d %d\n", p.offscreenLineState, p.s.Cycle()-p.lineDot, p.s.Cycle()-p.frameDot, p.ly)
+
 	switch p.offscreenLineState {
-	case startVBlank:
-		p.lyForComparison = 0xffff
-		p.statUpdate()
-	case updateLYVBlank:
+	case StartVBlank: // dot 0
+		p.lineDot = p.s.Cycle()
+
+	case VBlankUpdateLY: // dot 454
+		p.ly++
 		p.b.Set(types.LY, p.ly)
-		if p.b.Model() >= types.CGB0 && p.ly == 144 && !p.statINT && p.status&0x20 > 0 {
-			p.b.RaiseInterrupt(io.LCDINT)
-		}
-	case updateLYCVBlank:
-		p.lyForComparison = uint16(p.ly)
+
+		p.LYC_EQ_LY_INT = false
 		p.statUpdate()
-	case handleVBlankInt:
-		switch p.ly {
-		case 144: // Entering VBlank
-			p.mode, p.modeToInt = ModeVBlank, ModeVBlank
-			p.b.RaiseInterrupt(io.VBlankINT)
 
-			// entering vblank also triggers the OAM interrupt
-			if p.b.Model() < types.CGB0 && !p.statINT && p.status&0x20 > 0 {
-				p.b.RaiseInterrupt(io.LCDINT)
-			}
-
-			p.statUpdate()
-		case 152: // Leaving VBlank
-			p.offscreenLineState = line153Start
-			p.ly++
-			p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, offscreenLineCycles[handleVBlankInt])
+		// have we reached the end of frame?
+		if p.ly == 153 {
+			p.offscreenLineState = StartVBlankLastLine
+			p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, 2)
 			return
 		}
 
-		p.ly++
-		p.offscreenLineState = startVBlank
-		p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, offscreenLineCycles[handleVBlankInt]) // loop back around, accounting for inc
+		p.offscreenLineState = StartVBlank
+		// just restart vblank step otherwise
+		p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, 2)
 		return
-	case line153Start:
-		p.lyForComparison = 0xffff
-		p.statUpdate()
-	case line153LYUpdate:
-		p.b.Set(types.LY, 153)
-	case line153LY0:
-		p.b.Set(types.LY, 0)
-		p.lyForComparison = 153
-		p.statUpdate()
-	case line153LYC:
-		p.lyForComparison = 0xffff
-		p.statUpdate()
-	case line153LYC0:
-		p.lyForComparison = 0
-		p.statUpdate()
-	case endFrame:
+	case StartVBlankLastLine: // dot 0
+		p.lineDot = p.s.Cycle()
+	case VBlankLastLine: // dot 1
 		p.ly = 0
+		p.b.Set(types.LY, p.ly)
+
+		p.LYC_EQ_LY_INT = false
+		p.statUpdate()
+	case VBlankLastLineUpdateLYCInt: // dot 6
+		p.LYC_EQ_LY_INT = true
+		p.statUpdate()
+	case VBlankLastLineUpdateHBlank: // dot 453
+		// STAT mode bits are reset on the last cycle (TODO verify)
+		p.mode = ModeHBlank
+		p.statUpdate()
+	case VBlankEnd: // dot 455
+		p.wly = 255
+		p.frameDot = p.s.Cycle()
 		p.winTriggerWy = false
-		p.wly = -1
-		p.lineState = startLine
-		p.handleVisualLine()
+		// restart frame
+		p.enterOAMScan()
+
+		p.updateOAMStat()
 		return
 	}
 
@@ -880,73 +778,155 @@ func (p *PPU) handleOffscreenLine() {
 	p.offscreenLineState++
 }
 
-func (p *PPU) xForObj() uint8 {
-	ret := uint8(p.linePos) + 8
-	if ret > 240 {
-		return 0
-	}
+// enterOAMScan sets up the PPU for ModeOAM scanning.
+func (p *PPU) enterOAMScan() {
+	// reset OBJs
+	p.objBuffer = []Sprite{}
+	p.mode = ModeOAM
+	p.statUpdate()
 
-	return ret
+	p.b.Lock(io.OAM)
+
+	// next event will be ReleaseOAMBus which should occur in 76 dots from now
+	p.lineState = StartOAMScan
+	p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
 }
 
-func (p *PPU) stepPixelFetcher() {
-	mode := BG
-	switch p.bgFetcherStep {
-	case GetTileIDT1:
-		// window can be disabled mid-scanline?
-		if !p.winEnabled {
-			p.winTriggerWx = false
-		}
-		if p.winTriggerWx {
-			mode = Window
+// enterPixelTransfer sets up the PPU for ModeVRAM pixel transfer
+// Due to the nature of the scheduler, this should be called 1 cycle
+// before actually entering the pixel transfer state.
+func (p *PPU) enterPixelTransfer() {
+	// fill obj
+	if p.objEnabled {
+		// fill obj buffer
+		p.objBuffer = []Sprite{}
+		for i := uint16(0); i < 0xa0 && len(p.objBuffer) < 10; i += 4 {
+			y, x, id, attr := p.b.Get(0xfe00+i), p.b.Get(0xfe00+i+1), p.b.Get(0xfe00+i+2), p.b.Get(0xfe00+i+3)
+
+			if p.ly+16 >= y &&
+				p.ly+16 < y+p.objSize {
+				spr := Sprite{
+					y:     y,
+					x:     x,
+					id:    id,
+					attr:  attr,
+					index: uint8(i) >> 2,
+				}
+
+				if p.objSize == 16 {
+					if (p.ly+16-y < 8 && spr.attr&types.Bit6 > 0) || (p.ly+16-y >= 8 && spr.attr&types.Bit6 == 0) {
+						spr.id |= 1
+					} else {
+						spr.id &= 0xfe
+					}
+				}
+
+				p.objBuffer = append(p.objBuffer, spr)
+			}
 		}
 
-		p.fetcherTileNoAddress = p.getTileID(mode)
-		p.bgFetcherStep++
-	case GetTileIDT2:
-		p.fetcherTileNo = p.b.GetVRAM(p.fetcherTileNoAddress, 0)
-		if p.cgbMode { // CGB access both tile ID & attributes on the same dot
+		sort.SliceStable(p.objBuffer, func(i, j int) bool {
+			return p.objBuffer[i].x < p.objBuffer[j].x
+		})
+	}
+
+	p.resetFetcher()
+	p.mode = ModeVRAM
+	p.statUpdate() // clear stat line
+	p.lineState = PixelTransferDummy
+	p.b.Lock(io.OAM | io.VRAM)
+	p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 3)
+}
+
+// enterHBlank sets up the PPU for the ModeHBlank.
+func (p *PPU) enterHBlank() {
+
+}
+
+// stepPixelFetcher advances the pixel fetcher forward by 1 step depending
+// on what state it's currently in.
+func (p *PPU) stepPixelFetcher() {
+
+	//p.b.Debugf("doing state fetch: %d dot:%d %d %d\n", p.FetcherState, p.s.Cycle()-p.lineDot, p.lx, p.bgFIFO.Size)
+	// if the pixel slice fetcher is currently fetching a window, it could be aborted
+	// due to WIN_EN being reset in LCDC. When this happens the fetcher simply switches
+	// to BG fetching rather than restarting the process
+	if p.fetcherState >= WinGetTileNoT1 && p.fetcherState <= WinGetTileDataHighT1 {
+		if !p.winEnabled {
+			// TODO determine which bg step to roll back to
+		}
+	}
+
+	switch p.fetcherState {
+	case BGWinActivating:
+		// are we fetching for the window or BG?
+		if p.winTriggerWx {
+			if p.winEnabled {
+
+				// move to WinGetTileNoT1
+				p.fetcherState = WinGetTileNoT1
+				p.stepPixelFetcher()
+				return
+			}
+
+			// window fetch was aborted, proceed with bg fetch
+			p.winTriggerWx = false
+		}
+
+		// we're fetching background
+		p.fetcherState = BGGetTileNoT1
+		p.stepPixelFetcher()
+		return
+	// Background
+	case BGGetTileNoT1:
+		address := uint16(0x1800)
+		address |= uint16(p.bgTileMap) << 10
+
+		// determine x,y position on tilemap
+		address |= (uint16((p.ly+p.scy)>>3) & 0x1f) << 5    // Y pos
+		address |= (uint16(p.scx+p.bgFetcherX) >> 3) & 0x1f // X pos
+		p.fetcherTileNoAddress = address
+
+		// TODO verify when CGB accesses tile attrs
+		if p.cgbMode {
 			p.fetcherTileAttr = p.b.GetVRAM(p.fetcherTileNoAddress, 1)
 		}
-		p.bgFetcherStep++
-	case GetTileRowLowT1:
-		if p.winTriggerWx {
-			mode = Window
-		}
-		p.fetcherAddress = p.getTileRow(mode, p.fetcherTileNo)
-		p.bgFetcherStep++
-	case GetTileRowLowT2:
-		p.fetcherData[0] = p.b.GetVRAM(p.fetcherAddress, p.fetcherTileAttr&types.Bit3>>3)
-		p.bgFetcherStep++
-	case GetTileRowHighT1:
-		if p.winTriggerWx {
-			mode = Window
-		}
-		p.fetcherAddress = p.getTileRow(mode, p.fetcherTileNo) | 1
-		p.bgFetcherStep++
-	case GetTileRowHighT2:
-		p.fetcherData[1] = p.b.GetVRAM(p.fetcherAddress, p.fetcherTileAttr&types.Bit3>>3)
-		p.bgFetcherStep++
+	case BGGetTileDataLowT1:
+		p.fetcherData[0] = p.b.GetVRAM(p.getBGTileAddress(), p.fetcherTileAttr&types.Bit3>>3)
+	case BGGetTileDataHighT1:
+		p.fetcherData[1] = p.b.GetVRAM(p.getBGTileAddress()|1, p.fetcherTileAttr&types.Bit3>>3)
+	case BGWinGetTileDataHighT2:
 		if p.fetcherTileAttr&types.Bit5 > 0 {
 			p.fetcherData[0] = bits.Reverse8(p.fetcherData[0])
 			p.fetcherData[1] = bits.Reverse8(p.fetcherData[1])
 		}
+		p.bgFetcherX += 8
 
-		// was that a window fetch?
-		if p.winTriggerWx {
-			p.winTileX++
-			p.winTileX &= 0x1f
+		// if there is a pending OBJ fetch and the BG FIFO isn't empty,
+		// start fetching the OBJ and cache the current BG/Window fetch
+		if p.canFetchOBJ() && p.bgFIFO.Size > 0 {
+			p.cacheFetcher()
+
+			// the first OBJ fetcher step should overlap with this dot,
+			// rather than the push
+			p.fetcherObj = true
+			p.fetchingObj = p.objBuffer[0]
+			p.objBuffer = p.objBuffer[1:]
+			p.fetcherState = OBJGetTileNoT1
+			p.stepPixelFetcher()
+
+			return
 		}
 
-		fallthrough
-	case PushPixels:
-		p.bgFetcherStep = PushPixels
-		// is the FIFO accepting pixels?
-		if p.bgFIFO.Size > 0 {
-			break // can't push to FIFO when it has pixels in it
-		}
+	// TODO handle immediate window push?
+	case BGWinPushPixels:
+		// pixels can only be pushed to the BG FIFO when it is empty, otherwise
+		// we need to remain in this state until it is
+		isEmpty := p.bgFIFO.Size == 0
 
-		if p.bgEnabled || p.cgbMode {
+		if isEmpty {
+			// TODO handle LX == WX glitch here?
+
 			attr := p.fetcherTileAttr
 			low, high := p.fetcherData[0], p.fetcherData[1]
 			p.bgFIFO.Data = [8]FIFOEntry{
@@ -959,213 +939,351 @@ func (p *PPU) stepPixelFetcher() {
 				{Attributes: attr, Color: (low>>1)&1 | (high>>1)&1<<1},
 				{Attributes: attr, Color: (low)&1 | (high)&1<<1},
 			}
-		}
+			p.bgFIFO.Size = 8
 
-		p.bgFIFO.Size = 8
-		p.bgFetcherStep = GetTileIDT1
-	}
-}
+			p.fetcherState = BGWinActivating
 
-// pushPixel attempts to push a pixel from one of the FIFOs to the LCD.
-func (p *PPU) pushPixel() {
-	if p.visibleObjs > 0 && p.objBuffer[0].x == 0 && (p.objEnabled || p.cgbMode) {
-		return // pixels aren't pushed when an OBJ at X=0 is pending
-	}
-
-	if p.bgFIFO.Size == 0 {
-		return // can only push when the BG FIFO isn't empty
-	}
-
-	var bgPX, objPX *FIFOEntry
-	var bgPriority, drawOAM bool
-	var bgEnabled = true
-
-	bgPX = p.bgFIFO.Pop()
-	bgPriority = bgPX.Attributes&types.Bit7 > 0
-
-	// are there any pending OBJ pixels?
-	if p.objFIFO.Size > 0 {
-		objPX = p.objFIFO.Pop()
-
-		// pixels with color=0 aren't drawn
-		if objPX.Color > 0 && p.objEnabled {
-			drawOAM = true
-			if objPX.Attributes&types.Bit7 > 0 {
-				bgPriority = true
+			if p.winTriggerWx {
+				return // OBJ fetches are ignored when fetching window
 			}
 		}
-	}
 
-	if p.linePos+16 < 8 {
-		if p.linePos&7 == int(p.scx)&7 {
-			p.linePos = -8
+		// if we have hit an OBJ on the current LX, discard the currently
+		// fetched pixels and start the obj
+		if p.canFetchOBJ() {
+			if !isEmpty {
+				p.cacheFetcher()
+			}
+
+			p.fetcherObj = true
+			p.fetchingObj = p.objBuffer[0]
+			p.objBuffer = p.objBuffer[1:]
+			p.fetcherState = OBJGetTileNoT1
+			p.stepPixelFetcher()
+			return
 		}
-	}
 
-	if p.linePos >= 160 || p.linePos < 0 {
-		p.linePos++
+		return
+	// Window
+	case WinActivating:
+		p.fetcherState = BGWinActivating
+		return
+	case WinGetTileNoT1:
+		address := uint16(0x1800)
+
+		address |= uint16(p.winTileMap) << 10   // Tilemap
+		address |= uint16((p.wly>>3)&0x1f) << 5 // Y pos
+		address |= uint16(p.winFetcherX)        // X pos
+
+		// window has its own internal lx counter
+		p.winFetcherX++
+
+		p.fetcherTileNoAddress = address
+
+		// TODO verify when CGB accesses tile attrs
+		if p.cgbMode {
+			p.fetcherTileAttr = p.b.GetVRAM(p.fetcherTileNoAddress, 1)
+		}
+	case WinGetTileDataLowT1:
+		p.fetcherData[0] = p.b.GetVRAM(p.getWinTileAddress(), p.fetcherTileAttr&types.Bit3>>3)
+	case WinGetTileDataHighT1:
+		p.fetcherData[1] = p.b.GetVRAM(p.getWinTileAddress()|1, p.fetcherTileAttr&types.Bit3>>3)
+		if p.fetcherTileAttr&types.Bit5 > 0 {
+			p.fetcherData[0] = bits.Reverse8(p.fetcherData[0])
+			p.fetcherData[1] = bits.Reverse8(p.fetcherData[1])
+		}
+		// the push stage is the same as the BG so we reset to that state
+		p.fetcherState = BGWinPushPixels
+		return
+	// OBJ
+	case OBJGetTileNoT1:
+		// read tile number from OAM
+		// if a DMA transfer is in progress, a conflict can occur
+		// where the address that the DMA is currently writing to
+		// is accessed instead of the current OAM index. But only
+		// during the write request stage (T0-T1)
+		if p.s.Until(scheduler.DMATransfer) <= 4 && p.s.Until(scheduler.DMATransfer) > 2 {
+			//p.objFetcherTileNo = p.b.Get(p.b.DMADestination() - 1)
+		} else {
+			p.objFetcherTileNo = p.fetchingObj.id
+		}
+	case OBJGetTileNoT2:
+		if p.s.Until(scheduler.DMATransfer) == 3 {
+			//p.objFetcherAttr = p.b.Get(p.b.DMADestination() - 1)
+		} else {
+			// read tile attr from OAM
+			// same as above, DMA conflict can occur during the write
+			// request stage of a DMA transfer
+			p.objFetcherAttr = p.fetchingObj.attr
+
+		}
+	case OBJGetTileDataLowT2:
+		p.objFetcherLow = p.b.GetVRAM(p.getOBJAddress(), p.objFetcherAttr&types.Bit3>>3)
+	case OBJGetTileDataHighT2:
+		p.objFetcherHigh = p.b.GetVRAM(p.getOBJAddress()|1, p.objFetcherAttr&types.Bit3>>3)
+		if p.objFetcherAttr&types.Bit5 > 0 {
+			p.objFetcherLow = bits.Reverse8(p.objFetcherLow)
+			p.objFetcherHigh = bits.Reverse8(p.objFetcherHigh)
+		}
+		j := uint8(0)
+		for i := uint8(0x80); i > 0; i >>= 1 {
+			if p.fetchingObj.x+j < 8 {
+				j++
+				continue // offscreen
+			}
+
+			objFIFO := FIFOEntry{
+				Attributes: p.fetchingObj.attr,
+				Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
+				OBJIndex:   p.fetchingObj.index,
+			}
+			if p.cgbMode {
+				objFIFO.Palette = p.fetchingObj.attr & 7
+			}
+			objFIFO.Color = ((p.objFetcherLow & i) >> (7 - j)) | ((p.objFetcherHigh&i)>>(7-j))<<1
+
+			if int(j) < p.objFIFO.Size {
+				if p.objFIFO.GetIndex(int(j)).Color == 0 ||
+					p.cgbMode &&
+						objFIFO.Color != 0 && p.objFIFO.GetIndex(int(j)).OBJIndex > p.fetchingObj.index || p.objFIFO.GetIndex(int(j)).Color == 0 {
+					p.objFIFO.ReplaceIndex(int(j), objFIFO)
+				}
+			} else {
+				p.objFIFO.Push(objFIFO)
+			}
+
+			j++
+
+		}
+
+		// are there any more pending OBJ at this LX?
+		if p.canFetchOBJ() {
+			p.fetchingObj = p.objBuffer[0]
+			p.objBuffer = p.objBuffer[1:]
+			p.fetcherState = OBJGetTileNoT1
+		} else {
+			p.fetcherObj = false
+
+			// did this OBJ fetch interrupt a BG/Win fetch
+			if p.fetcherDataCached {
+				p.restoreFetcher()
+				p.fetcherState = BGWinPushPixels
+			} else {
+				p.fetcherState = BGWinActivating
+			}
+		}
 		return
 	}
 
-	if !p.bgEnabled {
-		if p.cgbMode {
-			bgPriority = false
-		} else {
-			bgEnabled = false
-		}
-	}
-
-	var pixel uint8
-	if bgEnabled {
-		pixel = bgPX.Color
-	}
-	if pixel > 0 && bgPriority {
-		drawOAM = false
-	}
-	p.PreparedFrame[p.ly][p.lx] = p.ColourPalette[bgPX.Attributes&7][pixel]
-
-	if drawOAM {
-		p.PreparedFrame[p.ly][p.lx] = p.ColourSpritePalette[objPX.Palette][objPX.Color]
-	}
-
-	p.linePos++
-	p.lx++
+	p.fetcherState++
 }
 
-type FetcherMode int
+// getBGTileAddress determines the address to read from VRAM for the tile
+// that is currently loaded in the pixel fetcher.
+func (p *PPU) getBGTileAddress() uint16 {
+	// read tile number from VRAM
+	tileNo := p.b.GetVRAM(p.fetcherTileNoAddress, 0)
+
+	// determine which tile address to read from VRAM
+	address := uint16(0x0000)
+	address |= uint16(tileNo) << 4                      // Tile ID offset
+	address |= uint16(p.addressMode&^(tileNo>>7)) << 12 // Negation of ID.7 when LCDC.4 is set
+
+	yPos := (p.ly + p.scy) & 7
+	if p.fetcherTileAttr&types.Bit6 > 0 {
+		yPos = ^yPos & 7
+	}
+	address |= uint16(yPos) << 1 // Y pos
+
+	return address
+}
+
+// getOBJAddress determines the address to read from VRAM for the OBJ tile
+// that is currently loaded in the pixel fetcher.
+func (p *PPU) getOBJAddress() uint16 {
+	address := uint16(0x0000)
+	address |= uint16(p.objFetcherTileNo) << 4 // Tile ID offset
+
+	// handle obj size
+	tileY := p.fetchingObj.y - 16
+	tileY = (p.ly - tileY) & (p.objSize - 1)
+
+	// handle y pos
+	if p.objFetcherAttr&types.Bit6 > 0 {
+		tileY = ^tileY & (p.objSize - 1)
+	}
+
+	if p.objSize == 16 {
+		tileY &= 0xfe
+	}
+
+	address |= uint16(tileY) << 1
+
+	return address
+}
+
+// getWinTileAddress determines the address to read from VRAM for the tile
+// that is currently loaded in the pixel fetcher.
+func (p *PPU) getWinTileAddress() uint16 {
+	// read tile number from vram
+	tileNo := p.b.GetVRAM(p.fetcherTileNoAddress, 0)
+
+	// determine where the tile is in VRAM
+	address := uint16(0x0000)
+	address |= uint16(tileNo) << 4                      // Tile ID offset
+	address |= uint16(p.addressMode&^(tileNo>>7)) << 12 // Negation of ID.7 when LCDC.4 is set
+
+	yPos := p.wly & 7
+	if p.fetcherTileAttr&types.Bit6 > 0 {
+		yPos = ^yPos & 7
+	}
+
+	address |= uint16(yPos) << 1
+
+	return address
+}
+
+type FetcherState int
 
 const (
-	BG FetcherMode = iota
-	Window
+	BGWinActivating FetcherState = iota
+	BGGetTileNoT1
+	BGGetTileNoT2
+	BGGetTileDataLowT1
+	BGGetTileDataHighT2
+	BGGetTileDataHighT1
+	BGWinGetTileDataHighT2
+	BGWinPushPixels
+	WinActivating
+	WinGetTileNoT1
+	WinGetTileNoT2
+	WinGetTileDataLowT1
+	WinGetTileDataLowT2
+	WinGetTileDataHighT1
+	OBJGetTileNoT1
+	OBJGetTileNoT2
+	OBJGetTileDataLowT1
+	OBJGetTileDataLowT2
+	OBJGetTileDataHighT1
+	OBJGetTileDataHighT2
 )
 
-// getTileID determines the address for which background/window tile to fetch pixels from.
-func (p *PPU) getTileID(mode FetcherMode) uint16 {
-	address := uint16(0x1800)
-
-	switch mode {
-	case BG:
-		address |= uint16(p.bgTileMap) << 10
-		address |= uint16(p.ly+p.scy) >> 3 << 5
-		var x int
-		if p.linePos+16 < 8 {
-			x = int(p.scx) >> 3
-		} else {
-			x = ((int(p.scx) + p.linePos + 8) >> 3) & 0x1f
-		}
-		address |= uint16(x)
-	case Window:
-		address |= uint16(p.winTileMap) << 10
-		address |= (uint16(p.wly) >> 3) << 5
-		address |= uint16(p.winTileX)
-		//address |= uint16(p.fetcherX)
-	}
-
-	return address
-}
-
-// getTileRow fetches one slice of the bitplane currently being read.
-func (p *PPU) getTileRow(mode FetcherMode, id uint8) uint16 {
-	address := uint16(0x0000)
-	address |= uint16(id) << 4                      // Tile ID Offset
-	address |= uint16(p.addressMode&^(id>>7)) << 12 // Negation of id.7 when LCDC.4 is set
-	attr := p.fetcherTileAttr                       // Objects & CGB Only
-	yPos := uint16(0)
-
-	switch mode {
-	case BG:
-		yPos = uint16(p.ly+p.scy) & 7
-	case Window:
-		yPos = uint16(p.wly & 7)
-	}
-
-	if attr&types.Bit6 > 0 { // Y-Flip (CGB Only)
-		yPos = ^yPos & 7
-	}
-	address |= yPos << 1 // Y-Pos Offset
-
-	return address
-}
-
-func (p *PPU) getOBJRow(id uint8) uint16 {
-	address := uint16(0x0000)
-	address |= uint16(id) << 4 // Tile ID Offset
-	attr := p.fetchingObj.attr // Objects & CGB Only
-	yPos := (uint16(p.ly) - uint16(p.fetchingObj.y)) & 7
-
-	if attr&types.Bit6 > 0 { // Y-Flip (Objects & CGB Only)
-		yPos = ^yPos & 7
-	}
-	address |= yPos << 1 // Y-Pos Offset
-
-	return address
-}
-
+// statUpdate handles updating the STAT interrupt. As the conditions for
+// raising a STAT interrupt are checked every dot, we need to call this
+// whenever one of the dependent conditions changes otherwise it would
+// be too expensive for the scheduler.
+//
+// The OAM STAT interrupt is an exception to this rule, it is only raised
+// when transitioning modes, thus writing to STAT's OAM interrupt flag
+// whilst already in OAM mode does not raise a request.
 func (p *PPU) statUpdate() {
 	if !p.enabled {
+		// STAT & LYC call this but the PPU may be disabled when doing so
+		// in which case the STAT line isn't processed
 		return
 	}
+	lycEq := (p.ly == p.lyCompare) && p.LYC_EQ_LY_INT
+	lycEqInt := lycEq && p.status&types.Bit6 > 0
 
-	// get previous interrupt state
-	prevInterruptLine := p.statINT
+	hblankInt := p.status&types.Bit3 > 0 && p.mode == ModeHBlank
 
-	// handle LY=LYC
-	if p.lyForComparison != 0xffff || p.b.Model() <= types.CGBABC && !p.s.DoubleSpeed() {
-		if uint8(p.lyForComparison) == p.lyCompare {
-			p.lycINT = true
-			p.status |= types.Bit2
-		} else {
-			if p.lyForComparison != 0xffff {
-				p.lycINT = false
-			}
-			p.status &^= types.Bit2
-		}
-	}
+	// vblank int is raised with both VBlank and OAM flag
+	vblankInt := (p.status&types.Bit4 > 0 || p.status&types.Bit5 > 0) && p.mode == ModeVBlank
 
-	// handle stat int
-	p.statINT = (p.modeToInt == ModeHBlank && p.status&types.Bit3 != 0) ||
-		(p.modeToInt == ModeVBlank && p.status&types.Bit4 != 0) ||
-		(p.modeToInt == ModeOAM && p.status&types.Bit5 != 0) ||
-		(p.lycINT && p.status&types.Bit6 != 0)
+	p.updateINT(lycEqInt || hblankInt || vblankInt)
 
-	// trigger interrupt if needed
-	if p.statINT && !prevInterruptLine {
-		if p.modeToInt == ModeHBlank {
-			p.b.Debugf("STAT INT %08b %d %d\n", p.status, p.modeToInt, p.s.Cycle())
-		}
-		p.b.RaiseInterrupt(io.LCDINT)
-	}
-}
+	//p.b.Debugf("LYC: %t LYC_INT: %t HBlank: %t VBlank: %t\n", lycEq, lycEqInt, hblankInt, vblankInt)
 
-// handleWY checks to see if the window has been enabled
-func (p *PPU) handleWY() {
-	if !p.enabled {
-		return
-	}
-
-	comparison := p.ly
-	if (!p.cgbMode || p.s.DoubleSpeed()) && p.lyForComparison != 0xffff {
-		comparison = uint8(p.lyForComparison)
-	}
-
-	if p.winEnabled && p.wy == comparison {
-		p.winTriggerWy = true
-	}
-}
-
-func (p *PPU) fetcherY() uint8 {
-	if p.winTriggerWx {
-		return uint8(p.wly)
+	// update LYC_EQ_LY flag in STAT register
+	if lycEq {
+		p.status |= types.Bit2
 	} else {
-		return p.ly + p.scy
+		p.status &^= types.Bit2
+	}
+	p.b.Debugf("updated stat: %08b\n", p.status|p.mode)
+}
+
+// updateINT is used for raising the STAT interrupt on a rising edge.
+func (p *PPU) updateINT(interrupt bool) {
+	//p.b.Debugf("Updating STAT %t\n", interrupt)
+	if !p.STAT_INT && interrupt {
+		p.b.RaiseInterrupt(io.LCDINT)
+		//p.b.Debugf("Raising INT %08b IE: %08b IF: %08b %d\n", p.status, p.b.Get(types.IE), p.b.Get(types.IF), p.s.Cycle()-p.lineDot)
+	}
+
+	p.STAT_INT = interrupt
+}
+
+// updateOAMStat handles raising the STAT int for OAM mode.
+func (p *PPU) updateOAMStat() {
+	p.updateINT((p.status&0x20 > 0) || (p.status&0x40 > 0 && p.ly == p.lyCompare && p.LYC_EQ_LY_INT))
+}
+
+// cacheFetcher caches the currently loaded low & high bytes
+// in the pixel slice fetcher. Used for when an OBJ interrupts
+// a BG/Win fetch.
+func (p *PPU) cacheFetcher() {
+	p.fetcherDataCached = true
+	p.fetcherDataCache = p.fetcherData
+}
+
+// restoreFetcher restores the data loaded in cache.
+func (p *PPU) restoreFetcher() {
+	p.fetcherData = p.fetcherDataCache
+	p.fetcherDataCached = false
+}
+
+// canFetchOBJ determines whether an OBJ should be fetched.
+// There are only two conditions that must be met in order to
+// initiate an OBJ fetch.
+//   - Pending OBJ at the current LX
+//   - OBJ enabled in LCDC
+func (p *PPU) canFetchOBJ() bool {
+	return len(p.objBuffer) > 0 && p.objBuffer[0].x == p.lx && p.objEnabled
+}
+
+// canPopBG determines whether a pixel can be popped from the
+// BG FIFO. There are three conditions that must be met in order
+// to be able to pop a pixel.
+//   - BG FIFO isn't empty
+//   - Fetcher isn't fetching an OBJ
+//   - There are no more pending OBJs for this LX or OBJ are disabled
+func (p *PPU) canPopBG() bool {
+	return p.bgFIFO.Size > 0 &&
+		!p.fetcherObj &&
+		!(p.objEnabled && len(p.objBuffer) > 0 && p.objBuffer[0].x == p.lx)
+}
+
+// checkWindowTrigger checks to see if the window should be triggered
+// for the current LX position.
+func (p *PPU) checkWindowTrigger() {
+	if p.winTriggerWy && !p.winTriggerWx && p.winEnabled && p.lx == p.wx {
+		// activate window
+		p.winTriggerWx = true
+
+		// increase internal window line counter
+		p.wly++
+
+		// reset window tile counter
+		p.winFetcherX = 0
+
+		p.bgFIFO.Reset()
+
+		// next tick is win prefetcher activating
+		p.fetcherState = WinActivating
 	}
 }
 
-func (p *PPU) renderBlank() {
-	for y := uint8(0); y < ScreenHeight; y++ {
-		for x := uint8(0); x < ScreenWidth; x++ {
-			p.PreparedFrame[y][x] = p.ColourPalette[0][0] // TODO handle GBC
-		}
-	}
-	p.cleared = true
+// resetFetcher resets the pixel slice fetcher and the two pixel
+// FIFOs so that they can be used for the next line.
+func (p *PPU) resetFetcher() {
+	p.bgFIFO.Reset()
+	p.objFIFO.Reset()
+
+	p.bgFetcherX = 0
+	p.winFetcherX = 0
+	p.winTriggerWx = false
+	p.fetcherDataCached = false
+	p.fetcherState = BGWinActivating
+	p.lx = 0
 }
