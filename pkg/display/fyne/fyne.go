@@ -331,7 +331,7 @@ func (f *fyneDriver) createMainMenu() {
 	videoLayers.ChildMenu = fyne.NewMenu("",
 		NewCustomizedMenuItem("Background", func() { f.gb.PPU.Debug.BackgroundDisabled = !f.gb.PPU.Debug.BackgroundDisabled }, Checked(true, videoMenu.Refresh)),
 		NewCustomizedMenuItem("Window", func() { f.gb.PPU.Debug.WindowDisabled = !f.gb.PPU.Debug.WindowDisabled }, Checked(true, videoMenu.Refresh)),
-		NewCustomizedMenuItem("Sprites", func() { f.gb.PPU.Debug.SpritesDisabled = !f.gb.PPU.Debug.SpritesDisabled }, Checked(true, videoMenu.Refresh)),
+		NewCustomizedMenuItem("Sprites", func() { f.gb.PPU.Debug.OBJDisabled = !f.gb.PPU.Debug.OBJDisabled }, Checked(true, videoMenu.Refresh)),
 	)
 
 	// create debug menu

@@ -36,7 +36,7 @@ func (f *FIFO) CreateRenderer() fyne.WidgetRenderer {
 func (f *FIFO) Refresh() {
 	for y := 0; y < ppu.ScreenHeight; y++ {
 		for x := 0; x < ppu.ScreenWidth; x++ {
-			copy(f.img.Pix[y*ppu.ScreenWidth+x:], f.p.DebugView[y][x][:])
+			//copy(f.img.Pix[y*ppu.ScreenWidth+x:], f.p.DebugView[y][x][:])
 			f.img.Pix[y*ppu.ScreenWidth+x+3] = 0xff
 		}
 	}

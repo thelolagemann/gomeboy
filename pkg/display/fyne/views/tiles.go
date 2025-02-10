@@ -292,7 +292,7 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 		if s[0:2] == "BG" {
 			t.selectedPalette = &t.PPU.ColourPalette[paletteNumber]
 		} else {
-			t.selectedPalette = &t.PPU.ColourSpritePalette[paletteNumber]
+			t.selectedPalette = &t.PPU.ColourOBJPalette[paletteNumber]
 		}
 		selectTile(selectedTileBank, selectedTileIndex)
 		t.Refresh()

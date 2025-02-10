@@ -95,13 +95,13 @@ func (o *OAM) Refresh() {
 		}
 		o.spriteTiles[i] = data
 
-		o.spriteTiles[i].Draw(o.spriteImgs[i].Image.(*image.RGBA), 0, 0, o.PPU.ColourSpritePalette[0])
+		o.spriteTiles[i].Draw(o.spriteImgs[i].Image.(*image.RGBA), 0, 0, o.PPU.ColourOBJPalette[0])
 		if o.scaleFactorActive != o.scaleFactor {
 			img.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
 		}
 		img.Refresh()
 	}
-	o.spriteTiles[o.selectedSprite].Draw(o.selectedSpriteImage, 0, 0, o.PPU.ColourSpritePalette[0])
+	o.spriteTiles[o.selectedSprite].Draw(o.selectedSpriteImage, 0, 0, o.PPU.ColourOBJPalette[0])
 	o.selectedSpriteRaster.Refresh()
 	address := 0xfe00 + uint16(o.selectedSprite<<2)
 	o.selectedSpriteGrid.SetText(fmt.Sprintf("Y: %d\nX: %d\nID: %02x\nAttributes: %08b\n", o.b.Get(address), o.b.Get(address+1), o.b.Get(address+2), o.b.Get(address+3)))
