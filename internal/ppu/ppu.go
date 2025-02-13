@@ -436,7 +436,7 @@ const (
 )
 
 // glitchedLineCycles defines the duration (in dots) for each state in the glitched line
-// sequence. The values correspond to specific hardware timings:
+// sequence.
 //
 //   - StartGlitchedLine:				76 dots (completes at 77)
 //   - GlitchedLineOAMWBlock:	 		 2 dots (completes at 79)
@@ -544,7 +544,6 @@ const (
 )
 
 // stateCycles defines the duration (in dots) for each visible line state phase.
-// Timings correspond to dot-accurate hardware behaviour:
 //   - StartOAMScan:          		76 dots (completes at 76)
 //   - ReleaseOAMBus:          		 4 dots (completes at 80)
 //   - StartPixelTransfer:     		 5 dots (completes at 85)
@@ -816,8 +815,8 @@ const (
 	// LY=LYC interrupt if enabled.
 	VBlankUpdateLYC
 
-	// VBlankHandleInt manages VBlank interrupt at LY=144 and handles LY
-	// increment for standard lines.
+	// VBlankHandleInt manages VBlank interrupt at LY=144 as well as handling
+	// LY increments and the beginning of line 153.
 	VBlankHandleInt
 
 	// StartVBlankLastLine prepares for line 153 handling with special LY
@@ -843,7 +842,6 @@ const (
 )
 
 // offscreenLineCycles defines timing for VBlank period states.
-// Durations correspond to critical hardware behavior:
 //   - StartVBlank:         2 dots (completes at 2)
 //   - VBlankUpdateLY:      2 dots (completes at 4)
 //   - VBlankUpdateLYC:     1 dot  (completes at 5)
@@ -868,7 +866,9 @@ var offscreenLineCycles = []uint64{
 	Line153LYC0:         444,
 }
 
-// handleOffscreenLine handles lines 144 - 153
+// handleOffscreenLine manages the ModeVBlank period (LY = 144 - 153) maintaining
+// the 456 dots/line cadence. This also includes handling the erratic behaviour that
+// occurs on line 153 in regard to the LY/LYC register and STAT comparison checks.
 //
 //   - [mooneye/acceptance/ppu/intr_1_2_timing-GS]
 //   - [mooneye/acceptance/ppu/vblank_stat_intr-GS]
