@@ -35,7 +35,7 @@ type Bus struct {
 
 	data [0x10000]byte   // 64 KiB memory
 	wRAM [7][0x1000]byte // 7 banks of 4 KiB each (bank 0 is fixed)
-	vRAM [2][0x2000]byte // 2 banks of 8 KiB each
+	VRAM [2][0x2000]byte // 2 banks of 8 KiB each
 
 	writeHandlers [0x100]func(byte) byte
 	lazyReaders   [0x100]func() byte
@@ -210,8 +210,8 @@ func (b *Bus) Map(m types.Model) {
 		b.vRAMBankMask = 1
 		b.ReserveAddress(types.VBK, func(v byte) byte {
 			if b.IsGBCCart() || b.IsBooting() { // CGB boot ROM makes use of both banks
-				copy(b.vRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
-				copy(b.data[0x8000:0xA000], b.vRAM[v&0x1][:])
+				copy(b.VRAM[b.data[types.VBK]&0x1][:], b.data[0x8000:0xA000])
+				copy(b.data[0x8000:0xA000], b.VRAM[v&0x1][:])
 				return v | 0xfe
 			}
 			return 0xff
@@ -399,7 +399,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 			if (b.regionLocks<<8)&(1<<(addr>>12)) > 0 {
 				return
 			}
-			b.vRAM[b.data[types.VBK]&b.vRAMBankMask][addr&0x1fff] = value
+			b.VRAM[b.data[types.VBK]&b.vRAMBankMask][addr&0x1fff] = value
 		// 0xC000-0xFDFF WRAM & mirror
 		case addr <= 0xFDFF:
 			b.data[addr&0xDFFF] = value
@@ -418,7 +418,7 @@ func (b *Bus) Write(addr uint16, value byte) {
 }
 
 func (b *Bus) GetVRAM(address uint16, bank uint8) uint8 {
-	return b.vRAM[bank&b.vRAMBankMask][address]
+	return b.VRAM[bank&b.vRAMBankMask][address]
 }
 
 func (b *Bus) LazyRead(addr uint16) byte {
@@ -576,11 +576,11 @@ func (b *Bus) endDMATransfer() {
 	b.dmaConflict = 0xff
 }
 
-// colorDMA performs a GDMA/HDMA transfer of length, transferring from source to vRAM.
+// colorDMA performs a GDMA/HDMA transfer of length, transferring from source to VRAM.
 func (b *Bus) colorDMA(length uint8) {
 	for i := uint8(0); i < length; i++ {
 		for j := uint8(0); j < 16; j++ {
-			// tick the scheduler
+			// tick the scheduler (OR WAIT SHOULD WE SCHEDULE THE EVENTS?)
 			if b.s.DoubleSpeed() {
 				b.s.Tick(4)
 			} else {
@@ -598,6 +598,11 @@ func (b *Bus) colorDMA(length uint8) {
 }
 
 func (b *Bus) HandleHDMA() {
+	// HDMA should be halted also when the CPU is halted
+	if b.s.Halted {
+		return
+	}
+
 	// is there any remaining data to transfer and
 	// has the DMA not been paused?
 	if b.dmaRemaining > 0 && !b.dmaPaused {

@@ -22,6 +22,8 @@ type Scheduler struct {
 	nextEventAt uint64                            // the cycle at which the next event should be executed
 
 	doubleSpeed bool // whether the scheduler is running at double speed
+
+	Halted bool
 }
 
 func (s *Scheduler) OverrideDiv(div uint16) {

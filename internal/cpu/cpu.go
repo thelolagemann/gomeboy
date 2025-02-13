@@ -132,6 +132,7 @@ handleInterrupt:
 // event triggering an interrupt occurs. This is used when
 // the CPU is in HALT mode and the IME is enabled.
 func (c *CPU) skipHALT() {
+	c.s.Halted = true
 	c.Halted = true
 	for !c.hasFrame && !c.b.HasInterrupts() {
 		c.s.Skip()
@@ -144,6 +145,7 @@ func (c *CPU) skipHALT() {
 	if c.hasFrame && !c.b.HasInterrupts() {
 		c.skippingHalt = true
 	} else {
+		c.s.Halted = false
 		c.Halted = false
 	}
 }

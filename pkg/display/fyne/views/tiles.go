@@ -32,8 +32,12 @@ type Tiles struct {
 	lastPalette ppu.Palette
 }
 
-func NewTiles(p *ppu.PPU) *Tiles {
-	t := &Tiles{PPU: p}
+func NewTiles(p *ppu.PPU, b *io.Bus) *Tiles {
+	t := &Tiles{PPU: p, bus: b}
+	for i := 0; i < 384; i++ {
+		t.tiles[0][i] = make(Tile, 16)
+		t.tiles[1][i] = make(Tile, 16)
+	}
 	t.ExtendBaseWidget(t)
 	return t
 }
@@ -311,26 +315,30 @@ func (t *Tiles) Refresh() {
 	var paletteChanged = *t.selectedPalette != t.lastPalette
 	for i, img := range t.tileImages {
 		if i < 384 {
-			if paletteChanged || !bytes.Equal(getTileData(t.bus, i, 0)[:], t.tiles[0][i][:]) {
+			newTileData := getTileData(t.bus, 0, i, 0)
+			if paletteChanged || !bytes.Equal(newTileData, t.tiles[0][i][:]) {
+				t.tiles[0][i] = newTileData
 				t.tiles[0][i].Draw(img, 0, 0, *t.selectedPalette)
+				t.tileWidgets[i].Refresh()
 			}
-		} else {
-			if paletteChanged || !bytes.Equal(getTileData(t.bus, i, 1), t.tiles[1][i-384][:]) {
+		} else if t.bus.IsGBC() && t.bus.IsGBCCart() {
+			newTileData := getTileData(t.bus, 1, i-384, 0)
+			if paletteChanged || !bytes.Equal(newTileData, t.tiles[1][i-384][:]) {
+				t.tiles[1][i-384] = newTileData
 				t.tiles[1][i-384].Draw(img, 0, 0, *t.selectedPalette)
+				t.tileWidgets[i].Refresh()
 			}
 		}
-		t.tileWidgets[i].Refresh()
 	}
 
 	t.lastPalette = *t.selectedPalette
 }
 
-func getTileData(b *io.Bus, bank int, index int) Tile {
+func getTileData(b *io.Bus, bank int, index int, mode uint8) Tile {
 	var t, tT Tile = make(Tile, 16), make(Tile, 16)
 	address := uint16(0x0000) | uint16(index)<<4
-	for i := uint16(0); i < 16; i++ {
-		t[i] = b.GetVRAM(address+i, uint8(bank))
-	}
+	address |= uint16(mode&^uint8(index>>7)) << 12
+	copy(t[:], b.VRAM[bank][address:address+16])
 
 	for i := 0; i < 16; i++ {
 		if i%2 == 0 {

@@ -75,12 +75,12 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 	o.selectedSpriteRaster.SetMinSize(fyne.NewSize(256, 256))
 	settings.Add(
 		container.NewVBox(
-			widget.NewLabelWithStyle("Selected Sprite", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Selected Object", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			container.NewHBox(o.selectedSpriteRaster),
 		),
 	)
 	o.selectedSpriteGrid = widget.NewTextGrid()
-	settings.Add(container.NewVBox(widget.NewLabelWithStyle("Selected Sprite Info", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), o.selectedSpriteGrid))
+	settings.Add(container.NewVBox(widget.NewLabelWithStyle("Selected Object Info", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), o.selectedSpriteGrid))
 
 	return widget.NewSimpleRenderer(main)
 }
@@ -89,7 +89,7 @@ func (o *OAM) Refresh() {
 	for i, img := range o.spriteImgs {
 		// get the tile id from bus
 		tileID := o.b.Get(0xfe00 + uint16(i)<<2 + 2)
-		data := getTileData(o.b, 0, int(tileID))
+		data := getTileData(o.b, 0, int(tileID), 0)
 		if bytes.Equal(data, o.spriteTiles[i]) {
 			continue
 		}
