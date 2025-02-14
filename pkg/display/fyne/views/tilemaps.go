@@ -5,21 +5,26 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
+	"github.com/thelolagemann/gomeboy/internal/types"
 	"image"
 )
 
 type Tilemaps struct {
 	widget.BaseWidget
 	PPU *ppu.PPU
+	b   *io.Bus
+
+	tilemapData [2][32][32]Tile
 
 	tilemap0ImageCanvas, tilemap1ImageCanvas *canvas.Raster
 	tilemap0Image, tilemap1Image             *image.RGBA
 	segmentTiles                             int
 }
 
-func NewTilemaps(p *ppu.PPU) *Tilemaps {
-	t := &Tilemaps{PPU: p}
+func NewTilemaps(p *ppu.PPU, b *io.Bus) *Tilemaps {
+	t := &Tilemaps{PPU: p, b: b}
 	t.ExtendBaseWidget(t)
 	return t
 }
@@ -160,7 +165,26 @@ func (t *Tilemaps) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (t *Tilemaps) Refresh() {
-	t.PPU.DumpTileMaps(t.tilemap0Image, t.tilemap1Image, t.segmentTiles)
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			// get tile id from tilemap data
+			tileID := int(t.b.VRAM[0][0x1800+(y*32)+x])
+
+			// 32 x 32 tile maps
+			newTileData := getTileData(t.b, 0, int(tileID), 1&^(t.b.Get(types.LCDC)&types.Bit4>>4)&1)
+
+			t.tilemapData[0][y][x] = newTileData
+			t.tilemapData[0][y][x].Draw(t.tilemap0Image, x*8, y*8, t.PPU.ColourPalette[0])
+
+			tileID = int(t.b.VRAM[0][0x1C00+(y*32)+x])
+			newTileData = getTileData(t.b, 0, int(tileID), 1&^(t.b.Get(types.LCDC)&types.Bit4>>4)&1)
+
+			t.tilemapData[1][y][x] = newTileData
+			t.tilemapData[1][y][x].Draw(t.tilemap1Image, x*8, y*8, t.PPU.ColourPalette[0])
+		}
+	}
+
+	// t.PPU.DumpTileMaps(t.tilemap0Image, t.tilemap1Image, t.segmentTiles)
 	t.tilemap0ImageCanvas.Refresh()
 	t.tilemap1ImageCanvas.Refresh()
 }

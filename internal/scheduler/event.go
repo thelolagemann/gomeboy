@@ -1,4 +1,4 @@
-//go:generate stringer -type=EventType -output=event_string.go
+//go:generate go run golang.org/x/tools/cmd/stringer -type=EventType -output=event_string.go
 package scheduler
 
 type EventType uint8
@@ -14,24 +14,9 @@ const (
 	EIPending
 	EIHaltDelay
 
-	PPUStartHBlank
-	PPUHBlank
-	PPUHBlankInterrupt
-	PPUStartOAMSearch
-	PPUEndFrame
-	PPUContinueOAMSearch
-	PPUPrepareEndOAMSearch
-	PPUEndOAMSearch
-	PPULine153Continue
-	PPULine153End
-	PPUStartVBlank
-	PPUContinueVBlank
-	PPUVRAMTransfer
-	PPUStartGlitchedLine0
-	PPUMiddleGlitchedLine0
-	PPUContinueGlitchedLine0
-	PPUEndGlitchedLine0
-	PPUOAMInterrupt
+	PPUHandleVisualLine
+	PPUHandleGlitchedLine0
+	PPUHandleOffscreenLine
 
 	DMAStartTransfer
 	DMAEndTransfer

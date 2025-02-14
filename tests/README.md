@@ -1,7 +1,7 @@
 # Automated test results
-![progress](https://progress-bar.xyz/90/?scale=100&title=passing%20227,%20failing%2025&width=500)
+![progress](https://progress-bar.xyz/90/?scale=100&title=passing%20228,%20failing%2024&width=500)
 
-#### This document was automatically generated from commit 165a1b31
+#### This document was automatically generated from commit e00d8765
 <hr/>
 GomeBoy is automatically tested against the following test suites:
 
@@ -37,7 +37,7 @@ is compared against a reference image from a known good emulator.
 | bully | 50% | 1 | 1 | 2 |
 | blarrg | 100% | 43 | 0 | 43 |
 | little-things-gb | 100% | 4 | 0 | 4 |
-| mooneye | 98% | 112 | 2 | 114 |
+| mooneye | 99% | 113 | 1 | 114 |
 | samesuite | 75% | 59 | 19 | 78 |
 | scribbltests | 100% | 5 | 0 | 5 |
 | strikethrough | 0% | 0 | 2 | 2 |
@@ -192,7 +192,7 @@ Explore the individual tests for each suite using the table of contents below.
 | tellinglys (DMG) | ✅ |
 | tellinglys (CGB) | ✅ |
 # mooneye
-![progress](https://progress-bar.xyz/98/?scale=100&title=passing%20112,%20failing%202&width=500)
+![progress](https://progress-bar.xyz/99/?scale=100&title=passing%20113,%20failing%201&width=500)
 ## acceptance
 | Test | Passing |
 | ---- | ------- |
@@ -264,7 +264,7 @@ Explore the individual tests for each suite using the table of contents below.
 | intr_1_2_timing-GS | ✅ |
 | intr_2_0_timing | ✅ |
 | intr_2_mode0_timing | ✅ |
-| intr_2_mode0_timing_sprites | ❌ |
+| intr_2_mode0_timing_sprites | ✅ |
 | intr_2_mode3_timing | ✅ |
 | intr_2_oam_ok_timing | ✅ |
 | lcdon_timing-GS | ✅ |

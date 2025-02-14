@@ -16,38 +16,23 @@ func _() {
 	_ = x[APUSample-5]
 	_ = x[EIPending-6]
 	_ = x[EIHaltDelay-7]
-	_ = x[PPUStartHBlank-8]
-	_ = x[PPUHBlank-9]
-	_ = x[PPUHBlankInterrupt-10]
-	_ = x[PPUStartOAMSearch-11]
-	_ = x[PPUEndFrame-12]
-	_ = x[PPUContinueOAMSearch-13]
-	_ = x[PPUPrepareEndOAMSearch-14]
-	_ = x[PPUEndOAMSearch-15]
-	_ = x[PPULine153Continue-16]
-	_ = x[PPULine153End-17]
-	_ = x[PPUStartVBlank-18]
-	_ = x[PPUContinueVBlank-19]
-	_ = x[PPUVRAMTransfer-20]
-	_ = x[PPUStartGlitchedLine0-21]
-	_ = x[PPUMiddleGlitchedLine0-22]
-	_ = x[PPUContinueGlitchedLine0-23]
-	_ = x[PPUEndGlitchedLine0-24]
-	_ = x[PPUOAMInterrupt-25]
-	_ = x[DMAStartTransfer-26]
-	_ = x[DMAEndTransfer-27]
-	_ = x[DMATransfer-28]
-	_ = x[TimerTIMAReload-29]
-	_ = x[TimerTIMAFinishReload-30]
-	_ = x[TimerTIMAIncrement-31]
-	_ = x[SerialBitTransfer-32]
-	_ = x[SerialBitInterrupt-33]
-	_ = x[CameraShoot-34]
+	_ = x[PPUHandleVisualLine-8]
+	_ = x[PPUHandleGlitchedLine0-9]
+	_ = x[PPUHandleOffscreenLine-10]
+	_ = x[DMAStartTransfer-11]
+	_ = x[DMAEndTransfer-12]
+	_ = x[DMATransfer-13]
+	_ = x[TimerTIMAReload-14]
+	_ = x[TimerTIMAFinishReload-15]
+	_ = x[TimerTIMAIncrement-16]
+	_ = x[SerialBitTransfer-17]
+	_ = x[SerialBitInterrupt-18]
+	_ = x[CameraShoot-19]
 }
 
-const _EventType_name = "APUFrameSequencerAPUFrameSequencer2APUChannel1APUChannel2APUChannel3APUSampleEIPendingEIHaltDelayPPUStartHBlankPPUHBlankPPUHBlankInterruptPPUStartOAMSearchPPUEndFramePPUContinueOAMSearchPPUPrepareEndOAMSearchPPUEndOAMSearchPPULine153ContinuePPULine153EndPPUStartVBlankPPUContinueVBlankPPUVRAMTransferPPUStartGlitchedLine0PPUMiddleGlitchedLine0PPUContinueGlitchedLine0PPUEndGlitchedLine0PPUOAMInterruptDMAStartTransferDMAEndTransferDMATransferTimerTIMAReloadTimerTIMAFinishReloadTimerTIMAIncrementSerialBitTransferSerialBitInterruptCameraShoot"
+const _EventType_name = "APUFrameSequencerAPUFrameSequencer2APUChannel1APUChannel2APUChannel3APUSampleEIPendingEIHaltDelayPPUHandleVisualLinePPUHandleGlitchedLine0PPUHandleOffscreenLineDMAStartTransferDMAEndTransferDMATransferTimerTIMAReloadTimerTIMAFinishReloadTimerTIMAIncrementSerialBitTransferSerialBitInterruptCameraShoot"
 
-var _EventType_index = [...]uint16{0, 17, 35, 46, 57, 68, 77, 86, 97, 111, 120, 138, 155, 166, 186, 208, 223, 241, 254, 268, 285, 300, 321, 343, 367, 386, 401, 417, 431, 442, 457, 478, 496, 513, 531, 542}
+var _EventType_index = [...]uint16{0, 17, 35, 46, 57, 68, 77, 86, 97, 116, 138, 160, 176, 190, 201, 216, 237, 255, 272, 290, 301}
 
 func (i EventType) String() string {
 	if i >= EventType(len(_EventType_index)-1) {

@@ -10,15 +10,15 @@ import (
 type CPU struct {
 	PC, SP uint16 // (P)rogram (C)ounter, (S)tack (P)ointer
 	Registers
-
 	Debug, DebugBreakpoint            bool
 	DoubleSpeed, Halted, skippingHalt bool
 	hasInt, hasFrame                  bool
 
 	registerPointers [8]*uint8
 
-	b *io.Bus
-	s *scheduler.Scheduler
+	b       *io.Bus
+	s       *scheduler.Scheduler
+	haltBug bool
 }
 
 func NewCPU(b *io.Bus, sched *scheduler.Scheduler) *CPU {
@@ -41,8 +41,10 @@ func NewCPU(b *io.Bus, sched *scheduler.Scheduler) *CPU {
 		c.hasInt = true
 	}
 
-	sched.RegisterEvent(scheduler.EIPending, c.b.EnableInterrupts)
-	sched.RegisterEvent(scheduler.EIHaltDelay, func() { c.b.EnableInterrupts(); c.PC-- })
+	sched.RegisterEvent(scheduler.EIPending, func() {
+		c.b.EnableInterrupts()
+	})
+	sched.RegisterEvent(scheduler.EIHaltDelay, func() { c.b.EnableInterrupts(); c.haltBug = true })
 
 	return c
 }
@@ -74,11 +76,28 @@ func (c *CPU) Frame() {
 	// 2. Debug && DebugBreakpoint = true
 	// 3. hasFrame = true
 step:
-	for ; !c.hasInt; InstructionSet[c.readOperand()].fn(c) {
+	for !c.hasInt {
+		// interrupt check happens during the second T-Cycle of the
+		// prefetch during the last instruction (except during halt)
+		// this is a cheeky hack as we don't emulate the prefetch
+		c.s.Tick(2)
+		if c.b.CanInterrupt() {
+			goto handleInterrupt
+		}
+		c.s.Tick(2)
+		if c.haltBug {
+			c.PC--
+			c.haltBug = false
+		}
+		op := c.b.Read(c.PC)
+		c.PC++
+		InstructionSet[op].fn(c)
 	}
 
+handleInterrupt:
 	// check to see if hasInt was triggered by an interrupt
 	if c.b.CanInterrupt() {
+		c.b.Debugf(" %04x Servicing Interrupt %08b\n", c.PC, c.b.Get(types.IE))
 		c.s.Tick(4)
 		c.s.Tick(4)
 
@@ -113,6 +132,7 @@ step:
 // event triggering an interrupt occurs. This is used when
 // the CPU is in HALT mode and the IME is enabled.
 func (c *CPU) skipHALT() {
+	c.s.Halted = true
 	c.Halted = true
 	for !c.hasFrame && !c.b.HasInterrupts() {
 		c.s.Skip()
@@ -125,6 +145,7 @@ func (c *CPU) skipHALT() {
 	if c.hasFrame && !c.b.HasInterrupts() {
 		c.skippingHalt = true
 	} else {
+		c.s.Halted = false
 		c.Halted = false
 	}
 }

@@ -1,10 +1,13 @@
 package views
 
 import (
+	"bytes"
+	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"image"
 	"strconv"
@@ -12,8 +15,11 @@ import (
 
 type OAM struct {
 	widget.BaseWidget
-	PPU                            *ppu.PPU
-	spriteImgs                     []*canvas.Image
+	PPU         *ppu.PPU
+	b           *io.Bus
+	spriteImgs  []*canvas.Image
+	spriteTiles []Tile
+
 	selectedSprite                 int
 	selectedSpriteImage            *image.RGBA
 	selectedSpriteRaster           *canvas.Raster
@@ -21,8 +27,8 @@ type OAM struct {
 	scaleFactor, scaleFactorActive int
 }
 
-func NewOAM(p *ppu.PPU) *OAM {
-	o := &OAM{PPU: p}
+func NewOAM(p *ppu.PPU, b *io.Bus) *OAM {
+	o := &OAM{PPU: p, spriteTiles: make([]Tile, 40), b: b}
 	o.ExtendBaseWidget(o)
 	return o
 }
@@ -47,8 +53,7 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 		t := canvas.NewImageFromImage(img)
 		t.ScaleMode = canvas.ImageScalePixels
 		t.SetMinSize(fyne.NewSize(32, 32))
-
-		o.PPU.DrawSprite(img, o.PPU.Sprites[i])
+		o.spriteTiles[i] = Tile{}
 
 		tapImage := newWrappedTappable(func() { o.selectedSprite = i; o.Refresh() }, t)
 		o.spriteImgs = append(o.spriteImgs, t)
@@ -70,26 +75,47 @@ func (o *OAM) CreateRenderer() fyne.WidgetRenderer {
 	o.selectedSpriteRaster.SetMinSize(fyne.NewSize(256, 256))
 	settings.Add(
 		container.NewVBox(
-			widget.NewLabelWithStyle("Selected Sprite", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Selected Object", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			container.NewHBox(o.selectedSpriteRaster),
 		),
 	)
 	o.selectedSpriteGrid = widget.NewTextGrid()
-	settings.Add(container.NewVBox(widget.NewLabelWithStyle("Selected Sprite Info", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), o.selectedSpriteGrid))
+	settings.Add(container.NewVBox(widget.NewLabelWithStyle("Selected Object Info", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), o.selectedSpriteGrid))
 
 	return widget.NewSimpleRenderer(main)
 }
 
 func (o *OAM) Refresh() {
 	for i, img := range o.spriteImgs {
-		o.PPU.DrawSprite(img.Image.(*image.RGBA), o.PPU.Sprites[i])
+		// get the tile id from bus
+		tileID := o.b.Get(0xfe00 + uint16(i)<<2 + 2)
+		data := getTileData(o.b, 0, int(tileID), 0)
+		if bytes.Equal(data, o.spriteTiles[i]) {
+			continue
+		}
+		o.spriteTiles[i] = data
+
+		o.spriteTiles[i].Draw(o.spriteImgs[i].Image.(*image.RGBA), 0, 0, o.PPU.ColourOBJPalette[0])
 		if o.scaleFactorActive != o.scaleFactor {
 			img.SetMinSize(fyne.NewSize(float32(8*o.scaleFactor), float32(8*o.scaleFactor)))
 		}
 		img.Refresh()
 	}
-	o.PPU.DrawSprite(o.selectedSpriteImage, o.PPU.Sprites[o.selectedSprite])
+	o.spriteTiles[o.selectedSprite].Draw(o.selectedSpriteImage, 0, 0, o.PPU.ColourOBJPalette[0])
 	o.selectedSpriteRaster.Refresh()
-	o.selectedSpriteGrid.SetText(o.PPU.Sprites[o.selectedSprite].String())
+	address := 0xfe00 + uint16(o.selectedSprite<<2)
+	o.selectedSpriteGrid.SetText(fmt.Sprintf("Y: %d\nX: %d\nID: %02x\nAttributes: %08b\n", o.b.Get(address), o.b.Get(address+1), o.b.Get(address+2), o.b.Get(address+3)))
 	o.scaleFactorActive = o.scaleFactor
+}
+
+// A Tile has a size of 8x8 pixels, using a 2bpp format.
+type Tile []uint8
+
+// Draw draws the tile to the given image at the given position.
+func (t Tile) Draw(img *image.RGBA, i int, i2 int, pal ppu.Palette) {
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			copy(img.Pix[((i2+y)*img.Stride)+((i+x)*4):], append(pal[(t[y]>>(7-x)&1)|(t[y+8]>>(7-x)&1)<<1][:], 0xff))
+		}
+	}
 }

@@ -69,10 +69,10 @@ func (p *Palette) CreateRenderer() fyne.WidgetRenderer {
 			r2 := canvas.NewRectangle(color.White)
 			r2.SetMinSize(fyne.NewSize(24, 24))
 			objRect := newWrappedTappable(func() {
-				selectedPalette.FillColor = toRGB(p.PPU.ColourSpritePalette[i][j])
+				selectedPalette.FillColor = toRGB(p.PPU.ColourOBJPalette[i][j])
 				selectedPalette.Refresh()
 				// set the color of the selected paletteView info
-				selectedPaletteColour = toRGB(p.PPU.ColourSpritePalette[i][j])
+				selectedPaletteColour = toRGB(p.PPU.ColourOBJPalette[i][j])
 				selectedPaletteInfo.SetText(fmt.Sprintf("OBJ\t%d:%d\n#%02x%02x%02x", i, j, selectedPaletteColour.R, selectedPaletteColour.G, selectedPaletteColour.B))
 			}, r2)
 
@@ -101,7 +101,7 @@ func (p *Palette) Refresh() {
 		for j := uint8(0); j < 4; j++ {
 			// get the color from the paletteView
 			bgColor := toRGB(p.PPU.ColourPalette[i][j])
-			objColor := toRGB(p.PPU.ColourSpritePalette[i][j])
+			objColor := toRGB(p.PPU.ColourOBJPalette[i][j])
 
 			// get the rectangle
 			bgRect := p.bgRects[i][j]

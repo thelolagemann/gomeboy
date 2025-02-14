@@ -2,7 +2,6 @@ package types
 
 import (
 	"crypto/md5"
-	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"strings"
 )
 
@@ -66,23 +65,6 @@ func Which(rom []byte) Model {
 	return Unset
 }
 
-// ModelEvents - model specific starting events (this isn't accurate at all:)
-var ModelEvents = map[Model][]Event{
-	DMG0: {
-		{scheduler.APUChannel1, 48},
-		{scheduler.APUSample, 93},
-		{scheduler.PPUStartVBlank, 252},
-		{scheduler.APUFrameSequencer, 984},
-		{scheduler.APUChannel3, 984},
-	},
-	SGB: {
-		{scheduler.APUSample, 64},
-		{scheduler.PPUHBlank, 196},
-		{scheduler.APUFrameSequencer, 952},
-		{scheduler.APUChannel3, 952},
-	},
-}
-
 // ModelIO - model specific starting IO registers.
 var ModelIO = map[Model]map[HardwareAddress]interface{}{
 	Unset:  {DIV: uint16(0xABC9)},
@@ -133,9 +115,4 @@ var CommonIO = map[HardwareAddress]interface{}{
 	LCDC: uint8(0x91),
 	IF:   uint8(0xE1),
 	STAT: uint8(0x87),
-}
-
-type Event struct {
-	Type  scheduler.EventType
-	Cycle uint64
 }

@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/ppu"
 	"github.com/thelolagemann/gomeboy/pkg/display/fyne/themes"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
@@ -21,17 +22,22 @@ type Tiles struct {
 	sync.Mutex
 	widget.BaseWidget
 	*ppu.PPU
+	bus *io.Bus
 
 	tileImages      [768]*image.RGBA
 	tileWidgets     [768]*tappable
 	selectedPalette *ppu.Palette
 
-	tiles       [2][384]ppu.Tile
+	tiles       [2][384]Tile
 	lastPalette ppu.Palette
 }
 
-func NewTiles(p *ppu.PPU) *Tiles {
-	t := &Tiles{PPU: p}
+func NewTiles(p *ppu.PPU, b *io.Bus) *Tiles {
+	t := &Tiles{PPU: p, bus: b}
+	for i := 0; i < 384; i++ {
+		t.tiles[0][i] = make(Tile, 16)
+		t.tiles[1][i] = make(Tile, 16)
+	}
 	t.ExtendBaseWidget(t)
 	return t
 }
@@ -82,7 +88,7 @@ func (t *Tiles) CreateRenderer() fyne.WidgetRenderer {
 			for i := 0; i < 8; i++ {
 				row := container.NewHBox()
 				for j := 0; j < 8; j++ {
-					high, low := t.PPU.TileData[selectedTileBank][selectedTileIndex][j], t.PPU.TileData[selectedTileBank][selectedTileIndex][j+8]
+					high, low := t.tiles[selectedTileBank][selectedTileIndex][j], t.tiles[selectedTileBank][selectedTileIndex][j+8]
 					text := canvas.NewText(strconv.Itoa(int((high>>(7-i))&1)|int((low>>(7-i))&1)<<1), themeColor(theme.ColorNameForeground))
 					text.TextSize = 15
 					text.TextStyle.Monospace = true
@@ -102,7 +108,7 @@ func (t *Tiles) CreateRenderer() fyne.WidgetRenderer {
 					r := canvas.NewRectangle(color.White)
 					r.SetMinSize(fyne.NewSize(24, 24))
 					row.Add(newWrappedTappable(nil, r))
-					high, low := t.PPU.TileData[selectedTileBank][selectedTileIndex][j], t.PPU.TileData[selectedTileBank][selectedTileIndex][j+8]
+					high, low := t.tiles[selectedTileBank][selectedTileIndex][j], t.tiles[selectedTileBank][selectedTileIndex][j+8]
 					rgb := t.selectedPalette[int((high>>(7-i))&1)|int((low>>(7-i))&1)<<1]
 
 					r.FillColor = color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 255}
@@ -141,12 +147,12 @@ Address	0x8000`)
 	// add copy/export buttons to the selected actions container
 	selectedActions.Add(widget.NewButton("Copy", func() {
 		img := image.NewRGBA(image.Rect(0, 0, 8, 8))
-		t.PPU.TileData[selectedTileBank][selectedTileIndex].Draw(img, 0, 0, *t.selectedPalette)
+		t.tiles[selectedTileBank][selectedTileIndex].Draw(img, 0, 0, *t.selectedPalette)
 		showError(utils.CopyImage(img), "Tile Viewer")
 	}))
 	selectedActions.Add(widget.NewButton("Save", func() {
 		img := image.NewRGBA(image.Rect(0, 0, 8, 8))
-		t.PPU.TileData[selectedTileBank][selectedTileIndex].Draw(img, 0, 0, *t.selectedPalette)
+		t.tiles[selectedTileBank][selectedTileIndex].Draw(img, 0, 0, *t.selectedPalette)
 		saveImage(img, fmt.Sprintf("%d-%04x.png", selectedTileBank, selectedTileIndex), "Tile Viewer")
 	}))
 
@@ -259,8 +265,8 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 			bank0Raster.SetMinSize(fyne.NewSize(float32(8*scaleFactor), float32(8*scaleFactor)))
 			bank1Raster.SetMinSize(fyne.NewSize(float32(8*scaleFactor), float32(8*scaleFactor)))
 
-			t.PPU.TileData[0][i].Draw(bank0Img, 0, 0, *t.selectedPalette)
-			t.PPU.TileData[1][i].Draw(bank1Img, 0, 0, *t.selectedPalette)
+			t.tiles[0][i].Draw(bank0Img, 0, 0, *t.selectedPalette)
+			t.tiles[1][i].Draw(bank1Img, 0, 0, *t.selectedPalette)
 
 			// add the tile to the grid
 			bank0Tap := newWrappedTappable(func() { selectTile(0, i) }, bank0Raster)
@@ -290,7 +296,7 @@ Address	` + strconv.Itoa(bank) + `:0x` + fmt.Sprintf("%X", 0x8000+(tile*16)))
 		if s[0:2] == "BG" {
 			t.selectedPalette = &t.PPU.ColourPalette[paletteNumber]
 		} else {
-			t.selectedPalette = &t.PPU.ColourSpritePalette[paletteNumber]
+			t.selectedPalette = &t.PPU.ColourOBJPalette[paletteNumber]
 		}
 		selectTile(selectedTileBank, selectedTileIndex)
 		t.Refresh()
@@ -309,19 +315,40 @@ func (t *Tiles) Refresh() {
 	var paletteChanged = *t.selectedPalette != t.lastPalette
 	for i, img := range t.tileImages {
 		if i < 384 {
-			if paletteChanged || !bytes.Equal(t.PPU.TileData[0][i][:], t.tiles[0][i][:]) {
-				t.PPU.TileData[0][i].Draw(img, 0, 0, *t.selectedPalette)
+			newTileData := getTileData(t.bus, 0, i, 0)
+			if paletteChanged || !bytes.Equal(newTileData, t.tiles[0][i][:]) {
+				t.tiles[0][i] = newTileData
+				t.tiles[0][i].Draw(img, 0, 0, *t.selectedPalette)
+				t.tileWidgets[i].Refresh()
 			}
-		} else {
-			if paletteChanged || !bytes.Equal(t.PPU.TileData[1][i-384][:], t.tiles[1][i-384][:]) {
-				t.PPU.TileData[1][i-384].Draw(img, 0, 0, *t.selectedPalette)
+		} else if t.bus.IsGBC() && t.bus.IsGBCCart() {
+			newTileData := getTileData(t.bus, 1, i-384, 0)
+			if paletteChanged || !bytes.Equal(newTileData, t.tiles[1][i-384][:]) {
+				t.tiles[1][i-384] = newTileData
+				t.tiles[1][i-384].Draw(img, 0, 0, *t.selectedPalette)
+				t.tileWidgets[i].Refresh()
 			}
 		}
-		t.tileWidgets[i].Refresh()
 	}
-	copy(t.tiles[0][:], t.PPU.TileData[0][:])
-	copy(t.tiles[1][:], t.PPU.TileData[1][:])
+
 	t.lastPalette = *t.selectedPalette
+}
+
+func getTileData(b *io.Bus, bank int, index int, mode uint8) Tile {
+	var t, tT Tile = make(Tile, 16), make(Tile, 16)
+	address := uint16(0x0000) | uint16(index)<<4
+	address |= uint16(mode&^uint8(index>>7)) << 12
+	copy(t[:], b.VRAM[bank][address:address+16])
+
+	for i := 0; i < 16; i++ {
+		if i%2 == 0 {
+			tT[i/2] = t[i]
+		} else {
+			tT[8+i/2] = t[i]
+		}
+	}
+
+	return tT
 }
 
 func (t *Tiles) getTiles(w, h int, bank0, bank1 bool) *image.RGBA {
@@ -330,12 +357,12 @@ func (t *Tiles) getTiles(w, h int, bank0, bank1 bool) *image.RGBA {
 	for i := 0; i < 384; i++ {
 		switch {
 		case bank0 && bank1:
-			t.PPU.TileData[0][i].Draw(img, (i%16)*8, i/16*8, *t.selectedPalette)
-			t.PPU.TileData[1][i].Draw(img, 128+(i%16)*8, i/16*8, *t.selectedPalette)
+			t.tiles[0][i].Draw(img, (i%16)*8, i/16*8, *t.selectedPalette)
+			t.tiles[1][i].Draw(img, 128+(i%16)*8, i/16*8, *t.selectedPalette)
 		case bank0:
-			t.PPU.TileData[0][i].Draw(img, (i%16)*8, i/16*8, *t.selectedPalette)
+			t.tiles[0][i].Draw(img, (i%16)*8, i/16*8, *t.selectedPalette)
 		case bank1:
-			t.PPU.TileData[1][i].Draw(img, (i%16)*8, i/16*8, *t.selectedPalette)
+			t.tiles[1][i].Draw(img, (i%16)*8, i/16*8, *t.selectedPalette)
 		}
 	}
 
