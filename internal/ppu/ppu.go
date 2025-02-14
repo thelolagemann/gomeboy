@@ -190,6 +190,14 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 	}
 
 	b.ReserveAddress(types.LCDC, func(v byte) byte {
+		p.winTileMap = v >> 6 & 1
+		p.winEnabled = v&types.Bit5 > 0
+		p.addressMode = 1 &^ (v >> 4 & 1)
+		p.bgTileMap = v >> 3 & 1
+		p.objSize = 8 + (v & types.Bit2 << 1)
+		p.objEnabled = v&types.Bit1 > 0
+		p.bgEnabled = v&types.Bit0 > 0
+
 		// is the screen turning off?
 		if p.enabled && v&types.Bit7 == 0 {
 			p.enabled = false
@@ -219,6 +227,18 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 
 			p.frameDot = p.s.Cycle()
 
+			// handle DMG0 specific timing differences from boot ROM (not accurate)
+			// (TODO make generic interface available for all models)
+			if p.b.IsBooting() {
+				if p.b.Model() == types.DMG0 {
+					p.mode, p.modeToInt = ModeVBlank, ModeVBlank
+					p.ly = 144
+					p.offscreenLineState = VBlankHandleInt
+					p.s.ScheduleEvent(scheduler.PPUHandleOffscreenLine, 372)
+					return v
+				}
+			}
+
 			p.glitchedLineState = StartGlitchedLine
 			p.statUpdate()
 
@@ -228,14 +248,6 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 				p.s.ScheduleEvent(scheduler.PPUHandleGlitchedLine0, 1)
 			}
 		}
-
-		p.winTileMap = v >> 6 & 1
-		p.winEnabled = v&types.Bit5 > 0
-		p.addressMode = 1 &^ (v >> 4 & 1)
-		p.bgTileMap = v >> 3 & 1
-		p.objSize = 8 + (v & types.Bit2 << 1)
-		p.objEnabled = v&types.Bit1 > 0
-		p.bgEnabled = v&types.Bit0 > 0
 
 		return v
 	})
@@ -266,6 +278,10 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.LY, func(v byte) byte {
+		if b.IsBooting() {
+			p.ly = v
+			return v
+		}
 		// any write to LY resets to 0
 		p.ly = 0
 		return 0

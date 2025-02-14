@@ -2,7 +2,6 @@ package types
 
 import (
 	"crypto/md5"
-	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"strings"
 )
 
@@ -116,9 +115,4 @@ var CommonIO = map[HardwareAddress]interface{}{
 	LCDC: uint8(0x91),
 	IF:   uint8(0xE1),
 	STAT: uint8(0x87),
-}
-
-type Event struct {
-	Type  scheduler.EventType
-	Cycle uint64
 }

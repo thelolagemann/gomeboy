@@ -32,12 +32,33 @@ type ColourisationPalette struct {
 }
 
 // ColourisationPalettes is the list of colour palettes embedded in the CGB boot ROM that
-// are applied during the boot process. In order to determine which palette to apply, the
-// boot ROM first checks that the Licensee field of the cartridge header is "Nintendo", if
-// not a default palette will be applied.
+// are applied during the boot ROM process.
+//
+// In order to determine which palette to apply, the boot ROM first checks that the Licensee
+// field of the cartridge header is "Nintendo", if not a default palette will be applied.
 // If the Licensee field is "Nintendo" then the boot ROM will add the 16 bytes of the Title
 // field together, and look for a match in its internal database. If no match can be found,
-// then it moves a step further and uses the 4th byte to further refine the search.
+// then it moves a step further and uses the 4th byte of the title to further refine the search.
+//
+// The implementation of this searching behaviour is as follows:
+//
+//	step1 := uint8(0) // uint8 to handle overflowing (the first search only uses 8 bits)
+//	for i := 0; i < 16; i++ {
+//		step1 += Cartridge.Title[i]
+//	}
+//	if pal, ok := ColourisationPalettes[uint16(step1)]; ok {
+//		// a match was found on the first step
+//	} else {
+//		// we need to refine the search
+//		step2 := uint16(Cartridge.Title[3] << 8) | uint16(step1) // OR the 4th byte of the title into the upper 8 bits of search
+//
+//		//
+//		if pal, ok := ColourisationPalettes[step2]; ok {
+//			// a match was found on the second step
+//		} else {
+//			// no match was found, the default palette will be applied
+//		}
+//	}
 var ColourisationPalettes = map[uint16]ColourisationPalette{
 	0x0000: {
 		BG:   [4][3]uint8{{0xFF, 0xFF, 0xFF}, {0x7B, 0xFF, 0x31}, {0x00, 0x63, 0xC6}, {0x00, 0x00, 0x00}},
