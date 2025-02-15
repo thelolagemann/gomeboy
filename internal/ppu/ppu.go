@@ -727,6 +727,8 @@ func (p *PPU) handleVisualLine() {
 
 		// have we reached the end of the line yet?
 		if p.lx != 168 {
+			p.checkWindowTriggerWX()
+
 			p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
 			return // remain in the PixelTransferLX state until we reach LX==168
 		}
