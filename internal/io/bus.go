@@ -269,11 +269,15 @@ func (b *Bus) Boot() {
 		unpackedLogoData = append(unpackedLogoData, currentData[:]...)
 	}
 	copy(b.data[0x8010:], append(unpackedLogoData, 0x3C, 0, 0x42, 0, 0xB9, 0, 0xA5, 0, 0xB9, 0, 0xA5, 0, 0x42, 0, 0x3C))
+	copy(b.VRAM[0][0x0010:], append(unpackedLogoData, 0x3C, 0, 0x42, 0, 0xB9, 0, 0xA5, 0, 0xB9, 0, 0xA5, 0, 0x42, 0, 0x3C))
 	for i := uint8(0); i < 12; i++ {
 		b.data[0x9904+uint16(i)] = i + 1
+		b.VRAM[0][0x0904+uint16(i)] = i + 1
 		b.data[0x9924+uint16(i)] = i + 13
+		b.VRAM[0][0x0924+uint16(i)] = i + 13
 	}
 	b.data[0x9910] = 0x19
+	b.VRAM[0][0x0910] = 0x19
 
 	// wRAM is randomized on boot (not accurate to hardware, but random enough to pass most anti-emu checks)
 	for i := 0; i < 0x2000; i++ {
