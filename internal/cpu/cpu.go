@@ -82,6 +82,7 @@ step:
 		// this is a cheeky hack as we don't emulate the prefetch
 		c.s.Tick(2)
 		if c.b.CanInterrupt() {
+			c.s.Tick(2)
 			goto handleInterrupt
 		}
 		c.s.Tick(2)
