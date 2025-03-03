@@ -88,8 +88,8 @@ func (t *Tiles) CreateRenderer() fyne.WidgetRenderer {
 			for i := 0; i < 8; i++ {
 				row := container.NewHBox()
 				for j := 0; j < 8; j++ {
-					high, low := t.tiles[selectedTileBank][selectedTileIndex][j], t.tiles[selectedTileBank][selectedTileIndex][j+8]
-					text := canvas.NewText(strconv.Itoa(int((high>>(7-i))&1)|int((low>>(7-i))&1)<<1), themeColor(theme.ColorNameForeground))
+					high, low := t.tiles[selectedTileBank][selectedTileIndex][i], t.tiles[selectedTileBank][selectedTileIndex][i+8]
+					text := canvas.NewText(strconv.Itoa(int((high>>(7-j))&1)|int((low>>(7-j))&1)<<1), themeColor(theme.ColorNameForeground))
 					text.TextSize = 15
 					text.TextStyle.Monospace = true
 					text.Alignment = fyne.TextAlignCenter
@@ -108,8 +108,8 @@ func (t *Tiles) CreateRenderer() fyne.WidgetRenderer {
 					r := canvas.NewRectangle(color.White)
 					r.SetMinSize(fyne.NewSize(24, 24))
 					row.Add(newWrappedTappable(nil, r))
-					high, low := t.tiles[selectedTileBank][selectedTileIndex][j], t.tiles[selectedTileBank][selectedTileIndex][j+8]
-					rgb := t.selectedPalette[int((high>>(7-i))&1)|int((low>>(7-i))&1)<<1]
+					high, low := t.tiles[selectedTileBank][selectedTileIndex][i], t.tiles[selectedTileBank][selectedTileIndex][i+8]
+					rgb := t.selectedPalette[int((high>>(7-j))&1)|int((low>>(7-j))&1)<<1]
 
 					r.FillColor = color.RGBA{R: rgb[0], G: rgb[1], B: rgb[2], A: 255}
 				}
