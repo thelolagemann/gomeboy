@@ -32,18 +32,17 @@ func _() {
 	_ = x[ReleaseOAMBus-1]
 	_ = x[StartPixelTransfer-2]
 	_ = x[PixelTransferDummy-3]
-	_ = x[PixelTransferSCXDiscard-4]
-	_ = x[PixelTransferLX-5]
-	_ = x[EnterHBlank-6]
-	_ = x[HBlankUpdateLY-7]
-	_ = x[HBlankUpdateOAM-8]
-	_ = x[HBlankUpdateVisibleLY-9]
-	_ = x[HBlankEnd-10]
+	_ = x[PixelTransferLX-4]
+	_ = x[EnterHBlank-5]
+	_ = x[HBlankUpdateLY-6]
+	_ = x[HBlankUpdateOAM-7]
+	_ = x[HBlankUpdateVisibleLY-8]
+	_ = x[HBlankEnd-9]
 }
 
-const _LineState_name = "StartOAMScanReleaseOAMBusStartPixelTransferPixelTransferDummyPixelTransferSCXDiscardPixelTransferLXEnterHBlankHBlankUpdateLYHBlankUpdateOAMHBlankUpdateVisibleLYHBlankEnd"
+const _LineState_name = "StartOAMScanReleaseOAMBusStartPixelTransferPixelTransferDummyPixelTransferLXEnterHBlankHBlankUpdateLYHBlankUpdateOAMHBlankUpdateVisibleLYHBlankEnd"
 
-var _LineState_index = [...]uint8{0, 12, 25, 43, 61, 84, 99, 110, 124, 139, 160, 169}
+var _LineState_index = [...]uint8{0, 12, 25, 43, 61, 76, 87, 101, 116, 137, 146}
 
 func (i LineState) String() string {
 	if i < 0 || i >= LineState(len(_LineState_index)-1) {

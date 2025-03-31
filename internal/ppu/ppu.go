@@ -282,9 +282,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 			p.ly = v
 			return v
 		}
-		// any write to LY resets to 0
-		p.ly = 0
-		return 0
+		return p.b.Get(types.LY)
 	})
 	b.ReserveAddress(types.LYC, func(v byte) byte {
 		p.lyCompare = v
@@ -299,7 +297,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.OBP0, func(v byte) byte {
-		if v == b.Get(types.OBP0) || p.b.IsGBCCart() && p.b.IsGBC() {
+		if p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
 		p.ColourOBJPalette[0] = p.OBJ0ColourisationPalette.remap(v)
@@ -307,7 +305,7 @@ func New(b *io.Bus, s *scheduler.Scheduler) *PPU {
 		return v
 	})
 	b.ReserveAddress(types.OBP1, func(v byte) byte {
-		if v == b.Get(types.OBP1) || p.b.IsGBCCart() && p.b.IsGBC() {
+		if p.b.IsGBCCart() && p.b.IsGBC() {
 			return v
 		}
 		p.ColourOBJPalette[1] = p.OBJ1ColourisationPalette.remap(v)
@@ -532,10 +530,6 @@ const (
 	// for either direct pixel output or SCX alignment.
 	PixelTransferDummy
 
-	// PixelTransferSCXDiscard processes horizontal scroll (SCX) offset adjustment by
-	// discarding initial pixels until proper alignment is reached.
-	PixelTransferSCXDiscard
-
 	// PixelTransferLX handles actual visible pixel generation (LX = 8-167). Blends
 	// BG and OBJ pixels as necessary.
 	PixelTransferLX
@@ -564,7 +558,6 @@ const (
 //   - ReleaseOAMBus:          		 4 dots (completes at 80)
 //   - StartPixelTransfer:     		 5 dots (completes at 85)
 //   - PixelTransferDummy:     		 0 dots (completes at 85)
-//   - PixelTransferSCXDiscard:	 1 - 7 dots (variable)
 //   - PixelTransferLX:      172 - 289 dots (variable)
 //   - EnterHBlank:  452 - (80 + mode3Dots) (variable)
 //   - HBlankUpdateLY:				 1 dots (completes at 452)
@@ -572,12 +565,11 @@ const (
 //   - HBlankUpdateVisibleLY:		 1 dots (completes at 455)
 //   - HBlankEnd:					 0 dots (-> enterOAMScan)
 var stateCycles = []uint64{
-	StartOAMScan:            76,
-	ReleaseOAMBus:           4,
-	StartPixelTransfer:      5,
-	PixelTransferDummy:      1,
-	PixelTransferSCXDiscard: 1,
-	PixelTransferLX:         1,
+	StartOAMScan:       76,
+	ReleaseOAMBus:      4,
+	StartPixelTransfer: 5,
+	PixelTransferDummy: 1,
+	PixelTransferLX:    1,
 	// EnterHBlank is variable and is manually scheduled
 	HBlankUpdateLY:        1,
 	HBlankUpdateOAM:       2,
@@ -654,40 +646,10 @@ func (p *PPU) handleVisualLine() {
 		// the first tile fetch is used to handle SCX % 8 > 0, however this data
 		// will just be discarded, so we "fill" the BG FIFO with junk data
 		p.scxToDiscard = p.scx & 7
+		p.scxDiscarded = 0
 
-		if p.scxToDiscard > 0 {
-			p.scxDiscarded = 0
-			// window can be activated before BG when SCX % 8 > 0
-			p.checkWindowTriggerWX()
-
-			p.lineState = PixelTransferSCXDiscard
-		} else {
-			p.lineState = PixelTransferLX
-		}
-
-		if !p.s.DoubleSpeed() {
-			p.handleVisualLine()
-		} else {
-			p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
-		}
-		return
-	case PixelTransferSCXDiscard:
-		p.stepPixelFetcher()
-		if p.bgFIFO.Size > 0 {
-			p.bgFIFO.Pop()
-			p.scxDiscarded++
-			if p.scxDiscarded == p.scxToDiscard {
-				// can we finally start transferring pixels yet?
-				p.lineState = PixelTransferLX
-
-				p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
-				return
-			}
-
-		}
-
-		p.s.ScheduleEvent(scheduler.PPUHandleVisualLine, 1)
-		return // remain in this state until we have discarded all SCX % 8 pixels
+		p.lineState = PixelTransferLX
+		fallthrough
 	case PixelTransferLX:
 		p.checkWindowTriggerWX()
 
@@ -992,7 +954,7 @@ func (p *PPU) pushPixel() {
 	if p.objFIFO.Size > 0 {
 		objPX = p.objFIFO.Pop()
 
-		if objPX.Color > 0 && (p.objEnabled || p.cgbMode) {
+		if objPX.Color > 0 && p.objEnabled {
 			color = p.ColourOBJPalette[objPX.Palette][objPX.Color]
 
 			drawObject = true
@@ -1000,6 +962,11 @@ func (p *PPU) pushPixel() {
 				bgPriority = true
 			}
 		}
+	}
+	// are we adjusting for horizontal scroll?
+	if p.scxToDiscard > p.scxDiscarded {
+		p.scxDiscarded++
+		return
 	}
 
 	// are we currently offscreen? (pixels are simply discarded)
@@ -1252,11 +1219,6 @@ func (p *PPU) stepObjectFetcher() {
 		}
 		j := uint8(0)
 		for i := uint8(0x80); i > 0; i >>= 1 {
-			if p.fetchingObj.x+j < 8 {
-				j++
-				continue // offscreen
-			}
-
 			objFIFO := FIFOEntry{
 				Attributes: p.fetchingObj.attr,
 				Palette:    p.fetchingObj.attr & types.Bit4 >> 4,
@@ -1410,7 +1372,7 @@ func (p *PPU) statUpdate() {
 //   - Pending OBJ at the current LX
 //   - OBJ enabled in LCDC
 func (p *PPU) canFetchOBJ() bool {
-	return len(p.objBuffer) > 0 && p.objBuffer[0].x == p.lx && p.objEnabled
+	return len(p.objBuffer) > 0 && p.objBuffer[0].x == p.lx && (p.objEnabled || p.cgbMode)
 }
 
 // canPopBG determines whether a pixel can be popped from the
@@ -1422,7 +1384,7 @@ func (p *PPU) canFetchOBJ() bool {
 func (p *PPU) canPopBG() bool {
 	return p.bgFIFO.Size > 0 &&
 		!p.fetcherObj &&
-		!(p.objEnabled && len(p.objBuffer) > 0 && p.objBuffer[0].x == p.lx)
+		!((p.objEnabled || p.cgbMode) && len(p.objBuffer) > 0 && p.objBuffer[0].x == p.lx)
 }
 
 // checkWindowTriggerWY checks to see if the window should be triggered
