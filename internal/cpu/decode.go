@@ -57,12 +57,7 @@ func (c *CPU) decode(instr byte) {
 			if c.b.HasInterrupts() {
 				c.doHALTBug()
 			} else {
-				switch c.b.Model() {
-				case types.MGB: // TODO handle MGB oam HALT weirdness
-					c.DebugBreakpoint = true
-				default:
-					c.skipHALT()
-				}
+				c.skipHALT()
 			}
 		}
 	case 0xC3: // JP a16

@@ -2,12 +2,13 @@
 package ppu
 
 import (
+	"math/bits"
+	"sort"
+
 	"github.com/thelolagemann/gomeboy/internal/io"
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
-	"math/bits"
-	"sort"
 )
 
 const (
@@ -603,7 +604,9 @@ func (p *PPU) handleVisualLine() {
 		p.b.WUnlock(io.VRAM)
 	case StartPixelTransfer: // on dot 80
 		// fill obj
-		if p.objEnabled && !p.Debug.OBJDisabled {
+		if p.b.DMAHaltedDuringTransfer() && !p.cgbMode {
+			p.objBuffer = nil
+		} else if p.objEnabled && !p.Debug.OBJDisabled {
 			// fill obj buffer
 			p.objBuffer = []Object{}
 			for i := uint16(0); i < 0xa0 && len(p.objBuffer) < 10; i += 4 {

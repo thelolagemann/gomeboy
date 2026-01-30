@@ -274,12 +274,7 @@ var InstructionSet = [256]Instruction{
 			if c.b.HasInterrupts() {
 				c.doHALTBug()
 			} else {
-				switch c.b.Model() {
-				case types.MGB: // TODO handle MGB oam HALT weirdness
-					c.DebugBreakpoint = true
-				default:
-					c.skipHALT()
-				}
+				c.skipHALT()
 			}
 		}
 	}},
