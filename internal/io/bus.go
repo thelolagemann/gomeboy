@@ -1,10 +1,11 @@
 package io
 
 import (
+	"math/rand"
+
 	"github.com/thelolagemann/gomeboy/internal/scheduler"
 	"github.com/thelolagemann/gomeboy/internal/types"
 	"github.com/thelolagemann/gomeboy/pkg/utils"
-	"math/rand"
 )
 
 const (
@@ -56,6 +57,7 @@ type Bus struct {
 	dmaConflict                uint8
 	dmaEnabled                 bool
 	regionLocks, dmaConflicted uint16
+	dmaHaltedDuringTransfer    bool // Track if CPU halted during active DMA (for MGB sprite blocking)
 
 	// HDMA/GDMA related stuff
 	hdmaSource, hdmaDestination uint16
@@ -550,7 +552,14 @@ func (b *Bus) IsGBC() bool           { return b.isGBC }              // returns 
 func (b *Bus) IsGBCCart() bool       { return b.c.IsCGBCartridge() } // returns if cart supports CGB
 func (b *Bus) Model() types.Model    { return b.model }              // returns the current model
 
-func (b *Bus) isDMATransferring() bool { return b.dmaActive || b.dmaRestarting } // DMA transfer in progress
+func (b *Bus) isDMATransferring() bool       { return b.dmaActive || b.dmaRestarting }
+func (b *Bus) DMAHaltedDuringTransfer() bool { return b.dmaHaltedDuringTransfer }
+
+func (b *Bus) NotifyHALT() {
+	if b.dmaEnabled && b.dmaDestination < 0xFEA0 {
+		b.dmaHaltedDuringTransfer = true
+	}
+}
 
 // startDMATransfer initiates a DMA transfer.
 func (b *Bus) startDMATransfer() {
@@ -562,6 +571,11 @@ func (b *Bus) startDMATransfer() {
 
 // doDMATransfer performs a single DMA operation, copying a byte from the source to OAM.
 func (b *Bus) doDMATransfer() {
+	if b.s.Halted && b.model == types.MGB {
+		b.s.ScheduleEvent(scheduler.DMATransfer, 4)
+		return
+	}
+
 	b.dmaConflict = b.data[b.dmaSource]
 	b.data[b.dmaDestination] = b.dmaConflict
 
@@ -576,6 +590,7 @@ func (b *Bus) doDMATransfer() {
 // endDMATransfer ends a DMA transfer.
 func (b *Bus) endDMATransfer() {
 	b.dmaActive, b.dmaEnabled = false, false
+	b.dmaHaltedDuringTransfer = false
 	b.dmaConflicted = 0
 	b.dmaConflict = 0xff
 }
